@@ -1931,9 +1931,6 @@ impl AppearanceSettingsPageView {
             );
         }
 
-        ctx.windows()
-            .set_all_windows_background_blur_radius(blur_value as u8);
-
         WindowSettings::handle(ctx).update(ctx, |window_settings, ctx| {
             report_if_error!(
                 window_settings
