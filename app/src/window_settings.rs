@@ -5,6 +5,26 @@ use warpui::platform::WindowBackdrop;
 use warpui::{AppContext, SingletonEntity, WindowId};
 
 define_settings_group!(WindowSettings, settings: [
+    hotkey_background_opacity: HotkeyBackgroundOpacity {
+        type: u8,
+        default: 100,
+        supported_platforms: SupportedPlatforms::DESKTOP,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        surface: settings::SettingSurfaces::GUI,
+        private: false,
+        toml_path: "global_hotkey.dedicated_window.background_opacity",
+        description: "The background opacity of the dedicated hotkey window, from 1 to 100 percent.",
+    },
+    hotkey_background_blur_radius: HotkeyBackgroundBlurRadius {
+        type: u8,
+        default: 1,
+        supported_platforms: SupportedPlatforms::MAC,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        surface: settings::SettingSurfaces::GUI,
+        private: false,
+        toml_path: "global_hotkey.dedicated_window.background_blur_radius",
+        description: "The background blur radius of the dedicated hotkey window, from 1 to 64.",
+    },
     background_blur_radius: BackgroundBlurRadius {
         type: u8,
         default: 1,
@@ -186,7 +206,11 @@ impl BackgroundOpacity {
     /// force full opacity.
     pub fn effective_opacity(&self, window_id: WindowId, app: &AppContext) -> u8 {
         if self.is_configurable(window_id, app) {
-            **self
+            if crate::root_view::quake_mode_window_id() == Some(window_id) {
+                *WindowSettings::as_ref(app).hotkey_background_opacity
+            } else {
+                **self
+            }
         } else {
             Self::MAX
         }
@@ -217,5 +241,17 @@ impl BackgroundOpacity {
         } else {
             new_value
         }
+    }
+}
+
+impl HotkeyBackgroundOpacity {
+    fn validate(&self, new_value: u8) -> u8 {
+        new_value.clamp(BackgroundOpacity::MIN, BackgroundOpacity::MAX)
+    }
+}
+
+impl HotkeyBackgroundBlurRadius {
+    fn validate(&self, new_value: u8) -> u8 {
+        new_value.clamp(BackgroundBlurRadius::MIN, BackgroundBlurRadius::MAX)
     }
 }
