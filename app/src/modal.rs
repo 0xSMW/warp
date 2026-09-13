@@ -221,6 +221,13 @@ impl<T: View> Modal<T> {
 
     /// Set the keystroke to display alongside the close button.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     pub fn with_dismiss_keystroke(mut self, keystroke: Keystroke) -> Self {
         self.dismiss_keystroke = Some(keystroke);
         self
