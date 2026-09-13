@@ -1,0 +1,64 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+cd "$REPO_ROOT"
+VERSION="${1:?Usage: bash script/macos/release-local VERSION}"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+EXPECTED_RUST="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)"
+[[ "$(rustc --version)" == "rustc $EXPECTED_RUST "* ]] || { echo "Use the pinned Rust $EXPECTED_RUST toolchain." >&2; exit 1; }
+[[ -z "$(git status --porcelain)" ]] || { echo "Commit the release source first." >&2; exit 1; }
+IDENTITY="Developer ID Application: Resonant Media, Inc. (95FP69XZCG)"
+ASC_PROFILE="${WARP_ASC_PROFILE:-asc}"
+export GIT_RELEASE_TAG="v$VERSION"
+TARGET_DIR="$(cargo metadata --locked --no-deps --format-version 1 | jq -r .target_directory)"
+DIST="$TARGET_DIR/local-release/$VERSION"
+[[ ! -e "$DIST" ]] || { echo "Release output already exists: $DIST" >&2; exit 1; }
+security find-identity -v -p codesigning | grep -F "$IDENTITY" >/dev/null
+asc --profile "$ASC_PROFILE" notarization list --limit 1 --output json >/dev/null
+mkdir -p "$DIST/stage"
+
+notarize() {
+    local artifact="$1"
+    local result="$2"
+    asc --profile "$ASC_PROFILE" notarization submit --file "$artifact" --wait --output json > "$result"
+    jq -e '.data.attributes.status == "Accepted" or .status == "Accepted"' "$result" >/dev/null
+}
+
+cargo build --release --locked --bin warp --features gui,extern_plist,release_bundle
+(cd app && CARGO_BUNDLE_SKIP_BUILD=1 cargo bundle --release --format osx --bin warp --features gui,extern_plist,release_bundle)
+APP="$DIST/stage/Warp.app"
+ditto "$TARGET_DIR/release/bundle/osx/WarpLocal.app" "$APP"
+[[ "$(plutil -extract CFBundleIdentifier raw "$APP/Contents/Info.plist")" == dev.warp.Warp-Local ]]
+export WARP_PLIST_PATH="$APP/Contents/Info.plist"
+export WARP_SCHEME_NAME=warplocal
+./script/update_plist
+plutil -replace CFBundleName -string Warp "$WARP_PLIST_PATH"
+plutil -replace CFBundleDisplayName -string Warp "$WARP_PLIST_PATH"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$WARP_PLIST_PATH"
+plutil -replace CFBundleVersion -string "$VERSION" "$WARP_PLIST_PATH"
+plutil -insert SourceRevision -string "$(git rev-parse HEAD)" "$WARP_PLIST_PATH"
+SETTINGS_SCHEMA_EXECUTABLE="$APP/Contents/MacOS/warp" ./script/prepare_bundled_resources "$APP/Contents/Resources" local
+mkdir -p "$APP/Contents/Resources/bin"
+install -m 755 script/macos/oz-local "$APP/Contents/Resources/bin/oz-local"
+./script/compile_icon local "$APP"
+ditto LICENSE-AGPL "$APP/Contents/Resources/LICENSE-AGPL"
+ditto LICENSE-MIT "$APP/Contents/Resources/LICENSE-MIT"
+
+codesign --force --options runtime --timestamp --sign "$IDENTITY" --entitlements script/Entitlements.plist "$APP"
+codesign --verify --deep --strict --verbose=2 "$APP"
+ditto -c -k --keepParent "$APP" "$DIST/Warp-notarization.zip"
+notarize "$DIST/Warp-notarization.zip" "$DIST/app-notarization.json"
+xcrun stapler staple "$APP"
+xcrun stapler validate "$APP"
+spctl --assess --type execute --verbose=2 "$APP"
+ln -s /Applications "$DIST/stage/Applications"
+DMG="$DIST/Warp-Local-$VERSION-$(uname -m).dmg"
+hdiutil create -volname 'Warp Local' -srcfolder "$DIST/stage" -format UDZO "$DMG"
+codesign --timestamp --sign "$IDENTITY" "$DMG"
+notarize "$DMG" "$DIST/dmg-notarization.json"
+xcrun stapler staple "$DMG"
+xcrun stapler validate "$DMG"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+(cd "$DIST" && shasum -a 256 "$(basename "$DMG")" > SHA256SUMS)
+echo "Verified release: $DMG"
