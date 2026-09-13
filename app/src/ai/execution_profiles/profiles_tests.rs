@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use cloud_objects::ids::ServerIdAndType;
 use settings::Setting as _;
 use warp_core::features::FeatureFlag;
 use warp_graphql::object_permissions::AccessLevel;
@@ -26,7 +27,7 @@ use crate::cloud_object::{
 };
 use crate::network::NetworkStatus;
 use crate::server::cloud_objects::update_manager::{InitialLoadResponse, UpdateManager};
-use crate::server::ids::{ServerId, ServerIdAndType, SyncId};
+use crate::server::ids::{ServerId, SyncId};
 use crate::server::server_api::ServerApiProvider;
 use crate::server::sync_queue::SyncQueue;
 use crate::settings::cloud_preferences::{CloudPreferenceModel, CloudPreferencesSettings};
@@ -1328,7 +1329,7 @@ fn profile_sources_preserve_state_across_migration_and_rollout() {
             app.add_model(|ctx| {
                 AIExecutionProfilesModel::new(
                     &LaunchMode::CommandLine {
-                        command: warp_cli::CliCommand::Whoami,
+                        command: warp_cli::CliCommand::MCP(warp_cli::mcp::MCPCommand::List),
                         global_options: warp_cli::GlobalOptions::default(),
                         debug: false,
                         is_sandboxed: true,
