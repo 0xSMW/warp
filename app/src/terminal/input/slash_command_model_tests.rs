@@ -55,45 +55,38 @@ fn test_parse_slash_command_handles_argument_rules() {
             input.read(&app, |input, _| input.slash_command_data_source.clone());
 
         slash_command_data_source.read(&app, |data_source, _| {
-            let no_argument_command_name = data_source
-                .active_commands()
-                .find_map(|(_, command)| command.argument.is_none().then_some(command.name))
-                .expect("expected at least one slash command without an argument");
-
-            let optional_argument_command_name = data_source
-                .active_commands()
-                .find_map(|(_, command)| {
-                    (command.argument.is_some()
-                        && data_source.parse_slash_command(command.name).is_some())
-                    .then_some(command.name)
-                })
-                .expect("expected at least one slash command that accepts optional arguments");
-
-            let with_extra_text = format!("{no_argument_command_name} trailing");
             assert!(
-                data_source.parse_slash_command(&with_extra_text).is_none(),
-                "commands without arguments should reject non-whitespace suffixes"
+                data_source.parse_slash_command("/rename-tab").is_none(),
+                "required-argument commands should not parse before the argument is started"
             );
 
-            let with_whitespace = format!("{no_argument_command_name}   ");
             let detected_with_whitespace = data_source
-                .parse_slash_command(&with_whitespace)
-                .expect("command with whitespace-only suffix should still be parsed");
-            assert_eq!(
-                detected_with_whitespace.command.name,
-                no_argument_command_name
-            );
+                .parse_slash_command("/open-file   ")
+                .expect("optional-argument command should accept a whitespace-only suffix");
+            assert_eq!(detected_with_whitespace.command.name, commands::EDIT.name);
+            assert_eq!(detected_with_whitespace.argument.as_deref(), Some("  "));
 
             let detected_without_argument = data_source
-                .parse_slash_command(optional_argument_command_name)
+                .parse_slash_command("/open-file")
                 .expect("optional-argument command should parse without an argument");
             assert_eq!(detected_without_argument.argument, None);
 
-            let with_argument = format!("{optional_argument_command_name} prompt");
             let detected_with_argument = data_source
-                .parse_slash_command(&with_argument)
+                .parse_slash_command("/open-file notes.md")
                 .expect("optional-argument command should parse with an argument");
-            assert_eq!(detected_with_argument.argument.as_deref(), Some("prompt"));
+            assert_eq!(detected_with_argument.argument.as_deref(), Some("notes.md"));
+
+            assert!(data_source.parse_slash_command("/plan prompt").is_none());
+            assert!(
+                data_source
+                    .parse_slash_command("/cloud-agent prompt")
+                    .is_none()
+            );
+            assert!(
+                data_source
+                    .parse_slash_command("/continue-locally prompt")
+                    .is_none()
+            );
         });
     });
 }
