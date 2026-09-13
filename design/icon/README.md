@@ -83,6 +83,24 @@ Stored ICNS files remain preserved approved artifacts; they were not regenerated
 organization. Check candidate transparency and footprint against the stored previews on both
 dark and light backgrounds.
 
+## Powered-off state
+
+The [powered-off SVG](powered-off/warp-terminal-off.svg) is derived from the blue master. Its metal
+frame, bezel, canvas size, and canvas-fit transform are unchanged. The screen uses neutral dark glass
+with a restrained reflection; the illuminated glyph and screen-light layer are absent.
+
+Exports: [1024 PNG](powered-off/warp-terminal-off-1024.png),
+[128 PNG](powered-off/warp-terminal-off-128.png), and [ICNS](powered-off/warp-terminal-off.icns).
+The PNGs have transparent backgrounds. The three illuminated variants remain unchanged.
+
+For local builds, `script/compile_icon` packages this as `WarpCRTOff.icns` and points the bundle icon
+at it. `AppIcon.icns` remains available for the existing Default choice. Selecting a CRT sets only
+the running application's Dock image; the closed application's icon uses the powered-off bundle
+artwork. The off state is not an additional picker choice.
+
+All local icon choices update only the running Dock image. Do not set a Finder custom icon on
+the app bundle: the resulting Finder metadata invalidates its Developer ID signature.
+
 ## App integration
 
 | Choice | Rust enum variant | Runtime PNG in `app/DockTilePlugin/Resources/` |
