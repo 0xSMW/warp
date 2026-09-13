@@ -773,6 +773,13 @@ impl TerminalView {
     /// case a prior write to the pty was silently dropped. Returns without
     /// writing if there is no active CLI agent session.
     #[cfg(all(feature = "local_tty", any(test, feature = "integration_tests")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     pub(crate) fn submit_bare_enter_to_cli_agent_pty(&mut self, ctx: &mut ViewContext<Self>) {
         if CLIAgentSessionsModel::as_ref(ctx)
             .session(self.view_id)
