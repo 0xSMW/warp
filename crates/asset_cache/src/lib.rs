@@ -187,7 +187,7 @@ async fn fetch_asset_response(url: Url) -> Result<reqwest::Response> {
                 "External asset URLs are disabled in local-only mode"
             ));
         }
-        return Ok(client.get(url).send().await?);
+        Ok(client.get(url).send().await?)
     }
 
     #[cfg(test)]
