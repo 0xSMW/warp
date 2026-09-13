@@ -968,7 +968,7 @@ fn render_version_line(builder: &TuiUiBuilder, app: &AppContext) -> Box<dyn TuiE
         };
         // Like the bullet rows below: the version reports its natural width and
         // the suffix wraps against the remaining column width.
-        return TuiFlex::row()
+        TuiFlex::row()
             .child(
                 TuiText::new(format!("{version} "))
                     .with_style(muted)
@@ -980,11 +980,13 @@ fn render_version_line(builder: &TuiUiBuilder, app: &AppContext) -> Box<dyn TuiE
                     .with_style(style)
                     .finish(),
             )
-            .finish();
+            .finish()
     }
     #[cfg(not(test))]
-    let _ = TuiAutoupdater::as_ref(app).status();
-    TuiText::new(version).with_style(muted).truncate().finish()
+    {
+        let _ = TuiAutoupdater::as_ref(app).status();
+        TuiText::new(version).with_style(muted).truncate().finish()
+    }
 }
 
 /// Appends the project context body rows to `column`: the discovered rule files and
