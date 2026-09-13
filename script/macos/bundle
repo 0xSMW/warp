@@ -871,7 +871,7 @@ fi
 
 if [[ $CODESIGN = true ]]; then
   # TODO - does this need to change per user?  Seems like it's tied to the WARP_NOTARIZATION_PASSWORD password.
-  APPLE_TEAM_ID="2BBY89MBSN"
+  APPLE_TEAM_ID="95FP69XZCG"
   CODESIGN_KEYCHAIN_NAME="warp-codesign-keychain"
 
   echo "Starting codesigning..."
