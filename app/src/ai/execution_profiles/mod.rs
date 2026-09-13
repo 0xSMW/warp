@@ -41,6 +41,13 @@ pub struct CloudAgentComputerUseState {
     pub enabled: bool,
     #[cfg(test)]
     /// Whether this value is forced by organization settings (true = user cannot change it).
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained metadata for test-only cloud computer-use settings UI"
+        )
+    )]
     pub is_forced_by_org: bool,
 }
 fn effective_base_model<'a>(profile: &AIExecutionProfile, app: &'a AppContext) -> &'a LLMInfo {
