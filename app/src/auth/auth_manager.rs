@@ -101,9 +101,23 @@ pub enum AuthManagerEvent {
     AuthFailed(UserAuthenticationError),
     /// Failed to create an anonymous user.
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     CreateAnonymousUserFailed,
     /// The user chose to skip login entirely (no Firebase user created).
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     SkippedLogin,
     /// The user now needs to reauthenticate. If the user needs to reauth, an `AuthFailed`
     /// event might be triggered instead, but there are some code paths where we don't
@@ -121,6 +135,20 @@ pub enum AuthManagerEvent {
     MintCustomTokenFailed(MintCustomTokenError),
     /// Received a device authorization code as part of the device auth flow.
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     ReceivedDeviceAuthorizationCode {
         verification_url: String,
         verification_url_complete: Option<String>,
@@ -134,8 +162,36 @@ type URLConstructorCallback = Box<dyn FnOnce(Option<&str>) -> String>;
 const LOCAL_AUTH_DISABLED_MESSAGE: &str = "Authentication is disabled in the local channel";
 
 #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
+#[cfg_attr(
+    all(not(test), feature = "tui", feature = "test-util"),
+    allow(
+        dead_code,
+        reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+    )
+)]
 const DEVICE_CODE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
+#[cfg_attr(
+    all(not(test), feature = "tui", feature = "test-util"),
+    allow(
+        dead_code,
+        reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+    )
+)]
 const DEVICE_CODE_REQUEST_ATTEMPTS: usize = 2;
 
 #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
@@ -148,6 +204,13 @@ fn local_authentication_error() -> UserAuthenticationError {
 }
 
 #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+#[cfg_attr(
+    all(not(test), feature = "tui", feature = "test-util"),
+    allow(
+        dead_code,
+        reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+    )
+)]
 async fn request_device_code_with_timeout<F, Fut>(
     mut request: F,
     timeout: Duration,
@@ -478,6 +541,20 @@ impl AuthManager {
 
     /// Authenticate asynchronously using the OAuth2 device authorization flow.
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     pub fn authorize_device(&self, ctx: &mut ModelContext<Self>) {
         if is_local_channel() {
             Self::reject_local_authentication(ctx);
@@ -501,6 +578,20 @@ impl AuthManager {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn on_device_code_received(
         &mut self,
         result: Result<oauth2::StandardDeviceAuthorizationResponse, UserAuthenticationError>,
@@ -817,6 +908,13 @@ impl AuthManager {
     pub fn set_needs_reauth(&self, _needs_reauth: bool, _ctx: &mut ModelContext<Self>) {}
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     pub fn create_anonymous_user(
         &self,
         referral_code: Option<String>,
@@ -842,6 +940,13 @@ impl AuthManager {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn on_create_anonymous_user(
         &mut self,
         response: Result<CreateAnonymousUserResult>,
@@ -1049,6 +1154,13 @@ impl AuthManager {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     pub fn copy_anonymous_user_linking_url_to_clipboard(&self, ctx: &mut ModelContext<Self>) {
         if is_local_channel() {
             Self::reject_local_custom_token(ctx);
