@@ -13,7 +13,7 @@ use cloud_object_client::{
 };
 pub use cloud_object_client::{GuestIdentifier, ObjectClient};
 #[cfg(test)]
-use cloud_object_models::JsonSerializer;
+use cloud_object_models::{JsonSerializer, TryFromGql as _};
 #[cfg(test)]
 use cynic::{MutationBuilder, QueryBuilder, SubscriptionBuilder};
 #[cfg(test)]
@@ -188,7 +188,7 @@ use crate::cloud_object::{
 #[cfg(test)]
 use crate::cloud_object::{
     CreatedCloudObject, GenericCloudObject, GenericServerObject, JsonObjectType, ObjectIdType,
-    RevisionAndLastEditor, ServerCloudObject, TryFromGql as _,
+    RevisionAndLastEditor, ServerCloudObject,
 };
 use crate::drive::folders::FolderId;
 use crate::drive::sharing::SharingAccessLevel;
