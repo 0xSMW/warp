@@ -1,3 +1,5 @@
+use warp_cli::mcp::MCPCommand;
+
 use super::*;
 
 #[test]
@@ -31,7 +33,7 @@ fn tui_api_key_requires_validation() {
 #[test]
 fn command_line_api_key_requires_validation() {
     let command_line = LaunchMode::CommandLine {
-        command: CliCommand::Whoami,
+        command: CliCommand::MCP(MCPCommand::List),
         global_options: GlobalOptions {
             api_key: Some("cli-api-key".to_owned()),
             ..Default::default()
@@ -112,7 +114,7 @@ fn startup_auth_is_non_blocking_only_for_tui() {
             api_key: None,
         },
         LaunchMode::CommandLine {
-            command: CliCommand::Whoami,
+            command: CliCommand::MCP(MCPCommand::List),
             global_options: GlobalOptions::default(),
             debug: false,
             is_sandboxed: false,
