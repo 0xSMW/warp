@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_broadcast::InactiveReceiver;
 use parking_lot::FairMutex;
 use pathfinder_geometry::vector::Vector2F;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::common::{
     ActivePrompt, AddGuestsResponse, CommandExecutionFailureReason, LinkAccessLevelUpdateResponse,
     RemoveGuestResponse, TeamAccessLevelUpdateResponse, UpdatePendingUserRoleResponse,
@@ -13,20 +13,20 @@ use session_sharing_protocol::common::{
     CLIAgentSessionState, LongRunningCommandAgentInteraction, SelectedAgentModel, SessionId,
     UniversalDeveloperInputContextUpdate,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::sharer::SessionSourceType;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::viewer::SessionEndedReason;
 use settings::Setting as _;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_errors::report_error;
 use warpui::{AppContext, ModelContext, ModelHandle, SingletonEntity, ViewHandle, WindowId};
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use warpui::{ViewContext, WeakViewHandle};
 
 use super::event_loop::SharedSessionInitialLoadMode;
 use super::network::Network;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use super::network::{
     FailedToJoinReason, NetworkEvent, agent_prompt_failure_reason_string,
     command_execution_failure_reason_string, control_action_failure_reason_string,
@@ -37,11 +37,11 @@ use super::network::{
 use super::orchestration_viewer_model::OrchestrationViewerModel;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent::conversation::AIConversationId;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::agent::conversation::ConversationStatus;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::agent_conversations_model::AgentConversationsModel;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewControllerEvent};
 #[cfg(any(test, feature = "integration_tests"))]
@@ -51,7 +51,7 @@ use crate::ai::blocklist::{
     BlocklistAIHistoryModel,
 };
 use crate::ai::llms::{LLMPreferences, LLMPreferencesEvent};
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::context_chips::prompt_snapshot::PromptSnapshot;
 use crate::context_chips::prompt_type::PromptType;
 use crate::features::FeatureFlag;
@@ -69,11 +69,11 @@ use crate::terminal::model::session::Sessions;
 use crate::terminal::model_events::ModelEventDispatcher;
 use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::shared_session::SharedSessionStatus;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::shared_session::manager::Manager;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::shared_session::permissions_manager::SessionPermissionsManager;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::shared_session::shared_handlers::{
     ActiveRemoteUpdate, apply_auto_approve_agent_actions_update, apply_cli_agent_state_update,
     apply_input_mode_update, apply_selected_agent_model_update, apply_selected_conversation_update,
@@ -83,12 +83,12 @@ use crate::terminal::shared_session::shared_handlers::{
 };
 use crate::terminal::terminal_manager::{BlockSpacing, compute_block_size, terminal_colors_list};
 use crate::terminal::view::ExecuteCommandEvent;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::view::ambient_agent::is_cloud_agent_pre_first_exchange;
 use crate::terminal::{
     Event as TerminalViewEvent, PTY_READS_BROADCAST_CHANNEL_SIZE, TerminalModel, TerminalView,
 };
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::view_components::ToastFlavor;
 use crate::workspaces::user_workspaces::{ResolvedTeamScope, UserWorkspaces};
 
@@ -250,7 +250,7 @@ impl TerminalManager {
     }
 
     /// Handles a failed viewer command request and clears any queued-command dispatch state.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_command_execution_request_failed(
         terminal_view: &mut TerminalView,
         reason: &CommandExecutionFailureReason,
@@ -1547,7 +1547,7 @@ impl TerminalManager {
         });
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_active_prompt_update(
         model: Arc<FairMutex<TerminalModel>>,
         prompt_type: ModelHandle<PromptType>,
@@ -1594,7 +1594,7 @@ impl TerminalManager {
         });
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_selected_agent_model_update(
         weak_view_handle: &WeakViewHandle<TerminalView>,
         selected_model: &SelectedAgentModel,
@@ -1615,7 +1615,7 @@ impl TerminalManager {
         );
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_input_mode_update(
         weak_view_handle: &WeakViewHandle<TerminalView>,
         input_mode: &session_sharing_protocol::common::InputMode,
@@ -1645,7 +1645,7 @@ impl TerminalManager {
         apply_input_mode_update(weak_view_handle, input_mode, guard, ctx);
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_selected_conversation_update(
         weak_view_handle: &WeakViewHandle<TerminalView>,
         selected_conversation: &session_sharing_protocol::common::SelectedConversation,
@@ -1928,7 +1928,7 @@ impl TerminalManager {
         true
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     fn shared_session_ended(
         terminal_view: &ViewHandle<TerminalView>,
         model: Arc<FairMutex<TerminalModel>>,
@@ -1970,7 +1970,7 @@ impl TerminalManager {
             .clear_write_to_pty_events_for_shared_session_tx();
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     fn end_current_ambient_session(
         terminal_view: &ViewHandle<TerminalView>,
         model: Arc<FairMutex<TerminalModel>>,
