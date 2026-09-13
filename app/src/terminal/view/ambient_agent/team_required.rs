@@ -26,7 +26,7 @@ fn is_current_user_workspace_admin(app: &AppContext) -> bool {
         .is_some_and(|workspace| workspace.is_workspace_admin(&email))
 }
 
-fn body_text(app: &AppContext) -> &'static str {
+pub(crate) fn body_text(app: &AppContext) -> &'static str {
     if is_current_user_workspace_admin(app) {
         BODY_ADMIN
     } else {
