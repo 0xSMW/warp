@@ -49,7 +49,8 @@ impl ConnectedSelfHostedWorkersModel {
             AuthManagerEvent::MintCustomTokenFailed(_) => {}
             #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AuthManagerEvent::AttemptedLoginGatedFeature { .. }
-            | AuthManagerEvent::LoginOverrideDetected(_) => {}
+            | AuthManagerEvent::LoginOverrideDetected(_)
+            | AuthManagerEvent::ReceivedDeviceAuthorizationCode { .. } => {}
         });
 
         ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |me, _, event, ctx| {
