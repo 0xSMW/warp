@@ -214,7 +214,7 @@ pub fn run() -> Result<()> {
     } else {
         AIConversationAutoexecuteMode::RespectUserSettings
     };
-    let result = warp::run_tui(
+    warp::run_tui(
         None,
         Box::new(move |ctx| {
             init(
@@ -223,8 +223,7 @@ pub fn run() -> Result<()> {
                 ctx,
             )
         }),
-    );
-    result
+    )
 }
 
 /// Creates the local terminal root and starts the headless draw and input driver.
@@ -313,6 +312,8 @@ fn init(
             root.update(ctx, |_, ctx| {
                 ctx.subscribe_to_model(&sessions, |_, _, event, ctx| match event {
                     TuiSessionsEvent::FocusChanged(_) => ctx.notify(),
+                    #[cfg(test)]
+                    TuiSessionsEvent::SessionRemoved(_) => ctx.notify(),
                 });
             });
             TuiOrchestrationModel::register(ctx);
