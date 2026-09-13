@@ -219,7 +219,7 @@ impl TeamUpdateManager {
                     }
                 },
             );
-            return rx;
+            rx
         }
 
         #[cfg(not(test))]
