@@ -348,12 +348,15 @@ impl TuiSlashCommandModel {
             } else {
                 return None;
             };
-            return Some(format!(
+            Some(format!(
                 "(currently {})",
                 if enabled { "on" } else { "off" }
-            ));
+            ))
         }
-        None
+        #[cfg(not(test))]
+        {
+            None
+        }
     }
 
     fn update_from_input(&mut self, force_query: bool, ctx: &mut ModelContext<Self>) {
