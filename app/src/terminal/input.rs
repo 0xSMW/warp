@@ -39,6 +39,8 @@ use std::time::Duration;
 
 #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use ai::skills::SkillReference;
+#[cfg(test)]
+use ai_types::AmbientAgentTaskId;
 use async_channel::Sender;
 #[cfg(test)]
 use base64::Engine as _;
@@ -3059,11 +3061,6 @@ impl Input {
                     ctx.emit(Event::OpenPluginInstructionsPane(*agent, *kind));
                 }
                 AgentInputFooterEvent::HandoffChipClicked => {
-                    #[cfg(not(test))]
-                    {
-                        return;
-                    }
-
                     #[cfg(test)]
                     {
                         #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
@@ -4646,6 +4643,13 @@ impl Input {
     /// selector is constructed. No-op otherwise. Used by the `/host` slash command to
     /// programmatically open the same popover that the V2 footer's host button toggles.
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     pub(super) fn open_v2_host_selector(&mut self, ctx: &mut ViewContext<Self>) {
         let Some(host_selector) = self.host_selector().cloned() else {
             return;
@@ -4657,6 +4661,13 @@ impl Input {
     /// selector is constructed. No-op otherwise. Used by the `/harness` slash command to
     /// programmatically open the same popover that the V2 footer's harness button toggles.
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     pub(super) fn open_v2_harness_selector(&mut self, ctx: &mut ViewContext<Self>) {
         let Some(harness_selector) = self.harness_selector().cloned() else {
             return;
@@ -4665,6 +4676,13 @@ impl Input {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     pub(super) fn open_v2_environment_selector(&mut self, ctx: &mut ViewContext<Self>) {
         self.agent_input_footer
             .clone()
@@ -4816,6 +4834,13 @@ impl Input {
     // Cloud handoff methods — candidates for extraction to a separate file
     // following the pattern used by `agent.rs`, `classic.rs`, etc.
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn can_activate_cloud_handoff_prefix(
         &self,
         edit_origin: &EditOrigin,
@@ -4824,7 +4849,7 @@ impl Input {
         #[cfg(not(test))]
         {
             let _ = (edit_origin, ctx);
-            return false;
+            false
         }
 
         #[cfg(test)]
@@ -4855,7 +4880,7 @@ impl Input {
         #[cfg(not(test))]
         {
             let _ = (edit_origin, ctx);
-            return false;
+            false
         }
 
         #[cfg(test)]
@@ -4931,11 +4956,18 @@ impl Input {
     /// active source conversation has at least one exchange to hand off.
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn source_conversation_has_content(&self, ctx: &AppContext) -> bool {
         #[cfg(not(test))]
         {
             let _ = ctx;
-            return false;
+            false
         }
 
         #[cfg(test)]
@@ -4953,11 +4985,18 @@ impl Input {
     /// front instead of failing at spawn time.
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn block_cloud_handoff_if_model_unsupported(&self, ctx: &mut ViewContext<Self>) -> bool {
         #[cfg(not(test))]
         {
             let _ = ctx;
-            return true;
+            true
         }
 
         #[cfg(test)]
@@ -4992,7 +5031,7 @@ impl Input {
         #[cfg(not(test))]
         {
             let _ = ctx;
-            return false;
+            false
         }
 
         #[cfg(test)]
@@ -5734,6 +5773,13 @@ impl Input {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn open_profile_selector(&mut self, ctx: &mut ViewContext<Self>) {
         if !FeatureFlag::InlineProfileSelector.is_enabled() {
             return;
@@ -5747,6 +5793,13 @@ impl Input {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn open_prompts_menu(&mut self, ctx: &mut ViewContext<Self>) {
         self.suggestions_mode_model.update(ctx, |model, ctx| {
             model.set_mode(InputSuggestionsMode::PromptsMenu, ctx);
@@ -5756,6 +5809,13 @@ impl Input {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn open_skill_selector(&mut self, ctx: &mut ViewContext<Self>) {
         if !FeatureFlag::ListSkills.is_enabled() {
             return;
@@ -5773,6 +5833,13 @@ impl Input {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn open_invoke_skill_selector(&mut self, ctx: &mut ViewContext<Self>) {
         if !FeatureFlag::ListSkills.is_enabled() {
             return;
@@ -5856,6 +5923,13 @@ impl Input {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn open_repos_menu(&mut self, ctx: &mut ViewContext<Self>) {
         self.suggestions_mode_model.update(ctx, |model, ctx| {
             model.set_mode(InputSuggestionsMode::IndexedReposMenu, ctx);
@@ -6097,6 +6171,13 @@ impl Input {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn open_user_query_menu(&mut self, action: UserQueryMenuAction, ctx: &mut ViewContext<Self>) {
         // Don't reopen if already open.
         if self.suggestions_mode_model.as_ref(ctx).is_user_query_menu() {
@@ -6136,6 +6217,13 @@ impl Input {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn open_rewind_menu(&mut self, ctx: &mut ViewContext<Self>) {
         // Don't reopen if already open.
         if self.suggestions_mode_model.as_ref(ctx).is_rewind_menu() {
@@ -6276,6 +6364,13 @@ impl Input {
     ///
     /// Returns `true` if execution was handled.
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn execute_skill_command(
         &mut self,
         reference: SkillReference,
@@ -6296,7 +6391,7 @@ impl Input {
                 conversation_id_override,
                 ctx,
             );
-            return true;
+            true
         }
 
         #[cfg(test)]
@@ -6903,12 +6998,12 @@ impl Input {
     pub fn completer_data(&self) -> CompleterData {
         #[cfg(feature = "local_fs")]
         {
-            return CompleterData::new(
+            CompleterData::new(
                 self.sessions.clone(),
                 self.active_block_metadata.clone(),
                 CommandRegistry::global_instance(),
                 self.last_user_block_completed.clone(),
-            );
+            )
         }
         #[cfg(not(feature = "local_fs"))]
         CompleterData::new(
@@ -8251,7 +8346,6 @@ impl Input {
         #[cfg(not(test))]
         {
             let _ = (cancellation_reason, ctx);
-            return;
         }
 
         #[cfg(test)]
@@ -13768,7 +13862,6 @@ impl Input {
         #[cfg(not(test))]
         {
             let _ = (ai_query, ctx);
-            return;
         }
 
         #[cfg(test)]
@@ -13794,7 +13887,6 @@ impl Input {
         #[cfg(not(test))]
         {
             let _ = (url, ctx);
-            return;
         }
 
         #[cfg(test)]
@@ -14495,7 +14587,6 @@ impl Input {
         #[cfg(not(test))]
         {
             let _ = (prompt, ctx);
-            return;
         }
 
         #[cfg(test)]
@@ -14539,7 +14630,6 @@ impl Input {
         #[cfg(not(test))]
         {
             let _ = (prompt, conversation_id, query_id, ctx);
-            return;
         }
 
         #[cfg(test)]
@@ -16518,7 +16608,6 @@ impl Input {
         #[cfg(not(test))]
         {
             let _ = ctx;
-            return;
         }
 
         #[cfg(test)]
@@ -16757,10 +16846,6 @@ impl TypedActionView for Input {
                 });
             }
             InputAction::ToggleSlashCommandsMenu => {
-                #[cfg(not(test))]
-                {
-                    return;
-                }
                 #[cfg(test)]
                 self.toggle_legacy_slash_commands_menu(ctx);
             }
