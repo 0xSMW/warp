@@ -60,8 +60,6 @@ use crate::ai::agent::conversation::AIConversationId;
 #[cfg(test)]
 use crate::ai::agent::conversation::ConversationStatus;
 #[cfg(test)]
-use crate::ai::agent::conversation_output_status_from_conversation;
-#[cfg(test)]
 use crate::ai::agent::{
     AIAgentExchange, AIAgentInput, AIAgentOutput, AIAgentOutputStatus, CancellationReason,
     FinishedAIAgentOutput, RenderableAIError, TransientNetworkErrorKind,
@@ -75,15 +73,15 @@ use crate::ai::agent_sdk::driver::harness::{
 };
 use crate::ai::agent_sdk::setup_observability::{SetupClientEventReporter, SetupStep};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-#[cfg(test)]
-use crate::ai::ambient_agents::AmbientConversationStatus;
 use crate::ai::ambient_agents::task::HarnessModelConfig;
+#[cfg(test)]
+use crate::ai::ambient_agents::{
+    AmbientConversationStatus, conversation_output_status_from_conversation,
+};
 #[cfg(test)]
 use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
 #[cfg(test)]
-use crate::ai::blocklist::{
-    BlocklistAIHistoryEvent, BlocklistAIHistoryModel, ConversationStatusUpdate,
-};
+use crate::ai::blocklist::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 #[cfg(test)]
 use crate::ai::cloud_environments::{AmbientAgentEnvironment, GithubRepo, SourceRepo};
 #[cfg(test)]
@@ -534,12 +532,33 @@ pub struct AgentDriverOptions {
     pub secrets: HashMap<String, ManagedSecretValue>,
     /// Test-only compatibility field for the removed cloud task path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub task_id: Option<AmbientAgentTaskId>,
     /// Test-only compatibility field for the removed cloud child-run path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub parent_run_id: Option<String>,
     /// Test-only compatibility field for the removed cloud sharing path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub should_share: bool,
     /// How long to keep the session alive after the agent run completes, if at all.
     pub idle_on_complete: Option<Duration>,
@@ -551,18 +570,53 @@ pub struct AgentDriverOptions {
     pub resume: Option<()>,
     /// Test-only compatibility field for the removed cloud provider path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub cloud_providers: Vec<()>,
     /// Test-only compatibility field for the removed environment-preparation path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub environment: Option<AmbientAgentEnvironment>,
     /// Test-only compatibility field for the removed environment-preparation path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub additional_source_repos: Vec<SourceRepo>,
     /// Test-only compatibility field for the removed environment-preparation path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub repository_head_overrides: Vec<RepositoryHeadOverride>,
     /// Test-only compatibility field for the removed environment-preparation path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub remove_repository_origins: bool,
     /// Selected execution harness for this run.
     pub selected_harness: Harness,
@@ -570,21 +624,63 @@ pub struct AgentDriverOptions {
     pub third_party_harness_model_config: Option<HarnessModelConfig>,
     /// Test-only compatibility field for the removed cloud team-scope path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub team_scope: Option<TeamScopeForCli>,
     /// Test-only compatibility field for the removed snapshot path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub snapshot_disabled: Option<bool>,
     /// Test-only compatibility field for the removed snapshot path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub snapshot_upload_timeout: Option<Duration>,
     /// Test-only compatibility field for the removed snapshot path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub snapshot_script_timeout: Option<Duration>,
     /// Test-only compatibility field for the removed checkpoint path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub checkpoint_interval: Option<Duration>,
     /// Test-only compatibility field for the removed Oz execution path.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained option for test-only cloud driver construction compatibility"
+        )
+    )]
     pub skip_initial_turn: bool,
     /// Fail the run when MCP servers fail to start, instead of continuing
     /// without the unavailable servers.
@@ -647,15 +743,36 @@ pub struct AgentDriver {
 
     /// Whether MCP server startup failures are fatal for the run.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained state for test-only legacy MCP startup orchestration"
+        )
+    )]
     strict_mcp_startup: bool,
     /// How long to wait for MCP servers to start before degrading (or failing,
     /// in strict mode).
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained state for test-only legacy MCP startup orchestration"
+        )
+    )]
     mcp_startup_timeout: Duration,
 }
 
 #[cfg(test)]
 #[derive(Clone)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained result payloads for test-only legacy driver output"
+    )
+)]
 pub(crate) enum SDKConversationOutputStatus {
     Success,
     Error { error: RenderableAIError },
@@ -665,6 +782,13 @@ pub(crate) enum SDKConversationOutputStatus {
 
 #[cfg(test)]
 impl SDKConversationOutputStatus {
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained conversion for the disabled cloud driver command path"
+        )
+    )]
     pub fn into_result(self) -> Result<(), AgentDriverError> {
         match self {
             SDKConversationOutputStatus::Success => Ok(()),
@@ -709,6 +833,13 @@ pub enum AgentRunPrompt {
     Local(String),
     /// Legacy cloud prompt retained only for the old driver tests.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained prompt schema for test-only cloud driver compatibility"
+        )
+    )]
     ServerSide {
         /// Optional skill whose instructions are sent to the agent.
         skill: Option<ParsedSkill>,
@@ -756,6 +887,13 @@ pub enum AgentDriverError {
     NotLoggedIn,
     #[error("Saved prompt not found for id {0}")]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     AIWorkflowNotFound(String),
     #[error("Terminal bootstrap failed")]
     BootstrapFailed {
@@ -779,6 +917,13 @@ pub enum AgentDriverError {
     EnvironmentSetupFailed(String),
     #[error("Cloud provider setup failed: {0}")]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     CloudProviderSetupFailed(#[source] anyhow::Error),
     #[error("Could not resolve working directory {}", path.display())]
     InvalidWorkingDirectory {
@@ -788,6 +933,13 @@ pub enum AgentDriverError {
     },
     #[error("{error}")]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     ConversationError { error: RenderableAIError },
     #[error("Conversation was canceled: {reason}")]
     #[cfg(test)]
@@ -806,6 +958,13 @@ pub enum AgentDriverError {
     SetupCommandExitedShell { command: String },
     #[error("Timed out refreshing team metadata")]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     TeamMetadataRefreshTimeout,
     #[error("{0}")]
     SkillResolutionFailed(String),
@@ -816,18 +975,53 @@ pub enum AgentDriverError {
     ConfigBuildFailed(#[source] anyhow::Error),
     #[error("Failed to resolve server-side prompt")]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     PromptResolutionFailed(#[source] anyhow::Error),
     #[error("Failed to fetch task secrets")]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     SecretsFetchFailed(#[source] anyhow::Error),
     #[error("Failed to fetch task metadata")]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     TaskMetadataFetchFailed(#[source] anyhow::Error),
     #[error("Failed to load conversation: {0}")]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     ConversationLoadFailed(String),
     #[error("Failed to initialize AWS Bedrock credentials: {0}")]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     AwsBedrockCredentialsFailed(String),
     #[error(
         "Conversation {conversation_id} was produced by the {expected} harness, but --harness {got} was requested. \
@@ -844,6 +1038,13 @@ pub enum AgentDriverError {
          Re-run with --harness {expected} (or omit --harness to match) to continue this task."
     )]
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained error variant for disabled cloud driver setup and resume paths"
+        )
+    )]
     TaskHarnessMismatch {
         task_id: String,
         expected: String,
