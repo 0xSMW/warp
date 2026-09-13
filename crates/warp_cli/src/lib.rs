@@ -538,6 +538,10 @@ pub enum WorkerCommand {
 /// CLI-related subcommands. The command-line interface to Warp isn't a full SDK (e.g. with language bindings),
 /// but it allows scripting some Warp functionality.
 #[derive(Debug, Clone, Subcommand)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "CLI commands are parsed once and already boxed by the top-level command."
+)]
 pub enum CliCommand {
     /// Run a local Warp Agent.
     #[command(subcommand)]
