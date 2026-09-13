@@ -289,7 +289,6 @@ impl EnvironmentsPageView {
         {
             let _ = (page, ctx);
             log::warn!("Cloud environment management is unavailable in local-only mode");
-            return;
         }
 
         #[cfg(test)]
@@ -815,7 +814,6 @@ impl EnvironmentsPageView {
         {
             let _ = (env_id, ctx);
             log::warn!("Cloud environment deletion is unavailable in local-only mode");
-            return;
         }
 
         #[cfg(test)]
