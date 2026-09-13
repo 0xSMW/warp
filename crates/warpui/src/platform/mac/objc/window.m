@@ -143,6 +143,20 @@ static void activate_app_and_focus_window(NSWindow *window) {
 @interface WarpWindow : NSWindow <WarpWindowProtocol>
 @end
 
+@interface NSWindow (VisorTransition)
+- (BOOL)isVisorSliding;
+- (NSRect)visorRestingFrame;
+@end
+
+@implementation NSWindow (VisorTransition)
+- (BOOL)isVisorSliding {
+    return NO;
+}
+- (NSRect)visorRestingFrame {
+    return self.frame;
+}
+@end
+
 @interface WarpWindowDelegate : NSObject <NSWindowDelegate>
 @end
 
@@ -155,7 +169,10 @@ static void activate_app_and_focus_window(NSWindow *window) {
 - (void)windowDidMove:(NSNotification *)notification {
     if (windowState) {
         NSWindow *window = notification.object;
-        warp_app_window_moved(self, window.frame);
+        // Animation positions must not become the terminal's persisted window position.
+        if (![window isVisorSliding]) {
+            warp_app_window_moved(self, window.frame);
+        }
     }
 }
 
@@ -638,9 +655,20 @@ void init_warp_nswindow(NSWindow<WarpWindowProtocol> *window, bool testMode, boo
 // A panel is basically a NSWindow with the exception that it could be displayed
 // above fullscreen apps.
 @interface WarpPanel : NSPanel <WarpWindowProtocol>
+- (void)setVisorVisible:(BOOL)visible;
+- (void)finishVisorSlide;
 @end
 
 @implementation WarpPanel {
+    NSTimer *_visorTimer;
+    BOOL _visorSliding;
+    BOOL _visorTargetVisible;
+    NSRect _visorRestingFrame;
+    NSPoint _visorStartOrigin;
+    NSPoint _visorTargetOrigin;
+    NSPoint _visorHiddenOrigin;
+    CFAbsoluteTime _visorStartedAt;
+    NSTimeInterval _visorDuration;
     // The windowState is managed on the Rust side.
     void *windowState;
     // Height constraint for the titlebar view (also indicates if constraints are configured)
@@ -651,6 +679,81 @@ void init_warp_nswindow(NSWindow<WarpWindowProtocol> *window, bool testMode, boo
     BOOL _observingTitlebarContainer;
     // Guard to prevent re-entrancy when we change the container frame ourselves.
     BOOL _isApplyingTitlebarHeight;
+}
+
+- (BOOL)isVisorSliding {
+    return _visorSliding;
+}
+
+- (NSRect)visorRestingFrame {
+    return _visorSliding ? _visorRestingFrame : self.frame;
+}
+
+- (NSRect)constrainFrameRect:(NSRect)frame toScreen:(NSScreen *)screen {
+    return _visorSliding ? frame : [super constrainFrameRect:frame toScreen:screen];
+}
+
+- (void)finishVisorSlide {
+    if (!_visorSliding) return;
+    [[self retain] autorelease];
+    [_visorTimer invalidate];
+    [_visorTimer release];
+    _visorTimer = nil;
+    if (!_visorTargetVisible) [self orderOut:nil];
+    [self setFrameOrigin:_visorRestingFrame.origin];
+    _visorSliding = NO;
+}
+
+- (void)advanceVisorSlide:(NSTimer *)timer __unused {
+    double progress = MIN(1.0, (CFAbsoluteTimeGetCurrent() - _visorStartedAt) / _visorDuration);
+    double eased = progress * progress * (3.0 - 2.0 * progress);
+    NSPoint origin =
+        NSMakePoint(_visorStartOrigin.x + (_visorTargetOrigin.x - _visorStartOrigin.x) * eased,
+                    _visorStartOrigin.y + (_visorTargetOrigin.y - _visorStartOrigin.y) * eased);
+    [self setFrameOrigin:origin];
+    if (progress >= 1.0) [self finishVisorSlide];
+}
+
+- (void)setVisorVisible:(BOOL)visible {
+    if (_visorSliding && _visorTargetVisible == visible) return;
+    if (!_visorSliding) _visorRestingFrame = self.frame;
+    NSScreen *screen = self.screen;
+    BOOL pinnedToTop = _visorSliding ||
+                       (screen && NSMaxY(_visorRestingFrame) >= NSMaxY(screen.visibleFrame) - 2.0 &&
+                        NSMaxY(_visorRestingFrame) <= NSMaxY(screen.frame) + 2.0);
+    if (self.testMode || !pinnedToTop ||
+        NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion) {
+        [self finishVisorSlide];
+        if (visible)
+            [self makeKeyAndOrderFront:nil];
+        else
+            [self orderOut:nil];
+        return;
+    }
+
+    [_visorTimer invalidate];
+    [_visorTimer release];
+    _visorTimer = nil;
+    BOOL wasSliding = _visorSliding;
+    _visorSliding = YES;
+    _visorTargetVisible = visible;
+    if (!wasSliding)
+        _visorHiddenOrigin = NSMakePoint(_visorRestingFrame.origin.x, NSMaxY(screen.frame));
+    NSPoint hiddenOrigin = _visorHiddenOrigin;
+    if (visible && !wasSliding && !self.visible) [self setFrameOrigin:hiddenOrigin];
+    _visorStartOrigin = self.frame.origin;
+    _visorTargetOrigin = visible ? _visorRestingFrame.origin : hiddenOrigin;
+    double fullDistance = MAX(1.0, hiddenOrigin.y - _visorRestingFrame.origin.y);
+    _visorDuration =
+        MAX(0.04, 0.20 * fabs(_visorTargetOrigin.y - _visorStartOrigin.y) / fullDistance);
+    _visorStartedAt = CFAbsoluteTimeGetCurrent();
+    if (visible) [self makeKeyAndOrderFront:nil];
+    _visorTimer = [[NSTimer timerWithTimeInterval:1.0 / 120.0
+                                           target:self
+                                         selector:@selector(advanceVisorSlide:)
+                                         userInfo:nil
+                                          repeats:YES] retain];
+    [NSRunLoop.mainRunLoop addTimer:_visorTimer forMode:NSRunLoopCommonModes];
 }
 
 @synthesize testMode;
@@ -772,8 +875,8 @@ void init_warp_nswindow(NSWindow<WarpWindowProtocol> *window, bool testMode, boo
          NSWindowCollectionBehaviorFullScreenAuxiliary);
 
     [self setMovable:NO];
-    [self makeKeyAndOrderFront:nil];
-    activate_app_and_focus_window(self);
+    // Rust handles focus-loss dismissal; AppKit must not hide the panel before its exit slide.
+    [self setHidesOnDeactivate:NO];
 }
 
 // Note this returns a retained object ("create" rule).
@@ -946,7 +1049,12 @@ void set_accessibility_contents(id window, NSString *value, NSString *help, NSSt
         window, NSAccessibilityAnnouncementRequestedNotification, userInfo);
 }
 
-void set_window_bounds(id window, NSRect frame) { [window setFrame:frame display:YES]; }
+NSRect window_resting_frame(NSWindow *window) { return [window visorRestingFrame]; }
+
+void set_window_bounds(id window, NSRect frame) {
+    if ([window isKindOfClass:WarpPanel.class]) [(WarpPanel *)window finishVisorSlide];
+    [window setFrame:frame display:YES];
+}
 
 void open_file_path(NSString *pathString) {
     NSString *path = [pathString stringByExpandingTildeInPath];
@@ -1083,7 +1191,9 @@ void show_window_and_focus_app(WarpWindow<WarpWindowProtocol> *window, bool brin
     // requires explicit registration in the window list).
     [NSApp addWindowsItem:window title:[window title] filename:NO];
 
-    if (bringToFront) {
+    if ([window isKindOfClass:WarpPanel.class] && bringToFront) {
+        [(WarpPanel *)window setVisorVisible:YES];
+    } else if (bringToFront) {
         [window makeKeyAndOrderFront:nil];
     } else {
         [window makeKeyWindow];
@@ -1109,8 +1219,11 @@ void hide_window(WarpWindow<WarpWindowProtocol> *window) {
     }
     previouslyActiveAppPID = nil;
 
-    // Order out removes window from the screen but still maintains the NSWindow object.
-    [window orderOut:nil];
+    // Keep the panel and its shell alive after the exit transition.
+    if ([window isKindOfClass:WarpPanel.class])
+        [(WarpPanel *)window setVisorVisible:NO];
+    else
+        [window orderOut:nil];
 }
 
 // Sets the per-window opacity. Unlike `hide_window`, this does not change the
@@ -1165,7 +1278,12 @@ void position_at_given_location(WarpWindow<WarpWindowProtocol> *window, NSPoint 
     // tab transfer needs deterministic placement at a Rust-provided screen position.
     NSPoint topLeft = NSMakePoint(origin.x, origin.y + [window frame].size.height);
     [window setFrameTopLeftPoint:topLeft];
-    [window makeKeyAndOrderFront:nil];
+    if ([window isKindOfClass:WarpPanel.class]) {
+        [(WarpPanel *)window setVisorVisible:YES];
+        activate_app_and_focus_window(window);
+    } else {
+        [window makeKeyAndOrderFront:nil];
+    }
 }
 
 void order_front_without_focus(WarpWindow<WarpWindowProtocol> *window, NSPoint origin) {
