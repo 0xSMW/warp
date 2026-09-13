@@ -450,6 +450,7 @@ unsafe extern "C" {
     fn order_front_without_focus(window: &NSWindow, origin: NSPoint);
     fn set_window_title(window: &NSWindow, title: &NSString);
     fn set_window_bounds(window: &NSWindow, bound: NSRect);
+    fn window_resting_frame(window: &NSWindow) -> NSRect;
     fn set_window_background_blur_radius(window: &NSWindow, blurRadiusPixels: u8);
     fn open_file_path(pathString: &NSString);
     fn open_file_path_in_explorer(pathString: &NSString);
@@ -473,6 +474,7 @@ pub type FrameCaptureCallback = Box<dyn FnOnce(platform::CapturedFrame) + Send +
 
 pub struct WindowState {
     native_window: *mut NSWindow,
+    is_hotkey_window: bool,
     window_id: WindowId,
     callbacks: WindowCallbacks,
     next_scene: RefCell<Option<Rc<Scene>>>,
@@ -603,6 +605,7 @@ impl Window {
 
             let window_state = Rc::new(WindowState {
                 native_window,
+                is_hotkey_window: matches!(options.style, WindowStyle::Pin),
                 window_id,
                 callbacks,
                 next_scene: Default::default(),
@@ -1136,7 +1139,7 @@ impl WindowState {
     }
 
     fn set_window_buttons(&self, show_window_buttons: bool) {
-        let hide_buttons = !show_window_buttons;
+        let hide_buttons = self.is_hotkey_window || !show_window_buttons;
         let window = self.window();
         if let Some(button) = window.standardWindowButton(NSWindowButton::CloseButton) {
             button.setHidden(hide_buttons);
@@ -1168,7 +1171,7 @@ impl platform::WindowContext for WindowState {
     }
 
     fn origin(&self) -> Vector2F {
-        let view_frame = self.window().frame();
+        let view_frame = unsafe { window_resting_frame(self.window()) };
         transform_origin_from_frame_coord_to_rect_coord(
             vec2f(view_frame.origin.x as f32, view_frame.origin.y as f32),
             vec2f(view_frame.size.width as f32, view_frame.size.height as f32),
@@ -1216,6 +1219,9 @@ pub trait WindowExt {
 
     /// Sets whether or not to show the native macOS window buttons (traffic lights).
     fn set_window_buttons(&self, window_buttons: bool);
+
+    /// Sets this window's background blur radius.
+    fn set_background_blur_radius(&self, radius: u8);
 }
 
 /// Utility for interacting with the native [`Window`] implementation. The native window is always
@@ -1234,6 +1240,12 @@ fn native_window(window: &dyn platform::Window) -> Option<&Window> {
 }
 
 impl WindowExt for &dyn platform::Window {
+    fn set_background_blur_radius(&self, radius: u8) {
+        if let Some(window) = native_window(*self) {
+            unsafe { set_window_background_blur_radius(window.0.window(), radius) };
+        }
+    }
+
     fn has_window_buttons(&self) -> bool {
         native_window(*self).is_none_or(|window| window.0.has_window_buttons())
     }
