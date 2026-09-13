@@ -67,6 +67,13 @@ impl MessageHydrator {
     }
 
     #[cfg(any(test, feature = "integration_tests"))]
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Timing injection is exercised by unit tests, absent from the integration library"
+        )
+    )]
     pub(crate) fn with_fetch_timing(
         ai_client: Arc<dyn AIClient>,
         fetch_timeout: Duration,
@@ -113,14 +120,13 @@ impl MessageHydrator {
 
     #[cfg(any(test, feature = "integration_tests"))]
     async fn read_message(&self, message_id: &str) -> Result<ReadAgentMessageResponse> {
-        match (self.task_scoped_server_api.as_ref(), self.task_id) {
-            (Some(server_api), Some(task_id)) => {
-                return server_api
-                    .read_agent_message_for_task(&task_id, message_id)
-                    .await
-                    .with_context(|| format!("Failed to read agent message {message_id}"));
-            }
-            _ => {}
+        if let (Some(server_api), Some(task_id)) =
+            (self.task_scoped_server_api.as_ref(), self.task_id)
+        {
+            return server_api
+                .read_agent_message_for_task(&task_id, message_id)
+                .await
+                .with_context(|| format!("Failed to read agent message {message_id}"));
         }
 
         self.ai_client
@@ -257,25 +263,21 @@ impl MessageHydrator {
     pub(crate) async fn mark_message_delivered(&self, message_id: &str) -> Result<()> {
         #[cfg(any(test, feature = "integration_tests"))]
         {
-            match (self.task_scoped_server_api.as_ref(), self.task_id) {
-                (Some(server_api), Some(task_id)) => {
-                    return server_api
-                        .mark_message_delivered_for_task(&task_id, message_id)
-                        .await
-                        .with_context(|| {
-                            format!("Failed to mark agent message {message_id} as delivered")
-                        });
-                }
-                _ => {}
+            if let (Some(server_api), Some(task_id)) =
+                (self.task_scoped_server_api.as_ref(), self.task_id)
+            {
+                return server_api
+                    .mark_message_delivered_for_task(&task_id, message_id)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to mark agent message {message_id} as delivered")
+                    });
             }
 
-            return self
-                .ai_client
+            self.ai_client
                 .mark_message_delivered(message_id)
                 .await
-                .with_context(|| {
-                    format!("Failed to mark agent message {message_id} as delivered")
-                });
+                .with_context(|| format!("Failed to mark agent message {message_id} as delivered"))
         }
 
         #[cfg(not(any(test, feature = "integration_tests")))]
