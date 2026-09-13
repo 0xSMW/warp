@@ -3,8 +3,29 @@ pub mod auth;
 pub mod block;
 #[cfg(not(target_family = "wasm"))]
 pub(crate) mod download;
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Runner CRUD compatibility types remain available to test mocks after cloud callers were removed"
+    )
+)]
 pub mod factory;
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy harness API and wire types are retained for compatibility tests without production cloud callers"
+    )
+)]
 pub mod harness_support;
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Cloud integration client mocks are retained for compatibility after runtime integration flows were removed"
+    )
+)]
 pub mod integrations;
 pub mod managed_mcp;
 pub mod managed_secrets;
@@ -499,16 +520,14 @@ impl ServerApi {
                 };
                 (!is_local).then_some("http://127.0.0.1:0")
             });
-            return http_client::Client::from_client_builder(
-                reqwest::Client::builder().proxy(proxy),
-            )
-            .expect("local-only HTTP client should be constructible");
+            http_client::Client::from_client_builder(reqwest::Client::builder().proxy(proxy))
+                .expect("local-only HTTP client should be constructible")
         }
 
         #[cfg(all(not(test), target_family = "wasm"))]
         {
             // Browser redirects cannot be restricted with the native proxy policy.
-            return http_client::Client::disabled();
+            http_client::Client::disabled()
         }
 
         #[cfg(test)]
@@ -1871,6 +1890,10 @@ impl ServerApiProvider {
     }
 
     #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "Retained provider accessor for cloud integration test mocks"
+    )]
     pub fn get_integrations_client(&self) -> Arc<dyn integrations::IntegrationsClient> {
         self.server_api.clone()
     }
@@ -1890,6 +1913,10 @@ impl ServerApiProvider {
     }
 
     #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "Retained provider accessor for legacy harness test mocks"
+    )]
     pub fn get_harness_support_client(&self) -> Arc<dyn harness_support::HarnessSupportClient> {
         self.server_api.clone()
     }
