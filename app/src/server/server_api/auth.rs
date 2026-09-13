@@ -378,6 +378,13 @@ impl AuthClient for warp_server_client::auth::MockAuthClient {
 #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 #[derive(Error, Debug)]
 /// Error type when creating anonymous users.
+#[cfg_attr(
+    all(not(test), feature = "tui", feature = "test-util"),
+    allow(
+        dead_code,
+        reason = "Retained test-util auth compatibility while anonymous cloud login is disabled"
+    )
+)]
 pub enum AnonymousUserCreationError {
     #[error("The network request to create the anonymous user failed")]
     CreationFailed,
