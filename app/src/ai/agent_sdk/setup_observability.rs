@@ -39,17 +39,6 @@ impl SetupClientEventReporter {
     ) -> T {
         future.instrument(step.to_span()).await
     }
-
-    #[cfg(test)]
-    pub(crate) async fn post_timeline_event(&self, event: OzRunTimelineEvent) {
-        let _ = event;
-    }
-}
-
-#[cfg(test)]
-#[derive(Clone, Copy)]
-pub(crate) enum OzRunTimelineEvent {
-    AgentStarted,
 }
 
 #[derive(Clone, Copy)]
@@ -60,8 +49,6 @@ pub(crate) enum SetupStep {
     InitialGlobalMcpScan,
     #[cfg(test)]
     InitialGlobalMcpReadiness,
-    #[cfg(test)]
-    ThirdPartyHarnessExternalConversation,
 }
 
 macro_rules! setup_span {
@@ -86,10 +73,6 @@ impl SetupStep {
             #[cfg(test)]
             Self::InitialGlobalMcpReadiness => {
                 setup_span!("setup_initial_global_mcp_readiness")
-            }
-            #[cfg(test)]
-            Self::ThirdPartyHarnessExternalConversation => {
-                setup_span!("setup_third_party_harness_external_conversation")
             }
         }
     }
