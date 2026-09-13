@@ -2,7 +2,9 @@ pub mod util;
 #[cfg(test)]
 use anyhow::{Result, bail};
 #[cfg(test)]
-pub use util::object_action_history_from_gql;
+use cloud_object_models::TryFromGql;
+#[cfg(test)]
+pub use util::{action_type_to_gql_action_type, object_action_history_from_gql};
 #[cfg(test)]
 use warp_graphql::generic_string_object::GenericStringObjectFormat;
 #[cfg(test)]
@@ -16,7 +18,7 @@ use warp_graphql::object::ObjectUpdateSuccess;
 use crate::cloud_object::{
     RevisionAndLastEditor, ServerAIExecutionProfile, ServerAIFact, ServerAmbientAgentEnvironment,
     ServerEnvVarCollection, ServerFolder, ServerMCPServer, ServerObject, ServerPreference,
-    ServerScheduledAmbientAgent, ServerTemplatableMCPServer, ServerWorkflowEnum, TryFromGql,
+    ServerScheduledAmbientAgent, ServerTemplatableMCPServer, ServerWorkflowEnum,
     UpdateCloudObjectResult,
 };
 #[cfg(test)]
