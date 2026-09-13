@@ -1,4 +1,4 @@
-use rudder_message::Track;
+use rudder_message::{BatchMessageItem, Track};
 use virtual_fs::VirtualFS;
 
 use super::*;
@@ -39,7 +39,7 @@ fn test_persist_events_doesnt_include_ugc_events() {
                 .flush_and_persist_events_at_path(10, PrivacySettingsSnapshot::mock(), &file_path)
                 .expect("Should be able to persist events");
 
-            let file_content: Vec<RudderBatchMessage> =
+            let file_content: Vec<BatchMessageItem> =
                 serde_json::from_reader(File::open(file_path).expect("Failed to open file"))
                     .expect("Failed to parse file");
 
@@ -51,11 +51,15 @@ fn test_persist_events_doesnt_include_ugc_events() {
     );
 }
 
-impl RudderBatchMessage {
+impl BatchMessageItem {
     fn unwrap_track(&self) -> &Track {
         match self {
-            RudderBatchMessage::Track(track) => track,
-            _ => panic!("Expected a track event"),
+            BatchMessageItem::Track(track) => track,
+            BatchMessageItem::Identify(_)
+            | BatchMessageItem::Page(_)
+            | BatchMessageItem::Screen(_)
+            | BatchMessageItem::Group(_)
+            | BatchMessageItem::Alias(_) => panic!("Expected a track event"),
         }
     }
 }
