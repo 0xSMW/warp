@@ -530,16 +530,8 @@ fn cli_task_mapping_survives_cli_session_end() {
     App::test((), |mut app| async move {
         app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
         let cli_sessions_model = app.add_singleton_model(|_| CLIAgentSessionsModel::new());
-        let succeeded_updates = Arc::new(AtomicUsize::new(0));
-        let succeeded_updates_for_mock = succeeded_updates.clone();
         let mut mock = MockAIClient::new();
-        mock.expect_update_agent_task()
-            .returning(move |_, task_state, _, _, _, _, _| {
-                if task_state == Some(AgentTaskState::Succeeded) {
-                    succeeded_updates_for_mock.fetch_add(1, Ordering::SeqCst);
-                }
-                Ok(())
-            });
+        mock.expect_update_agent_task().times(0);
         let ai_client: Arc<dyn AIClient> = Arc::new(mock);
         let model = app.add_singleton_model(|ctx| {
             LocalAgentTaskSyncModel::new_with_ai_client_for_test(ai_client, ctx)
@@ -564,7 +556,15 @@ fn cli_task_mapping_survives_cli_session_end() {
             });
         });
         model.update(&mut app, |model, _| {
+            assert_eq!(
+                model.cli_harness_task_id_for_terminal_view(terminal_view_id),
+                Some(fixed_task_id())
+            );
             model.unregister_cli_session(terminal_view_id);
+            assert_eq!(
+                model.cli_harness_task_id_for_terminal_view(terminal_view_id),
+                None
+            );
         });
         cli_sessions_model.update(&mut app, |_, ctx| {
             ctx.emit(CLIAgentSessionsModelEvent::StatusChanged {
@@ -576,12 +576,6 @@ fn cli_task_mapping_survives_cli_session_end() {
         });
 
         pump_spawned_tasks().await;
-
-        assert_eq!(
-            succeeded_updates.load(Ordering::SeqCst),
-            1,
-            "the accepted success must drain, but a status emitted after unregister must be ignored"
-        );
     });
 }
 
@@ -598,6 +592,7 @@ fn install_model_with_constant_result(
     let cli_sessions_model = app.add_singleton_model(|_| CLIAgentSessionsModel::new());
     let mut mock = MockAIClient::new();
     mock.expect_update_agent_task()
+        .times(0)
         .returning(move |_, _, _, _, _, _, _| {
             if succeed {
                 Ok(())
@@ -640,15 +635,12 @@ fn wait_for_idle_resolves_immediately_when_task_is_idle() {
 }
 
 #[test]
-fn wait_for_idle_resolves_after_updates_deliver_and_terminal_state_is_confirmed() {
+fn local_success_is_idle_without_confirming_server_delivery() {
     App::test((), |mut app| async move {
         let (model, cli_sessions_model) = install_model_with_constant_result(&mut app, true);
         let terminal_view_id = warpui::EntityId::new();
         let task_id = fixed_task_id();
 
-        // `register_cli_session` puts an IN_PROGRESS update in flight, and the
-        // status change queues a terminal SUCCEEDED update behind it, so the
-        // waiter below is registered against a non-idle queue.
         model.update(&mut app, |model, ctx| {
             model.register_cli_session(terminal_view_id, task_id, ctx);
         });
@@ -662,19 +654,17 @@ fn wait_for_idle_resolves_after_updates_deliver_and_terminal_state_is_confirmed(
         let wait = model.update(&mut app, |model, _| model.wait_for_idle(task_id));
         wait.with_timeout(Duration::from_secs(5))
             .await
-            .expect("wait_for_idle must resolve once queued updates finish delivering");
+            .expect("local-only updates must leave the task idle");
 
         let confirmed = model.update(&mut app, |model, _| {
             model.confirmed_terminal_state(&task_id)
         });
-        assert_eq!(confirmed, Some(AgentTaskState::Succeeded));
+        assert_eq!(confirmed, None);
     });
 }
 
-/// A non-`Succeeded` terminal state must be remembered too, so the driver's
-/// clean-exit fallback cannot clobber e.g. a BLOCKED outcome.
 #[test]
-fn confirmed_terminal_state_remembers_blocked() {
+fn local_blocked_state_does_not_confirm_server_delivery() {
     App::test((), |mut app| async move {
         let (model, cli_sessions_model) = install_model_with_constant_result(&mut app, true);
         let terminal_view_id = warpui::EntityId::new();
@@ -695,20 +685,17 @@ fn confirmed_terminal_state_remembers_blocked() {
         let wait = model.update(&mut app, |model, _| model.wait_for_idle(task_id));
         wait.with_timeout(Duration::from_secs(5))
             .await
-            .expect("wait_for_idle must resolve once queued updates finish delivering");
+            .expect("local-only updates must leave the task idle");
 
         let confirmed = model.update(&mut app, |model, _| {
             model.confirmed_terminal_state(&task_id)
         });
-        assert_eq!(confirmed, Some(AgentTaskState::Blocked));
+        assert_eq!(confirmed, None);
     });
 }
 
-/// Delivery failures must not mark a terminal state as confirmed: the
-/// driver's exit-time fallback relies on this to know a report is still
-/// needed.
 #[test]
-fn failed_delivery_does_not_confirm_terminal_state() {
+fn local_success_does_not_attempt_failing_server_delivery() {
     App::test((), |mut app| async move {
         let (model, cli_sessions_model) = install_model_with_constant_result(&mut app, false);
         let terminal_view_id = warpui::EntityId::new();
@@ -727,7 +714,7 @@ fn failed_delivery_does_not_confirm_terminal_state() {
         let wait = model.update(&mut app, |model, _| model.wait_for_idle(task_id));
         wait.with_timeout(Duration::from_secs(5))
             .await
-            .expect("wait_for_idle must resolve even when deliveries fail");
+            .expect("local-only updates must not wait for server delivery");
 
         let confirmed = model.update(&mut app, |model, _| {
             model.confirmed_terminal_state(&task_id)
@@ -737,7 +724,7 @@ fn failed_delivery_does_not_confirm_terminal_state() {
 }
 
 #[test]
-fn shared_session_link_fires_update_agent_task_with_session_id() {
+fn shared_session_link_does_not_send_task_update() {
     App::test((), |mut app| async move {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
@@ -767,14 +754,14 @@ fn shared_session_link_fires_update_agent_task_with_session_id() {
 
         assert_eq!(
             counter.load(Ordering::SeqCst),
-            1,
-            "update_agent_task must be invoked exactly once for the new (task_id, session_id) pair"
+            0,
+            "local-only session links must not invoke update_agent_task"
         );
     });
 }
 
 #[test]
-fn shared_session_link_uses_correct_argument_order() {
+fn shared_session_link_never_calls_cloud_client() {
     App::test((), |mut app| async move {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
@@ -789,22 +776,9 @@ fn shared_session_link_uses_correct_argument_order() {
         });
 
         register_cli_agent_sessions_model(&mut app);
-        // Verify the exact argument shape we send to the server:
-        //   update_agent_task(task_id, None, Some(session_id), None, None)
         let session_id = fixed_session_id();
         let mut mock = MockAIClient::new();
-        mock.expect_update_agent_task()
-            .withf(
-                move |arg_task_id, task_state, arg_session_id, conv_id, status_msg, _, _| {
-                    *arg_task_id == task_id
-                        && task_state.is_none()
-                        && *arg_session_id == Some(session_id)
-                        && conv_id.is_none()
-                        && status_msg.is_none()
-                },
-            )
-            .times(1)
-            .returning(|_, _, _, _, _, _, _| Ok(()));
+        mock.expect_update_agent_task().times(0);
         let ai_client: Arc<dyn AIClient> = Arc::new(mock);
         let _model = app.add_singleton_model(|ctx| {
             LocalAgentTaskSyncModel::new_with_ai_client_for_test(ai_client, ctx)
@@ -818,7 +792,6 @@ fn shared_session_link_uses_correct_argument_order() {
         });
 
         pump_spawned_tasks().await;
-        // Mock drop verifies `.times(1)` and `.withf` predicate.
     });
 }
 
@@ -954,7 +927,7 @@ fn shared_session_link_skips_unknown_conversation() {
 }
 
 #[test]
-fn conversation_server_token_assigned_fires_update_with_conversation_id() {
+fn conversation_server_token_assigned_does_not_send_task_update() {
     App::test((), |mut app| async move {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
@@ -970,21 +943,8 @@ fn conversation_server_token_assigned_fires_update_with_conversation_id() {
         });
 
         register_cli_agent_sessions_model(&mut app);
-        // Verify the exact argument shape we send to the server:
-        //   update_agent_task(task_id, Some(state), None, Some(token), None)
         let mut mock = MockAIClient::new();
-        mock.expect_update_agent_task()
-            .withf(
-                move |arg_task_id, task_state, arg_session_id, conv_id, status_msg, _, _| {
-                    *arg_task_id == task_id
-                        && task_state.is_some()
-                        && arg_session_id.is_none()
-                        && conv_id.as_deref() == Some("server-conversation-id")
-                        && status_msg.is_none()
-                },
-            )
-            .times(1)
-            .returning(|_, _, _, _, _, _, _| Ok(()));
+        mock.expect_update_agent_task().times(0);
         let ai_client: Arc<dyn AIClient> = Arc::new(mock);
         let _model = app.add_singleton_model(|ctx| {
             LocalAgentTaskSyncModel::new_with_ai_client_for_test(ai_client, ctx)
@@ -998,7 +958,6 @@ fn conversation_server_token_assigned_fires_update_with_conversation_id() {
         });
 
         pump_spawned_tasks().await;
-        // Mock drop verifies `.times(1)` and the predicate.
     });
 }
 
@@ -1078,7 +1037,7 @@ fn conversation_server_token_assigned_skips_remote_child_conversations() {
 /// status message from its own status, since that would overwrite the original setup-failure
 /// record the server is preserving for the retained execution's lifetime.
 #[test]
-fn preserve_terminal_setup_failure_conversation_reports_token_without_task_state() {
+fn preserve_terminal_setup_failure_conversation_does_not_send_task_update() {
     App::test((), |mut app| async move {
         let history_model =
             app.add_singleton_model(|_| BlocklistAIHistoryModel::new(vec![], vec![], &[]));
@@ -1096,24 +1055,13 @@ fn preserve_terminal_setup_failure_conversation_reports_token_without_task_state
 
         register_cli_agent_sessions_model(&mut app);
         let mut mock = MockAIClient::new();
-        mock.expect_update_agent_task()
-            .withf(
-                move |arg_task_id, task_state, _, conv_id, status_msg, _, _| {
-                    *arg_task_id == task_id
-                        && task_state.is_none()
-                        && conv_id.is_some()
-                        && status_msg.is_none()
-                },
-            )
-            .times(1)
-            .returning(|_, _, _, _, _, _, _| Ok(()));
+        mock.expect_update_agent_task().times(0);
         let ai_client: Arc<dyn AIClient> = Arc::new(mock);
         let _model = app.add_singleton_model(|ctx| {
             LocalAgentTaskSyncModel::new_with_ai_client_for_test(ai_client, ctx)
         });
 
-        // A debug turn running to a terminal Error status must not construct a task-state
-        // update, even though an ordinary conversation would report FAILED/ERROR here.
+        // Debug turns must also stay local when their status changes.
         history_model.update(&mut app, |model, ctx| {
             let conv = model
                 .conversation_mut(&conversation_id)
@@ -1127,8 +1075,6 @@ fn preserve_terminal_setup_failure_conversation_reports_token_without_task_state
         });
 
         pump_spawned_tasks().await;
-        // Mock drop verifies `.times(1)` and the predicate: exactly one update, carrying only
-        // the conversation token.
     });
 }
 
