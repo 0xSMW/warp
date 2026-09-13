@@ -5118,13 +5118,6 @@ impl TerminalView {
         });
     }
 
-    #[cfg(test)]
-    pub(crate) fn has_queued_command_in_flight(&self, ctx: &AppContext) -> bool {
-        QueuedQueryModel::as_ref(ctx)
-            .command_in_flight_for_terminal_view(self.view_id, BlocklistAIHistoryModel::as_ref(ctx))
-            .is_some()
-    }
-
     fn handle_git_repo_status_event(&mut self, ctx: &mut ViewContext<Self>) {
         if let Some(deferred) = self.deferred_code_review_open.take() {
             self.toggle_code_review_pane(
@@ -17451,7 +17444,6 @@ impl TerminalView {
                 true,
             ) => {
                 // If selection is empty, only show non-block related options
-                let items = Vec::new();
 
                 // Commented out: Share session and remote control.
                 // if FeatureFlag::CreatingSharedSessions.is_enabled()
@@ -17466,7 +17458,7 @@ impl TerminalView {
                 //     ));
                 // }
 
-                items
+                Vec::new()
             }
             _ => vec![],
         };
