@@ -73,24 +73,24 @@ fn command_registry_contains_commands_for_both_surfaces() {
 
     assert_eq!(
         registry
-            .get_command_with_name(UPGRADE.name)
+            .get_command_with_name(EXIT.name)
             .map(|command| command.supported_surfaces),
         Some(SlashCommandSurfaces::TuiOnly)
     );
     assert!(matches!(
         registry
-            .get_command_with_name(ADD_MCP.name)
+            .get_command_with_name(RENAME_TAB.name)
             .map(|command| command.supported_surfaces),
         Some(SlashCommandSurfaces::GuiOnly { .. })
     ));
 }
 
 #[test]
-fn voice_command_is_registered_only_for_tui_mode() {
+fn voice_command_is_not_registered() {
     assert!(
         all_commands(settings::SettingsMode::Tui)
             .iter()
-            .any(|command| command == &VOICE)
+            .all(|command| command != &VOICE)
     );
     assert!(
         !all_commands(settings::SettingsMode::Gui)
@@ -115,16 +115,15 @@ fn view_logs_command_is_registered_only_for_tui_mode() {
 }
 
 #[test]
-fn api_keys_command_is_tui_only_and_has_no_arguments() {
-    let command = all_commands(settings::SettingsMode::Tui)
-        .into_iter()
-        .find(|command| command.kind == SlashCommandKind::ApiKeys)
-        .expect("expected /api-keys to be registered in TUI mode");
-    assert_eq!(command, API_KEYS);
-    assert!(!command.auto_enter_ai_mode);
-    assert_eq!(command.availability, Availability::AI_ENABLED);
-    assert!(command.argument.is_none());
-    assert_eq!(command.description, "View and manage API keys");
+fn api_keys_commands_are_not_registered() {
+    let registry = Registry::new();
+
+    assert_eq!(registry.get_command_with_name("/api-keys"), None);
+    assert_eq!(registry.get_command_with_name("/add-api-key"), None);
+    assert_eq!(
+        registry.get_command_with_name("/clear-provider-api-key"),
+        None
+    );
     assert!(
         all_commands(settings::SettingsMode::Gui)
             .iter()
@@ -133,25 +132,17 @@ fn api_keys_command_is_tui_only_and_has_no_arguments() {
     assert!(
         all_commands(settings::SettingsMode::Tui)
             .iter()
-            .all(|command| !matches!(command.name, "/add-api-key" | "/clear-provider-api-key"))
+            .all(|command| command.kind != SlashCommandKind::ApiKeys)
     );
 }
 
 #[test]
-fn connect_grok_command_is_tui_only_and_has_no_arguments() {
-    let command = all_commands(settings::SettingsMode::Tui)
-        .into_iter()
-        .find(|command| command.kind == SlashCommandKind::ConnectGrok)
-        .expect("expected /connect-grok to be registered in TUI mode");
-    assert_eq!(command, CONNECT_GROK);
-    assert_eq!(command.name, "/connect-grok");
-    assert_eq!(command.supported_surfaces, SlashCommandSurfaces::TuiOnly);
-    assert_eq!(command.availability, Availability::AI_ENABLED);
-    assert!(!command.auto_enter_ai_mode);
-    assert!(command.argument.is_none());
-    assert_eq!(
-        command.description,
-        "Connect your Grok (X Premium / SuperGrok) account"
+fn connect_grok_command_is_not_registered() {
+    assert_eq!(Registry::new().get_command_with_name("/connect-grok"), None);
+    assert!(
+        all_commands(settings::SettingsMode::Tui)
+            .iter()
+            .all(|command| command.kind != SlashCommandKind::ConnectGrok)
     );
     assert!(
         all_commands(settings::SettingsMode::Gui)
@@ -161,17 +152,16 @@ fn connect_grok_command_is_tui_only_and_has_no_arguments() {
 }
 
 #[test]
-fn manage_billing_command_is_always_available_only_in_tui_mode() {
-    let command = all_commands(settings::SettingsMode::Tui)
-        .into_iter()
-        .find(|command| command.kind == SlashCommandKind::ManageBilling)
-        .expect("expected /manage-billing to be registered in TUI mode");
-
-    assert_eq!(command, MANAGE_BILLING);
-    assert_eq!(command.availability, Availability::ALWAYS);
-    assert_eq!(command.supported_surfaces, SlashCommandSurfaces::TuiOnly);
-    assert!(!command.auto_enter_ai_mode);
-    assert!(command.argument.is_none());
+fn manage_billing_command_is_not_registered() {
+    assert_eq!(
+        Registry::new().get_command_with_name("/manage-billing"),
+        None
+    );
+    assert!(
+        all_commands(settings::SettingsMode::Tui)
+            .iter()
+            .all(|command| command.kind != SlashCommandKind::ManageBilling)
+    );
     assert!(
         all_commands(settings::SettingsMode::Gui)
             .iter()
@@ -180,17 +170,13 @@ fn manage_billing_command_is_always_available_only_in_tui_mode() {
 }
 
 #[test]
-fn upgrade_command_is_always_available_only_in_tui_mode() {
-    let command = all_commands(settings::SettingsMode::Tui)
-        .into_iter()
-        .find(|command| command.kind == SlashCommandKind::Upgrade)
-        .expect("expected /upgrade to be registered in TUI mode");
-
-    assert_eq!(command, UPGRADE);
-    assert_eq!(command.availability, Availability::ALWAYS);
-    assert_eq!(command.supported_surfaces, SlashCommandSurfaces::TuiOnly);
-    assert!(!command.auto_enter_ai_mode);
-    assert!(command.argument.is_none());
+fn upgrade_command_is_not_registered() {
+    assert_eq!(Registry::new().get_command_with_name("/upgrade"), None);
+    assert!(
+        all_commands(settings::SettingsMode::Tui)
+            .iter()
+            .all(|command| command.kind != SlashCommandKind::Upgrade)
+    );
     assert!(
         all_commands(settings::SettingsMode::Gui)
             .iter()
@@ -199,16 +185,8 @@ fn upgrade_command_is_always_available_only_in_tui_mode() {
 }
 #[test]
 fn auto_approve_command_is_local_agent_action_without_arguments() {
-    let tui_commands = all_commands(settings::SettingsMode::Tui);
-    let command = tui_commands
-        .iter()
-        .find(|command| command.name == AUTO_APPROVE.name)
-        .expect("expected /auto-approve to be registered in TUI mode");
-    assert!(
-        all_commands(settings::SettingsMode::Gui)
-            .iter()
-            .all(|command| command.name != AUTO_APPROVE.name)
-    );
+    let command = &AUTO_APPROVE;
+    assert_eq!(COMMAND_REGISTRY.get_command_with_name(command.name), None);
 
     assert_eq!(command.description, "Toggle auto approve");
     assert_eq!(command.supported_surfaces.gui_icon_path(), None);
@@ -312,9 +290,8 @@ fn rename_tab_command_requires_argument() {
 
 #[test]
 fn rename_conversation_command_is_active_conversation_scoped_and_requires_argument() {
-    let command = COMMAND_REGISTRY
-        .get_command_with_name(RENAME_CONVERSATION.name)
-        .expect("expected /rename-conversation to be registered");
+    let command = &*RENAME_CONVERSATION;
+    assert_eq!(COMMAND_REGISTRY.get_command_with_name(command.name), None);
     let argument = command
         .argument
         .as_ref()
@@ -337,10 +314,9 @@ fn rename_conversation_command_is_active_conversation_scoped_and_requires_argume
 
 #[cfg(not(target_family = "wasm"))]
 #[test]
-fn continue_locally_command_is_registered() {
-    let command = COMMAND_REGISTRY
-        .get_command_with_name(CONTINUE_LOCALLY.name)
-        .expect("expected /continue-locally to be registered");
+fn continue_locally_command_is_not_registered() {
+    let command = &*CONTINUE_LOCALLY;
+    assert_eq!(COMMAND_REGISTRY.get_command_with_name(command.name), None);
 
     assert_eq!(command.name, "/continue-locally");
     assert_eq!(
@@ -431,23 +407,20 @@ fn strip_command_prefix_substring_not_matched() {
 }
 
 #[test]
-fn copy_debugging_id_command_is_registered_for_gui_and_tui() {
+fn copy_debugging_id_command_is_not_registered() {
     for settings_mode in [settings::SettingsMode::Gui, settings::SettingsMode::Tui] {
         assert!(
             all_commands(settings_mode)
                 .iter()
-                .any(|command| command.kind == SlashCommandKind::CopyDebuggingId),
-            "/copy-debugging-id should be registered in {settings_mode:?} mode"
+                .all(|command| command.kind != SlashCommandKind::CopyDebuggingId),
+            "/copy-debugging-id should not be registered in {settings_mode:?} mode"
         );
     }
 }
 
 #[test]
-fn copy_debugging_id_command_has_correct_registry_metadata() {
-    let command = all_commands(settings::SettingsMode::Tui)
-        .into_iter()
-        .find(|command| command.kind == SlashCommandKind::CopyDebuggingId)
-        .expect("expected /copy-debugging-id to be registered");
+fn copy_debugging_id_command_has_correct_metadata() {
+    let command = &COPY_DEBUGGING_ID;
 
     assert_eq!(command.name, "/copy-debugging-id");
     assert_eq!(command.kind, SlashCommandKind::CopyDebuggingId);
@@ -467,12 +440,12 @@ fn copy_debugging_id_command_has_correct_registry_metadata() {
 }
 
 #[test]
-fn clear_command_is_registered_only_for_tui_mode() {
+fn clear_command_is_not_registered() {
     assert!(
         all_commands(settings::SettingsMode::Tui)
             .iter()
-            .any(|command| command.kind == SlashCommandKind::Clear),
-        "/clear should be registered in TUI mode"
+            .all(|command| command.kind != SlashCommandKind::Clear),
+        "/clear should not be registered in TUI mode"
     );
     assert!(
         all_commands(settings::SettingsMode::Gui)
@@ -483,11 +456,8 @@ fn clear_command_is_registered_only_for_tui_mode() {
 }
 
 #[test]
-fn clear_command_has_correct_registry_metadata() {
-    let command = all_commands(settings::SettingsMode::Tui)
-        .into_iter()
-        .find(|command| command.kind == SlashCommandKind::Clear)
-        .expect("expected /clear to be registered in TUI mode");
+fn clear_command_has_correct_metadata() {
+    let command = &CLEAR;
 
     assert_eq!(command.name, "/clear");
     assert_eq!(command.kind, SlashCommandKind::Clear);
@@ -520,12 +490,12 @@ fn clear_command_is_active_only_outside_cloud_mode() {
 }
 
 #[test]
-fn natural_language_detection_command_is_registered_only_for_tui_mode() {
+fn natural_language_detection_command_is_not_registered() {
     let tui_commands = all_commands(settings::SettingsMode::Tui);
     assert!(
         tui_commands
             .iter()
-            .any(|command| command == &NATURAL_LANGUAGE_DETECTION)
+            .all(|command| command != &NATURAL_LANGUAGE_DETECTION)
     );
 
     let gui_commands = all_commands(settings::SettingsMode::Gui);
@@ -538,10 +508,7 @@ fn natural_language_detection_command_is_registered_only_for_tui_mode() {
 
 #[test]
 fn natural_language_detection_command_is_ai_enabled_and_executes_immediately() {
-    let command = all_commands(settings::SettingsMode::Tui)
-        .into_iter()
-        .find(|command| command.kind == SlashCommandKind::NaturalLanguageDetection)
-        .expect("expected /natural-language-detection to be registered in TUI mode");
+    let command = &NATURAL_LANGUAGE_DETECTION;
     assert_eq!(command.availability, Availability::AI_ENABLED);
     assert!(!command.auto_enter_ai_mode);
     assert!(command.argument.is_none());
