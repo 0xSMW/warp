@@ -22,6 +22,7 @@ permissions: {}
 
 jobs:
   dispatch:
+    if: github.repository_owner == 'warpdotdev'
     name: Dispatch settings-ui-changed to docs
     runs-on: ubuntu-latest
     steps:
