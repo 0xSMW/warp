@@ -1,16 +1,15 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
-use std::sync::Arc;
 
 use serde_json::Value;
 use tempfile::TempDir;
 use uuid::Uuid;
 
-use super::super::codex_transcript::CodexTranscriptEnvelope;
+use super::super::codex_transcript::{
+    CodexTranscriptEnvelope, rehydrate_codex_transcript_from_reader, write_envelope,
+};
 use super::*;
-use crate::ai::agent::api::ServerConversationToken;
-use crate::server::server_api::harness_support::MockHarnessSupportClient;
 
 #[test]
 fn prepare_codex_auth_writes_fresh_file_with_api_key_mode() {
@@ -666,24 +665,19 @@ fn find_child_git_repos_returns_empty_when_dir_missing() {
 }
 
 #[test]
-fn codex_command_with_session_id_invokes_resume_subcommand() {
-    let uuid = Uuid::new_v4();
-    let cmd = codex_command("codex", Some(&uuid), "/tmp/prompt.txt");
-    assert!(
-        cmd.contains(&format!(
-            "resume --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust {uuid}"
-        )),
-        "resume command should pass UUID to `resume`: {cmd}"
-    );
+fn codex_command_starts_fresh_local_session() {
+    let cmd = codex_command("codex", "/tmp/prompt.txt");
+    assert!(cmd.starts_with("codex --"));
+    assert!(!cmd.contains("resume"));
     assert!(
         cmd.contains("\"$(cat '/tmp/prompt.txt')\""),
-        "resume command should pipe prompt: {cmd}"
+        "local command should pipe prompt: {cmd}"
     );
 }
 
 #[test]
-fn codex_command_without_session_id_bypasses_hook_trust() {
-    let cmd = codex_command("codex", None, "/tmp/prompt.txt");
+fn codex_command_bypasses_hook_trust() {
+    let cmd = codex_command("codex", "/tmp/prompt.txt");
     assert!(
         cmd.contains("--dangerously-bypass-approvals-and-sandbox"),
         "command should bypass approvals and sandbox: {cmd}"
@@ -698,40 +692,22 @@ fn codex_command_without_session_id_bypasses_hook_trust() {
     );
 }
 
-#[tokio::test]
-async fn fetch_resume_payload_maps_404_to_resume_state_missing() {
-    let mut mock = MockHarnessSupportClient::new();
-    mock.expect_fetch_transcript()
-        .returning(|| Err(anyhow::anyhow!("upstream returned status 404")));
-    let conversation_id = ServerConversationToken::new("test-conversation-id".to_string());
-
-    let result = CodexHarness
-        .fetch_resume_payload(&conversation_id, Arc::new(mock))
-        .await;
-
-    match result {
-        Err(AgentDriverError::ConversationResumeStateMissing { harness, .. }) => {
-            assert_eq!(harness, "codex");
-        }
-        other => panic!("expected ConversationResumeStateMissing, got {other:?}"),
-    }
+#[test]
+fn local_transcript_resume_rejects_invalid_json() {
+    let error = rehydrate_codex_transcript_from_reader(&b"not json"[..]).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Failed to parse codex transcript envelope")
+    );
 }
 
-#[tokio::test]
-async fn fetch_resume_payload_maps_other_errors_to_load_failed() {
-    let mut mock = MockHarnessSupportClient::new();
-    mock.expect_fetch_transcript()
-        .returning(|| Err(anyhow::anyhow!("connection reset")));
-    let conversation_id = ServerConversationToken::new("test-conversation-id".to_string());
-
-    let result = CodexHarness
-        .fetch_resume_payload(&conversation_id, Arc::new(mock))
-        .await;
-
-    assert!(
-        matches!(result, Err(AgentDriverError::ConversationLoadFailed(_))),
-        "expected ConversationLoadFailed, got {result:?}"
-    );
+#[test]
+fn local_transcript_resume_rejects_missing_session_id() {
+    let error =
+        rehydrate_codex_transcript_from_reader(&br#"{"cwd":"/local/work","entries":[]}"#[..])
+            .unwrap_err();
+    assert!(format!("{error:#}").contains("missing field `session_id`"));
 }
 
 #[test]
@@ -842,35 +818,28 @@ fn resolve_openai_base_url_from_secret_returns_none_when_api_key_not_in_resolved
     assert_eq!(result, None);
 }
 
-#[tokio::test]
-async fn fetch_resume_payload_returns_codex_variant_on_success() {
+#[test]
+fn local_transcript_preserves_session_entries() {
+    let sessions_root = TempDir::new().unwrap();
     let uuid = Uuid::new_v4();
     let envelope = CodexTranscriptEnvelope {
-        cwd: "/cloud/work".into(),
+        cwd: "/local/work".into(),
         session_id: uuid,
         codex_version: Some("0.55.0".to_string()),
-        session_start_timestamp: None,
+        session_start_timestamp: Some("2026-04-17T15:47:00Z".parse().unwrap()),
         entries: vec![serde_json::json!({"type": "event_msg"})],
     };
-    let bytes = serde_json::to_vec(&envelope).unwrap();
 
-    let mut mock = MockHarnessSupportClient::new();
-    mock.expect_fetch_transcript()
-        .returning(move || Ok(bytes::Bytes::from(bytes.clone())));
-    let conversation_id = ServerConversationToken::new("test-conversation-id".to_string());
+    let transcript_path = write_envelope(&envelope, sessions_root.path()).unwrap();
 
-    let payload = CodexHarness
-        .fetch_resume_payload(&conversation_id, Arc::new(mock))
-        .await
-        .unwrap()
-        .unwrap();
-
-    match payload {
-        ResumePayload::Codex(info) => {
-            assert_eq!(info.session_id, uuid);
-            assert_eq!(info.conversation_id, conversation_id);
-            assert_eq!(info.envelope.codex_version.as_deref(), Some("0.55.0"));
-        }
-        other => panic!("expected ResumePayload::Codex, got {other:?}"),
-    }
+    assert_eq!(
+        transcript_path,
+        sessions_root.path().join(format!(
+            "2026/04/17/rollout-2026-04-17T15-47-00-{uuid}.jsonl"
+        ))
+    );
+    assert_eq!(
+        fs::read_to_string(transcript_path).unwrap(),
+        "{\"type\":\"event_msg\"}\n"
+    );
 }
