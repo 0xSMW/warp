@@ -86,12 +86,26 @@ const PTY_READS_BATCH_THRESHOLD: Duration = Duration::from_millis(250);
 #[cfg(any(test, feature = "integration_tests"))]
 const SELECTION_THROTTLE_PERIOD: Duration = Duration::from_millis(20);
 #[cfg(any(test, feature = "integration_tests"))]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 const AMBIENT_CREATE_SESSION_MAX_ATTEMPTS: usize = 3;
 /// Exponential backoff when retrying reconnection. This configuration has us retry for ~128 seconds before giving up,
 /// where the last interval between retries is 26s.
 /// We should be somewhat generous with the amount of retries allowed when a sharer wants to recover their session,
 /// since they have the choice of giving up early by closing the window/stopping sharing.
 #[cfg(any(test, feature = "integration_tests"))]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 const RECONNECT_RETRY_STRATEGY: RetryOption = RetryOption::exponential(
     Duration::from_millis(1000), /* interval */
     1.2,                         /* exponential factor */
@@ -129,6 +143,13 @@ fn connect_endpoint(path: String) -> Option<String> {
 }
 
 #[cfg(all(feature = "integration_tests", not(test)))]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 fn connect_endpoint(_path: String) -> Option<String> {
     None
 }
@@ -176,6 +197,13 @@ macro_rules! sharer_error {
 /// How far along the starting process we are.
 #[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug)]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 enum Stage {
     /// The server is not ready to receive messages from us.
     BeforeStarted { startup_retry: StartupRetryState },
@@ -215,6 +243,13 @@ struct CachedLatestState {
 
 #[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug)]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 struct StartupRetryState {
     current_attempt: usize,
     max_attempts: usize,
@@ -236,6 +271,13 @@ impl StartupRetryState {
 
 #[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug)]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 enum StartupFailure {
     Transport,
     InitializeSend,
@@ -247,6 +289,13 @@ enum StartupFailure {
 
 #[cfg(any(test, feature = "integration_tests"))]
 impl StartupFailure {
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn is_retryable(&self) -> bool {
         match self {
             Self::Transport
@@ -261,6 +310,13 @@ impl StartupFailure {
         }
     }
 
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn failed_reason(&self) -> FailedToInitializeSessionReason {
         match self {
             Self::ServerRejected(reason) => reason.clone(),
@@ -278,6 +334,13 @@ impl StartupFailure {
         }
     }
 
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn diagnostic_label(&self) -> &'static str {
         match self {
             Self::Transport => "transport_error",
@@ -300,6 +363,13 @@ impl StartupFailure {
 }
 
 #[cfg(any(test, feature = "integration_tests"))]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 fn share_with_team_uid_for_init_payload(
     scope: &(impl crate::workspaces::user_workspaces::TeamScope + ?Sized),
 ) -> Option<String> {
@@ -311,6 +381,13 @@ fn share_with_team_uid_for_init_payload(
 }
 
 #[cfg(any(test, feature = "integration_tests"))]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 fn startup_max_attempts(source: &SharedSessionSource) -> usize {
     if matches!(source.source_type, SessionSourceType::AmbientAgent { .. }) {
         AMBIENT_CREATE_SESSION_MAX_ATTEMPTS
@@ -339,6 +416,13 @@ pub struct Network {
 
     // TODO (suraj): figure out how to better structure the
     // Network model for testing so that we don't need stuff like this.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     ws_proxy_rx: async_channel::Receiver<UpstreamMessage>,
 
     selection_throttled_tx: async_channel::Sender<Selection>,
@@ -347,6 +431,13 @@ pub struct Network {
 
     // These fields are Some once we successfully connect and create the shared session.
     session_id: Option<SessionId>,
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     reconnect_token: Option<ReconnectToken>,
     sharer_id: Option<ParticipantId>,
     source: SharedSessionSource,
@@ -717,21 +808,6 @@ impl Network {
             Some(update.merge_into(current));
     }
 
-    /// Returns true only while `attempt` is still the active startup attempt.
-    ///
-    /// Use this for one-shot startup callbacks that are only valid while the session is
-    /// still starting, such as the create-connection result, attempt timeout, or
-    /// transport-handle cleanup. After `SessionInitialized` advances the stage, this
-    /// intentionally returns false even for the attempt that successfully created the
-    /// session.
-    fn is_active_startup_attempt_callback(&self, attempt: usize) -> bool {
-        matches!(
-            &self.stage,
-            Stage::BeforeStarted { startup_retry }
-                if startup_retry.current_attempt == attempt
-        )
-    }
-
     /// Returns true when callbacks owned by a startup-created websocket should be ignored.
     ///
     /// Use this for long-lived websocket callbacks created by a startup attempt: receive
@@ -739,9 +815,13 @@ impl Network {
     /// callback. The accepted startup websocket continues to be the live session
     /// websocket after `SessionInitialized`, so this helper also checks the winning
     /// `startup_attempt` stored in `Stage::StartedSuccessfully`.
-    ///
-    /// Do not use this for one-shot startup callbacks that should only run before the
-    /// session starts; use `is_active_startup_attempt_callback` for those.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn should_ignore_startup_attempt_websocket_callback(&self, attempt: usize) -> bool {
         matches!(
             &self.stage,
@@ -755,6 +835,13 @@ impl Network {
         )
     }
 
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn should_retry_startup_failure(&self, failure: &StartupFailure) -> bool {
         failure.is_retryable()
             && matches!(
@@ -764,6 +851,13 @@ impl Network {
             )
     }
 
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn abort_startup_handles(&mut self) {
         if let Stage::BeforeStarted { startup_retry } = &mut self.stage {
             if let Some(handle) = startup_retry.timeout_abort_handle.take() {
@@ -775,14 +869,35 @@ impl Network {
         }
     }
 
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn close_startup_transport(&mut self) {
         self.ws_proxy_tx.close();
     }
 
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn handle_startup_failure(&mut self, failure: StartupFailure, ctx: &mut ModelContext<Self>) {
         self.handle_startup_failure_with_cause(failure, None, ctx);
     }
 
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn handle_startup_failure_with_cause(
         &mut self,
         failure: StartupFailure,
@@ -838,6 +953,13 @@ impl Network {
     /// Successfully connecting to the server here does not mean we reconnected to the session, since the server could reply with an error.
     /// We must wait for DownstreamMessage::SessionReconnected to confirm successful reconnection to the session and update the stage.
     /// We also will not initiate an attempt if the session has been explicitly ended or is already attempting to reconnect.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     pub fn reconnect_websocket(&mut self, ctx: &mut ModelContext<Self>) {
         if matches!(self.stage, Stage::Finished | Stage::Reconnecting { .. }) {
             return;
@@ -958,6 +1080,13 @@ impl Network {
     /// Prepare to send and receive messages over the websocket.
     /// ws_proxy_rx is an intermediate channel we use to buffer messages that we'll eventually send to the server through the sink.
     /// The stream is for receiving messages from the server.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn on_websocket_connected(
         &mut self,
         startup_attempt: Option<usize>,
@@ -1076,6 +1205,13 @@ impl Network {
         );
     }
 
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn process_websocket_message(&mut self, message: Message, ctx: &mut ModelContext<Self>) {
         // Ignore non-text frames (e.g. ping frames sent by the server).
         let Some(text) = message.text() else {
@@ -1471,6 +1607,13 @@ impl Network {
     /// Sends all input updates buffered during disconnection to the server, then clears the buffer.
     /// This is more a best-effort attempt because these events are not critical - that's why they are not ordered terminal events.
     /// With ordered terminal events we require an ack from the server before the client can remove them from the buffer, but we don't do that for these events.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn flush_pending_input_updates_to_server(&mut self) {
         // Take the updates out of self to avoid a borrow conflict with sharer_warn!, which
         // borrows all of self while drain() holds a mutable borrow on pending_input_updates.
@@ -1491,6 +1634,13 @@ impl Network {
 
     /// Send all stored terminal events from [start_event_no, ...) to the server
     /// The events are not removed from memory.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn flush_terminal_events_to_server(&self, start_event_no: usize) {
         let mut event_no = start_event_no;
         while let Some(event) = self.unacked_terminal_events.get(&event_no) {
@@ -1511,6 +1661,13 @@ impl Network {
 
     /// Send everything in `self.cached_latest_state` to the server.
     /// This is needed when we (re)connect to the server, since all values were dropped before we were connected.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     fn send_latest_state_to_server(&mut self) {
         self.send_active_prompt_update(self.cached_latest_state.prompt.clone());
 
@@ -1661,6 +1818,13 @@ impl Network {
 const NO_QUOTA_REMAINING_MESSAGE: &str =
     "Session sharing usage exceeded for the day. Please try again later.";
 #[cfg(any(test, feature = "integration_tests"))]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 fn session_terminated_reason_diagnostic_label(reason: &SessionTerminatedReason) -> &'static str {
     match reason {
         SessionTerminatedReason::NoUserQuotaRemaining {} => "no_user_quota_remaining",
@@ -1724,6 +1888,13 @@ pub fn failed_to_add_guests_user_error(reason: &FailedToAddGuestsReason) -> Stri
 }
 
 #[cfg(any(test, feature = "integration_tests"))]
+#[cfg_attr(
+    all(not(test), feature = "integration_tests"),
+    allow(
+        dead_code,
+        reason = "Retained integration harness support while live session networking is disabled"
+    )
+)]
 pub enum NetworkEvent {
     SharedSessionCreatedSuccessfully {
         session_id: SessionId,
