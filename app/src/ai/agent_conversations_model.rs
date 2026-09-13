@@ -834,7 +834,6 @@ impl AgentConversationsModel {
         #[cfg(not(any(test, feature = "integration_tests")))]
         {
             let _ = (event, ctx);
-            return;
         }
 
         #[cfg(any(test, feature = "integration_tests"))]
@@ -1782,6 +1781,18 @@ impl AgentConversationsModel {
     /// Get raw task data by task ID
     pub fn get_task_data(&self, task_id: &AmbientAgentTaskId) -> Option<AmbientAgentTask> {
         self.tasks.get(task_id).cloned()
+    }
+
+    #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained for the test-only cloud conversation search data source"
+        )
+    )]
+    pub(crate) fn tasks_iter(&self) -> impl Iterator<Item = &AmbientAgentTask> {
+        self.tasks.values()
     }
 
     /// Returns the error details when the most recent fetch for `task_id` ended in a
