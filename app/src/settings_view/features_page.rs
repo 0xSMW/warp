@@ -8,8 +8,6 @@ use ::settings::{Setting, ToggleableSetting};
 use lazy_static::lazy_static;
 use strum::IntoEnumIterator;
 use warp_core::channel::ChannelState;
-// Commented out with the shared-session settings registration.
-// use warp_core::context_flag::ContextFlag;
 use warp_core::semantic_selection::{
     SemanticSelection, SemanticSelectionChangedEvent, SmartSelectEnabled,
 };
@@ -24,6 +22,7 @@ use warpui::platform::{Cursor, GraphicsBackend};
 use warpui::rendering::GPUPowerPreference;
 use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use warpui::ui_components::slider::SliderStateHandle;
 use warpui::ui_components::switch::SwitchStateHandle;
 use warpui::{
     Action, AppContext, DisplayIdx, Entity, EventContext, ModelHandle, SingletonEntity, Tracked,
@@ -110,6 +109,9 @@ use crate::util::bindings::{
     keybinding_name_to_display_string, reset_keybinding_to_default, set_custom_keybinding,
 };
 use crate::view_components::{Dropdown, DropdownItem, FilterableDropdown};
+// Commented out with the shared-session settings registration.
+// use warp_core::context_flag::ContextFlag;
+use crate::window_settings::{BackgroundBlurRadius, BackgroundOpacity, WindowSettings};
 use crate::workspace::WorkspaceAction;
 use crate::workspace::tab_settings::{NewTabPlacement, TabSettings, TabSettingsChangedEvent};
 use crate::{GlobalResourceHandles, send_telemetry_from_ctx, themes};
@@ -791,6 +793,8 @@ pub enum FeaturesPageAction {
     QuakeEditorSetHeightPercentage,
     QuakeEditorResetWidthHeight,
     QuakeEditorTogglePinWindow,
+    SetHotkeyOpacity(f32),
+    SetHotkeyBlurRadius(f32),
     OpenUrl(String),
     SetExtraMetaKeys(ExtraMetaKeys),
     ToggleLeftMetaKey,
@@ -1111,6 +1115,12 @@ impl FeaturesPageAction {
                     ),
                 }
             }
+            Self::SetHotkeyOpacity(value) => TelemetryEvent::SetOpacity {
+                opacity: *value as u8,
+            },
+            Self::SetHotkeyBlurRadius(value) => TelemetryEvent::SetBlurRadius {
+                blur_radius: *value as u8,
+            },
             Self::QuakeEditorTogglePinWindow => TelemetryEvent::FeaturesPageAction {
                 action: "QuakeEditorTogglePinWindow".to_string(),
                 value: to_string(
@@ -1684,6 +1694,26 @@ impl TypedActionView for FeaturesPageView {
                 KeysSettings::handle(ctx).update(ctx, |keys_settings, ctx| {
                     keys_settings
                         .set_quake_mode_pin_screen_and_write_to_user_defaults(*pin_screen, ctx)
+                });
+                ctx.notify();
+            }
+            SetHotkeyOpacity(value) => {
+                WindowSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(
+                        settings
+                            .hotkey_background_opacity
+                            .set_value(*value as u8, ctx)
+                    );
+                });
+                ctx.notify();
+            }
+            SetHotkeyBlurRadius(value) => {
+                WindowSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(
+                        settings
+                            .hotkey_background_blur_radius
+                            .set_value(*value as u8, ctx)
+                    );
                 });
                 ctx.notify();
             }
@@ -2910,6 +2940,10 @@ impl FeaturesPageView {
             .is_supported_on_current_platform()
         {
             keys_widgets.push(Box::new(GlobalHotkeyWidget::default()));
+            keys_widgets.push(Box::new(HotkeyOpacityWidget::default()));
+            if cfg!(target_os = "macos") {
+                keys_widgets.push(Box::new(HotkeyBlurRadiusWidget::default()));
+            }
         }
 
         let mut text_editing_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> =
@@ -7901,6 +7935,108 @@ impl SettingsWidget for AsyncFindWidget {
                 "Use an improved implementation of find to keep the UI responsive while searching for matches on large outputs."
                     .into(),
             ),
+        )
+    }
+}
+
+#[derive(Default)]
+struct HotkeyOpacityWidget {
+    slider_state: SliderStateHandle,
+}
+
+impl SettingsWidget for HotkeyOpacityWidget {
+    type View = FeaturesPageView;
+
+    fn search_terms(&self) -> &str {
+        "global hotkey dedicated window quake opacity transparency"
+    }
+
+    fn should_render(&self, app: &AppContext) -> bool {
+        !app.is_wayland() && *KeysSettings::as_ref(app).quake_mode_enabled
+    }
+
+    fn render(
+        &self,
+        _: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let value = *WindowSettings::as_ref(app).hotkey_background_opacity;
+        render_body_item::<FeaturesPageAction>(
+            format!("Hotkey window opacity: {value}"),
+            None,
+            LocalOnlyIconState::Hidden,
+            ToggleState::Enabled,
+            appearance,
+            appearance
+                .ui_builder()
+                .slider(self.slider_state.clone())
+                .with_range(BackgroundOpacity::MIN as f32..BackgroundOpacity::MAX as f32)
+                .with_default_value(value as f32)
+                .with_style(UiComponentStyles {
+                    width: Some(200.0),
+                    ..Default::default()
+                })
+                .on_drag(|ctx, _, value| {
+                    ctx.dispatch_typed_action(FeaturesPageAction::SetHotkeyOpacity(value))
+                })
+                .on_change(|ctx, _, value| {
+                    ctx.dispatch_typed_action(FeaturesPageAction::SetHotkeyOpacity(value))
+                })
+                .build()
+                .finish(),
+            None,
+        )
+    }
+}
+
+#[derive(Default)]
+struct HotkeyBlurRadiusWidget {
+    slider_state: SliderStateHandle,
+}
+
+impl SettingsWidget for HotkeyBlurRadiusWidget {
+    type View = FeaturesPageView;
+
+    fn search_terms(&self) -> &str {
+        "global hotkey dedicated window quake blur radius"
+    }
+
+    fn should_render(&self, app: &AppContext) -> bool {
+        !app.is_wayland() && *KeysSettings::as_ref(app).quake_mode_enabled
+    }
+
+    fn render(
+        &self,
+        _: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let value = *WindowSettings::as_ref(app).hotkey_background_blur_radius;
+        render_body_item::<FeaturesPageAction>(
+            format!("Hotkey window blur radius: {value}"),
+            None,
+            LocalOnlyIconState::Hidden,
+            ToggleState::Enabled,
+            appearance,
+            appearance
+                .ui_builder()
+                .slider(self.slider_state.clone())
+                .with_range(BackgroundBlurRadius::MIN as f32..BackgroundBlurRadius::MAX as f32)
+                .with_default_value(value as f32)
+                .with_style(UiComponentStyles {
+                    width: Some(200.0),
+                    ..Default::default()
+                })
+                .on_drag(|ctx, _, value| {
+                    ctx.dispatch_typed_action(FeaturesPageAction::SetHotkeyBlurRadius(value))
+                })
+                .on_change(|ctx, _, value| {
+                    ctx.dispatch_typed_action(FeaturesPageAction::SetHotkeyBlurRadius(value))
+                })
+                .build()
+                .finish(),
+            None,
         )
     }
 }
