@@ -184,6 +184,23 @@ impl GuiSlashCommandDataSource {
         }
     }
 
+    #[cfg(test)]
+    pub fn command_is_active(&self, command: &StaticCommand, ctx: &AppContext) -> bool {
+        let availability = self.availability(ctx);
+        command.supports_gui()
+            && self.command_passes_common_gates(
+                command,
+                availability,
+                &self.common_command_gates(ctx),
+            )
+            && self.command_passes_gui_gates(
+                command,
+                availability,
+                #[cfg(not(target_family = "wasm"))]
+                ctx,
+            )
+    }
+
     fn availability(&self, ctx: &AppContext) -> Availability {
         let is_agent_view_active = self.is_agent_view_active(ctx);
         let mut availability =
