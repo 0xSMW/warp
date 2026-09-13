@@ -104,7 +104,7 @@ impl TelemetryApi {
                 self.persist_events_to_telemetry_log_file(events.clone())?;
             }
 
-            return Ok(event_count);
+            Ok(event_count)
         }
 
         #[cfg(not(test))]
