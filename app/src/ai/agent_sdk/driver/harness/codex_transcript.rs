@@ -82,12 +82,12 @@ pub(crate) struct CodexSessionMetadata {
     pub(crate) session_start_timestamp: Option<DateTime<Utc>>,
 }
 
+/*
 /// Everything needed to resume an existing Codex conversation.
 ///
 /// Built from a `--conversation` id after the client fetches the stored envelope from
 /// the server. Passed into `CodexHarnessRunner::new` so the runner reuses the existing
 /// session and server conversation ids instead of minting fresh ones.
-/*
 #[derive(Debug)]
 pub(crate) struct CodexResumeInfo {
     /// Warp server-side conversation id. Reused so subsequent transcript/block-snapshot
@@ -103,6 +103,13 @@ pub(crate) struct CodexResumeInfo {
 #[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct CodexLocalContinuation {
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained continuation output for disabled cloud transcript consumers"
+        )
+    )]
     pub(crate) command: String,
 }
 
