@@ -939,6 +939,13 @@ pub struct PaneGroup {
     #[cfg(test)]
     /// Ambient agent panes whose task data was not yet cached at restoration time.
     /// Entries are removed as each task's data arrives and the pane is replaced.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     pending_ambient_agent_conversation_restorations: HashMap<AmbientAgentTaskId, PaneId>,
 
     /// Hidden remote-child placeholders waiting on task data, keyed by
@@ -1460,12 +1467,10 @@ impl PaneGroup {
                 // Agent mode: enter the agent view. When setup commands are
                 // pending (e.g. worktree creation), defer entry until they
                 // complete so they run in terminal mode.
-                if matches!(pane_mode, PaneMode::Agent) {
-                    if is_local_mode() {
-                        log::warn!(
-                            "Agent Mode pane creation is disabled in local builds; keeping a local terminal"
-                        );
-                    }
+                if matches!(pane_mode, PaneMode::Agent) && is_local_mode() {
+                    log::warn!(
+                        "Agent Mode pane creation is disabled in local builds; keeping a local terminal"
+                    );
                 }
                 if !is_local_mode() && matches!(pane_mode, PaneMode::Agent) {
                     if !has_commands {
@@ -3246,6 +3251,13 @@ impl PaneGroup {
     /// Helper that creates the initial [`PaneData`] and [`InitialFocus`] given a terminal view.
     /// This is a common case in creating a new pane group with a single terminal session.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     fn terminal_pane_data(
         uuid: Vec<u8>,
         view: ViewHandle<TerminalView>,
@@ -3297,6 +3309,13 @@ impl PaneGroup {
 
     /// Helper to create the terminal manager and view for an ambient agent pane.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     fn create_ambient_agent_terminal(
         resources: TerminalViewResources,
         view_bounds_size: Vector2F,
@@ -3453,16 +3472,14 @@ impl PaneGroup {
             }
         };
 
-        let pane_group = Self::new_internal(
+        Self::new_internal(
             tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             server_api,
             model_event_sender.clone(),
             Box::new(initial_layout),
             ctx,
-        );
-
-        pane_group
+        )
     }
 
     pub fn new_from_existing_pane(
@@ -3514,7 +3531,7 @@ impl PaneGroup {
             tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             server_api,
-            PanesLayout::SingleTerminal(Box::new(NewTerminalOptions::default())),
+            PanesLayout::SingleTerminal(Box::default()),
             Arc::new(HashMap::new()),
             model_event_sender,
             ctx,
@@ -3538,7 +3555,7 @@ impl PaneGroup {
             tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             server_api,
-            PanesLayout::SingleTerminal(Box::new(NewTerminalOptions::default())),
+            PanesLayout::SingleTerminal(Box::default()),
             Arc::new(HashMap::new()),
             model_event_sender,
             ctx,
@@ -3560,7 +3577,7 @@ impl PaneGroup {
             tips_completed,
             user_default_shell_unsupported_banner_model_handle,
             server_api,
-            PanesLayout::SingleTerminal(Box::new(NewTerminalOptions::default())),
+            PanesLayout::SingleTerminal(Box::default()),
             Arc::new(HashMap::new()),
             model_event_sender,
             ctx,
@@ -3582,6 +3599,13 @@ impl PaneGroup {
 
     /// Load conversation data into a specific transcript viewer terminal view.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     fn load_data_into_transcript_viewer(
         &mut self,
         terminal_view: ViewHandle<TerminalView>,
@@ -5270,6 +5294,13 @@ impl PaneGroup {
     }
 
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     fn replace_loading_pane_with_restored_ambient_cloud_mode_pane(
         &mut self,
         loading_pane_id: PaneId,
@@ -5293,6 +5324,13 @@ impl PaneGroup {
     }
 
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     fn replace_loading_pane_with_restored_ambient_cloud_mode_pane_inner(
         &mut self,
         loading_pane_id: PaneId,
