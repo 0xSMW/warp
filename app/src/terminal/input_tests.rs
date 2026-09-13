@@ -20,7 +20,6 @@ use warp_completer::completer::{
     SuggestionResults, SuggestionType,
 };
 use warp_completer::meta::Span;
-use warp_util::standardized_path::StandardizedPath;
 use warp_util::user_input::UserInput;
 use warpui::platform::WindowStyle;
 use warpui::text::SelectionType;
@@ -797,7 +796,6 @@ fn zero_state_hint_text_only_registers_active_slash_command_placeholders() {
         initialize_app(&mut app);
 
         let session_info = SessionInfo::new_for_test();
-        let session_id = session_info.session_id;
         let terminal = add_window_with_bootstrapped_terminal(
             &mut app,
             None, /* history_file_commands */
@@ -812,14 +810,24 @@ fn zero_state_hint_text_only_registers_active_slash_command_placeholders() {
 
         let editor = input.read(&app, |input, _| input.editor().clone());
         let rename_tab_prefix = format!("{} ", commands::RENAME_TAB.name);
-        let continue_locally_prefix = format!("{} ", commands::CONTINUE_LOCALLY.name);
+        let theme_prefix = format!("{} ", commands::THEME.name);
+
+        assert!(
+            COMMAND_REGISTRY
+                .get_command_with_name(commands::THEME.name)
+                .is_some()
+        );
+        assert!(
+            COMMAND_REGISTRY
+                .get_command_with_name(commands::CONTINUE_LOCALLY.name)
+                .is_none()
+        );
+        assert!(editor.read(&app, |editor, _| {
+            editor.placeholder_text("/continue-locally ").is_none()
+        }));
 
         editor.update(&mut app, |editor, ctx| {
-            editor.set_placeholder_text_with_prefix(
-                continue_locally_prefix.clone(),
-                "stale hint",
-                ctx,
-            );
+            editor.set_placeholder_text_with_prefix(theme_prefix.clone(), "stale hint", ctx);
         });
         input.update(&mut app, |input, ctx| {
             input.set_zero_state_hint_text(ctx);
@@ -833,39 +841,24 @@ fn zero_state_hint_text_only_registers_active_slash_command_placeholders() {
         );
         assert!(
             editor.read(&app, |editor, _| editor
-                .placeholder_text(&continue_locally_prefix)
+                .placeholder_text(&theme_prefix)
                 .is_none()),
-            "/continue-locally should not be registered outside cloud conversation context"
+            "TUI-only /theme should not have a placeholder in the GUI"
         );
 
         editor.update(&mut app, |editor, ctx| {
-            editor.set_placeholder_text_with_prefix(
-                continue_locally_prefix.clone(),
-                "stale hint",
-                ctx,
-            );
+            editor.set_placeholder_text_with_prefix(theme_prefix.clone(), "stale hint", ctx);
         });
 
-        let repo_dir = tempfile::TempDir::new().expect("repo temp dir");
-        let repo_path = repo_dir.path().to_path_buf();
-        simulate_directory_for_completion(
-            session_id,
-            &terminal,
-            &mut app,
-            repo_path.to_string_lossy().into_owned(),
-        );
-        DetectedRepositories::handle(&app).update(&mut app, |repos, _| {
-            let root = StandardizedPath::from_local_canonicalized(&repo_path)
-                .expect("canonicalized repo root");
-            repos.insert_test_repo_root(root);
-        });
         input.update(&mut app, |input, ctx| {
-            input.update_repo_path(Some(repo_path), ctx);
+            input.slash_command_data_source.update(ctx, |_, ctx| {
+                ctx.emit(UpdatedActiveCommands);
+            });
         });
 
         assert!(
             editor.read(&app, |editor, _| editor
-                .placeholder_text(&continue_locally_prefix)
+                .placeholder_text(&theme_prefix)
                 .is_none()),
             "active slash-command data source updates should refresh stale placeholders"
         );
@@ -4764,11 +4757,19 @@ fn test_agent_mode_set_while_typing_slash_command() {
 
         // Add a command with a space
         input.update(&mut app, |input, ctx| {
-            input.user_insert("plan ", ctx);
+            input.user_insert("rename-tab ", ctx);
         });
 
         // Verify menu is closed and we're still in agent mode
         input.read(&app, |input, ctx| {
+            assert_eq!(
+                input
+                    .slash_command_model
+                    .as_ref(ctx)
+                    .state()
+                    .detected_command(),
+                Some(&*commands::RENAME_TAB)
+            );
             assert!(matches!(
                 input.suggestions_mode_model.as_ref(ctx).mode(),
                 InputSuggestionsMode::Closed
@@ -4957,7 +4958,7 @@ fn test_open_slash_command_requires_path() {
 }
 
 #[test]
-fn test_changelog_slash_command_clears_buffer_on_success() {
+fn test_changelog_slash_command_is_not_registered() {
     App::test((), |mut app| async move {
         initialize_app(&mut app);
 
@@ -4974,12 +4975,28 @@ fn test_changelog_slash_command_clears_buffer_on_success() {
             });
         });
 
-        input.update(&mut app, |input, ctx| {
-            input.input_enter(ctx);
-        });
-
         input.read(&app, |input, ctx| {
-            assert_eq!(input.buffer_text(ctx), "");
+            assert!(
+                COMMAND_REGISTRY
+                    .get_command_with_name(commands::CHANGELOG.name)
+                    .is_none()
+            );
+            assert!(
+                input
+                    .slash_command_data_source
+                    .as_ref(ctx)
+                    .parse_slash_command(commands::CHANGELOG.name)
+                    .is_none()
+            );
+            assert!(
+                input
+                    .slash_command_model
+                    .as_ref(ctx)
+                    .state()
+                    .detected_command()
+                    .is_none()
+            );
+            assert_eq!(input.buffer_text(ctx), commands::CHANGELOG.name);
         });
     });
 }
