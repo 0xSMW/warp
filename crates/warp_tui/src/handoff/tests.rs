@@ -10,13 +10,11 @@ use warpui::platform::WindowStyle;
 use warpui::{
     AddWindowOptions, App, SingletonEntity, TuiView as _, ViewHandle, WindowInvalidation,
 };
-use warpui_core::elements::tui::{Modifier, TuiBuffer, TuiBufferExt, TuiRect};
-use warpui_core::keymap::Keystroke;
+use warpui_core::elements::tui::{TuiBuffer, TuiBufferExt, TuiRect};
 use warpui_core::presenter::tui::TuiPresenter;
 
 use super::TuiTerminalSessionView;
 use crate::autoupdate::TuiAutoupdater;
-use crate::handoff::TuiHandoffBlock;
 use crate::orchestration_model::TuiOrchestrationModel;
 use crate::root_view::RootTuiView;
 use crate::session_registry::TuiSessions;
@@ -51,38 +49,20 @@ fn fixture(app: &mut App) -> Fixture {
     Fixture { view, window_id }
 }
 
-fn dispatch(
-    app: &mut App,
-    window_id: warpui_core::WindowId,
-    path: &[warpui_core::EntityId],
-    key: &str,
-) -> bool {
-    app.dispatch_keystroke(
-        window_id,
-        path,
-        &Keystroke::parse(key).expect("valid keystroke"),
-        false,
-    )
-    .expect("keystroke dispatch succeeds")
-}
-
-fn submit_handoff(app: &mut App, fixture: &Fixture, text: &str) -> ViewHandle<TuiHandoffBlock> {
+fn compose_unavailable_handoff(app: &mut App, fixture: &Fixture, text: &str) {
     fixture.view.update(app, |view, ctx| {
         view.input_view.update(ctx, |input, ctx| {
             input.set_text(text, ctx);
         });
         ctx.focus(&view.input_view);
+        assert!(!matches!(
+            view.slash_commands_source
+                .as_ref(ctx)
+                .parse_input(text, ctx),
+            ParsedSlashCommandInput::SlashCommand(_)
+        ));
+        assert!(view.active_handoff(ctx).is_none());
     });
-    let input_id = fixture.view.read(app, |view, _| view.input_view.id());
-    assert!(dispatch(
-        app,
-        fixture.window_id,
-        &[fixture.view.id(), input_id],
-        "enter",
-    ));
-    fixture.view.read(app, |view, ctx| {
-        view.active_handoff(ctx).expect("handoff card is installed")
-    })
 }
 
 fn input_text(app: &App, fixture: &Fixture) -> String {
@@ -134,11 +114,17 @@ fn slash_menu_selection_inserts_handoff_for_optional_prompt_composition() {
 }
 
 #[test]
-fn no_environment_card_has_top_padding_and_ctrl_c_restores_prompt_and_images() {
+fn disabled_handoff_preserves_the_full_draft_and_images_without_a_card() {
     let _oz_handoff = FeatureFlag::OzHandoff.override_enabled(true);
     let _local_cloud = FeatureFlag::HandoffLocalCloud.override_enabled(true);
     App::test((), |mut app| async move {
         let fixture = fixture(&mut app);
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .should_force_disable_cloud_handoff
+                .set_value(true, ctx)
+                .expect("test setting persists");
+        });
         fixture.view.update(&mut app, |view, ctx| {
             view.ai_context_model.update(ctx, |context, ctx| {
                 context.append_pending_attachments(
@@ -152,84 +138,29 @@ fn no_environment_card_has_top_padding_and_ctrl_c_restores_prompt_and_images() {
                 );
             });
         });
-        let handoff = submit_handoff(&mut app, &fixture, "/handoff finish the task");
-
-        assert_eq!(input_text(&app, &fixture), "");
-        fixture.view.read(&app, |view, ctx| {
-            assert!(
-                view.ai_context_model
-                    .as_ref(ctx)
-                    .pending_attachments()
-                    .is_empty()
+        compose_unavailable_handoff(&mut app, &fixture, "/handoff finish the task");
+        fixture.view.update(&mut app, |view, ctx| {
+            view.execute_tui_slash_command(
+                &slash_commands::MOVE_TO_CLOUD,
+                Some(&"finish the task".to_owned()),
+                ctx,
             );
         });
-        let buffer = render_session(&mut app, &fixture);
-        let rendered_lines = buffer.to_lines();
-        let lines = rendered_lines.join("\n");
-        let normalized_lines = lines.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(lines.contains("Hand off to cloud"), "{lines}");
-        assert!(
-            normalized_lines.contains("The agent will work on this session in the cloud."),
-            "{lines}"
-        );
-        let explanation_row = rendered_lines
-            .iter()
-            .position(|line| line.contains("The agent will work on this session in the cloud."))
-            .expect("handoff explanation renders");
-        let explanation_column = rendered_lines[explanation_row]
-            .find("The agent will work on this session in the cloud.")
-            .expect("handoff explanation column");
-        assert!(
-            buffer[(
-                u16::try_from(explanation_column).unwrap(),
-                u16::try_from(explanation_row).unwrap()
-            )]
-                .modifier
-                .contains(Modifier::BOLD),
-            "handoff explanation is bold"
-        );
-        assert!(
-            rendered_lines[explanation_row + 1].trim().is_empty(),
-            "handoff explanation has a blank row before configuration"
-        );
-        assert!(lines.contains("A cloud environment is required"), "{lines}");
-        assert!(lines.contains("Enter open environments"), "{lines}");
-        assert!(!lines.contains("finish the task"), "{lines}");
-        let title_row = lines
-            .lines()
-            .position(|line| line.contains("Hand off to cloud"))
-            .expect("handoff title renders");
-        assert!(
-            lines
-                .lines()
-                .nth(title_row.saturating_sub(1))
-                .is_some_and(|line| line.trim().is_empty()),
-            "the handoff card has a blank row above it:\n{lines}"
-        );
 
-        assert!(dispatch(
-            &mut app,
-            fixture.window_id,
-            &[fixture.view.id(), handoff.id()],
-            "ctrl-c",
-        ));
-        assert_eq!(input_text(&app, &fixture), "finish the task");
+        assert_eq!(input_text(&app, &fixture), "/handoff finish the task");
         fixture.view.read(&app, |view, ctx| {
-            assert_eq!(
-                view.ai_context_model
-                    .as_ref(ctx)
-                    .pending_attachments()
-                    .len(),
-                1
-            );
-            assert!(
-                view.terminal_model
-                    .lock()
-                    .block_list()
-                    .rich_content_row_range(handoff.id())
-                    .is_none()
-            );
+            let attachments = view.ai_context_model.as_ref(ctx).pending_attachments();
+            assert_eq!(attachments.len(), 1);
+            assert!(matches!(
+                &attachments[0],
+                PendingAttachment::Image(image)
+                    if image.data == "aW1hZ2U=" && image.file_name == "context.png"
+            ));
             assert!(view.active_handoff(ctx).is_none());
+            assert_eq!(
+                view.transient_hint.current().map(|(text, _)| text),
+                Some("Cloud handoff is unavailable."),
+            );
             assert!(
                 !view
                     .session_state(ctx)
@@ -237,50 +168,66 @@ fn no_environment_card_has_top_padding_and_ctrl_c_restores_prompt_and_images() {
                     .has_blocking_interaction()
             );
         });
+        let rendered = render_session(&mut app, &fixture).to_lines().join("\n");
+        assert!(rendered.contains("/handoff finish the task"), "{rendered}");
+        assert!(!rendered.contains("Hand off to cloud"), "{rendered}");
+        assert!(
+            !rendered.contains("A cloud environment is required"),
+            "{rendered}"
+        );
     });
 }
 
 #[test]
-fn settings_invalidation_restores_the_draft_and_repeated_submission_keeps_one_card() {
+fn settings_invalidation_and_repeated_handoff_rejection_preserve_the_draft() {
     let _oz_handoff = FeatureFlag::OzHandoff.override_enabled(true);
     let _local_cloud = FeatureFlag::HandoffLocalCloud.override_enabled(true);
     App::test((), |mut app| async move {
         let fixture = fixture(&mut app);
-        let handoff = submit_handoff(&mut app, &fixture, "/handoff preserve me");
-        fixture.view.update(&mut app, |view, ctx| {
-            view.execute_tui_slash_command(
-                &slash_commands::MOVE_TO_CLOUD,
-                Some(&"second".to_owned()),
-                ctx,
-            );
-        });
-        fixture.view.read(&app, |view, ctx| {
-            assert_eq!(
-                view.active_handoff(ctx).map(|view| view.id()),
-                Some(handoff.id())
-            );
-        });
-
+        compose_unavailable_handoff(&mut app, &fixture, "/handoff preserve me");
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
             settings
                 .should_force_disable_cloud_handoff
                 .set_value(true, ctx)
                 .expect("test setting persists");
         });
-        assert_eq!(input_text(&app, &fixture), "preserve me");
+        assert_eq!(input_text(&app, &fixture), "/handoff preserve me");
+        fixture.view.update(&mut app, |view, ctx| {
+            view.execute_tui_slash_command(
+                &slash_commands::MOVE_TO_CLOUD,
+                Some(&"preserve me".to_owned()),
+                ctx,
+            );
+            view.execute_tui_slash_command(
+                &slash_commands::MOVE_TO_CLOUD,
+                Some(&"second".to_owned()),
+                ctx,
+            );
+        });
+        assert_eq!(input_text(&app, &fixture), "/handoff preserve me");
         fixture.view.read(&app, |view, ctx| {
             assert!(view.active_handoff(ctx).is_none());
+            assert_eq!(
+                view.transient_hint.current().map(|(text, _)| text),
+                Some("Cloud handoff is unavailable."),
+            );
+            assert!(!matches!(
+                view.slash_commands_source
+                    .as_ref(ctx)
+                    .parse_input("/handoff another", ctx),
+                ParsedSlashCommandInput::SlashCommand(_)
+            ));
         });
     });
 }
 
 #[test]
-fn privacy_invalidation_restores_the_draft_and_removes_handoff_from_commands() {
+fn privacy_invalidation_preserves_the_draft_and_keeps_handoff_unavailable() {
     let _oz_handoff = FeatureFlag::OzHandoff.override_enabled(true);
     let _local_cloud = FeatureFlag::HandoffLocalCloud.override_enabled(true);
     App::test((), |mut app| async move {
         let fixture = fixture(&mut app);
-        submit_handoff(&mut app, &fixture, "/handoff preserve privacy draft");
+        compose_unavailable_handoff(&mut app, &fixture, "/handoff preserve privacy draft");
 
         warp::settings::PrivacySettings::handle(&app).update(&mut app, |privacy_settings, ctx| {
             privacy_settings.is_cloud_conversation_storage_enabled = false;
@@ -292,7 +239,17 @@ fn privacy_invalidation_restores_the_draft_and_removes_handoff_from_commands() {
             );
         });
 
-        assert_eq!(input_text(&app, &fixture), "preserve privacy draft");
+        fixture.view.update(&mut app, |view, ctx| {
+            view.execute_tui_slash_command(
+                &slash_commands::MOVE_TO_CLOUD,
+                Some(&"preserve privacy draft".to_owned()),
+                ctx,
+            );
+        });
+        assert_eq!(
+            input_text(&app, &fixture),
+            "/handoff preserve privacy draft"
+        );
         fixture.view.read(&app, |view, ctx| {
             assert!(view.active_handoff(ctx).is_none());
             assert!(!matches!(
