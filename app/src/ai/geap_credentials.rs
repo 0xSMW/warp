@@ -304,7 +304,6 @@ fn refresh_geap_credentials_with_options(
             force,
             ctx,
         );
-        return;
     }
 
     #[cfg(test)]
