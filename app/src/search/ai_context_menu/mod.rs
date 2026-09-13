@@ -2,6 +2,13 @@ mod blocks;
 mod code;
 mod commands;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod conversations;
 mod diffset;
 mod files;
@@ -10,6 +17,13 @@ mod notebooks;
 mod rules;
 pub mod search;
 #[cfg(all(not(target_family = "wasm"), test))]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod skills;
 mod styles;
 pub mod view;
