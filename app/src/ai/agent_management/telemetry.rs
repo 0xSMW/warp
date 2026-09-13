@@ -115,6 +115,13 @@ pub enum AgentManagementTelemetryEvent {
     DetailsPanelContinueLocally,
     /// User invoked the /continue-locally slash command
     #[cfg(all(test, not(target_family = "wasm")))]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained for the disabled cloud continuation slash command telemetry schema"
+        )
+    )]
     SlashCommandContinueLocally,
     /// User clicked "Open in Warp" in the tombstone (wasm)
     #[cfg(target_family = "wasm")]
