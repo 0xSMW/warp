@@ -1244,40 +1244,38 @@ impl TuiOrchestrationModel {
             .get(&conversation_id)
             .copied();
 
-        if is_in_progress {
-            if is_remote {
-                #[cfg(test)]
-                if let Some(task_id) = BlocklistAIHistoryModel::as_ref(ctx)
-                    .conversation(&conversation_id)
-                    .and_then(|c| c.task_id())
-                {
-                    let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
-                    ctx.spawn(
-                        async move { ai_client.cancel_ambient_agent_task(&task_id).await },
-                        |_, result, _| {
-                            if let Err(e) = result {
-                                log::warn!("kill_child_agent: failed to cancel cloud task: {e:#}");
-                            }
-                        },
-                    );
-                }
-                #[cfg(not(test))]
-                log::debug!(
-                    "TUI remote child cancellation skipped in local-only mode for \
-                     {conversation_id:?}"
+        if is_in_progress && is_remote {
+            #[cfg(test)]
+            if let Some(task_id) = BlocklistAIHistoryModel::as_ref(ctx)
+                .conversation(&conversation_id)
+                .and_then(|c| c.task_id())
+            {
+                let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
+                ctx.spawn(
+                    async move { ai_client.cancel_ambient_agent_task(&task_id).await },
+                    |_, result, _| {
+                        if let Err(e) = result {
+                            log::warn!("kill_child_agent: failed to cancel cloud task: {e:#}");
+                        }
+                    },
                 );
             }
-            #[cfg(test)]
-            if let Some(session_id) = child_session_id {
-                // Cancelling through the session is deferred until the current
-                // view update completes, then cleanup resumes from the event
-                // handler while the conversation is still available.
-                ctx.emit(TuiOrchestrationEvent::KillLocalChildSession {
-                    session_id,
-                    conversation_id,
-                });
-                return;
-            }
+            #[cfg(not(test))]
+            log::debug!(
+                "TUI remote child cancellation skipped in local-only mode for \
+                     {conversation_id:?}"
+            );
+        }
+        #[cfg(test)]
+        if is_in_progress && let Some(session_id) = child_session_id {
+            // Cancelling through the session is deferred until the current
+            // view update completes, then cleanup resumes from the event
+            // handler while the conversation is still available.
+            ctx.emit(TuiOrchestrationEvent::KillLocalChildSession {
+                session_id,
+                conversation_id,
+            });
+            return;
         }
 
         self.cleanup_child(&conversation_id, ctx);
