@@ -582,6 +582,13 @@ impl AgentDriver {
     /// server) and waits for them to settle. Both startup phases run even when one degrades,
     /// collecting degradation details so non-strict runs can continue with whichever servers
     /// did start.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     pub(super) async fn start_task_mcp_servers(
         mcp_specs: &[MCPSpec],
         managed_mcp_client: Arc<dyn ManagedMcpClient>,
@@ -671,6 +678,13 @@ impl AgentDriver {
 
     /// Start MCP servers from profile allowlist for the terminal.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     pub(super) fn start_profile_mcp_servers(
         &self,
         ctx: &mut ModelContext<Self>,
@@ -689,6 +703,13 @@ impl AgentDriver {
     }
 
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     fn get_mcp_servers_to_start(
         &self,
         uuids: &[Uuid],
@@ -730,6 +751,13 @@ impl AgentDriver {
     /// Must be called before the servers are spawned so no state changes are missed. See
     /// [`Self::await_model_event`] for why waits on the manager must not overlap.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     fn wait_for_mcp_servers_started(
         &self,
         servers: HashMap<Uuid, String>,
@@ -821,6 +849,13 @@ impl AgentDriver {
     /// Fold an MCP startup result into `degraded`, propagating any error that
     /// is fatal regardless of the strict MCP startup setting.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     fn collect_mcp_degradation(
         result: Result<(), AgentDriverError>,
         degraded: &mut Vec<String>,
@@ -841,6 +876,13 @@ impl AgentDriver {
     /// Otherwise the run continues without the unavailable servers: the
     /// degradation is logged and reported as a run status message.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     pub(super) async fn handle_mcp_startup_result(
         result: Result<(), AgentDriverError>,
         foreground: &ModelSpawner<Self>,
@@ -896,6 +938,13 @@ impl AgentDriver {
     }
 
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     fn spawn_inactive_servers(
         &self,
         servers_to_start: HashSet<Uuid>,
@@ -910,6 +959,13 @@ impl AgentDriver {
     }
 
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     fn start_mcp_servers(
         &self,
         uuids: &[Uuid],
@@ -952,6 +1008,13 @@ impl AgentDriver {
     /// Start ephemeral MCP servers from inline JSON specifications.
     /// These servers are not persisted and exist only for the duration of the agent run.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     fn start_ephemeral_mcp_servers(
         &self,
         installations: Vec<TemplatableMCPServerInstallation>,
@@ -1046,6 +1109,13 @@ impl AgentDriver {
     /// missed; the `timeout` clock only starts once the returned future is polled. Non-fatal:
     /// resolves with an empty set on timeout or cancellation.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only MCP startup pipeline for disabled legacy cloud driver entry points"
+        )
+    )]
     pub(super) fn wait_for_cloud_env_file_based_mcp_scan(
         &self,
         expected_repos: Vec<PathBuf>,
