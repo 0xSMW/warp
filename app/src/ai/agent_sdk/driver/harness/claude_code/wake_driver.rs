@@ -53,6 +53,13 @@ pub(super) struct ClaudeWakeRemoteContext {
 }
 
 impl ClaudeHarness {
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained disabled wake entry point for legacy orchestration callers"
+        )
+    )]
     pub(crate) async fn wake_dormant_session(
         _server_api: Arc<ServerApi>,
         _conversation: AIConversation,
