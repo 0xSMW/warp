@@ -101,6 +101,9 @@
     
     NSDictionary* mapping = @{
         @"aurora": @"aurora",
+        @"crtblue": @"crt_blue",
+        @"crtgreen": @"crt_green",
+        @"crtamber": @"crt_amber",
         @"classic1": @"classic_1",
         @"classic2": @"classic_2",
         @"classic3": @"classic_3",

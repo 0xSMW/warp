@@ -29,6 +29,12 @@ pub enum AppIcon {
     #[default]
     #[schemars(description = "Default")]
     Default,
+    #[schemars(description = "CRT Blue")]
+    CrtBlue,
+    #[schemars(description = "CRT Green")]
+    CrtGreen,
+    #[schemars(description = "CRT Amber")]
+    CrtAmber,
     #[schemars(description = "Aurora")]
     Aurora,
     #[schemars(description = "Classic 1")]
@@ -71,6 +77,9 @@ impl std::fmt::Display for AppIcon {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = match &self {
             AppIcon::Default => "Default",
+            AppIcon::CrtBlue => "CRT Blue",
+            AppIcon::CrtGreen => "CRT Green",
+            AppIcon::CrtAmber => "CRT Amber",
             AppIcon::Aurora => "Aurora",
             AppIcon::Classic1 => "Classic 1",
             AppIcon::Classic2 => "Classic 2",
@@ -95,6 +104,9 @@ impl std::fmt::Display for AppIcon {
 impl AppIconSettings {
     pub fn get_base_icon_file_name(icon: AppIcon) -> &'static str {
         match icon {
+            AppIcon::CrtBlue => "crt_blue",
+            AppIcon::CrtGreen => "crt_green",
+            AppIcon::CrtAmber => "crt_amber",
             AppIcon::Aurora => "aurora",
             AppIcon::Default => match ChannelState::channel() {
                 Channel::Dev => "dev",

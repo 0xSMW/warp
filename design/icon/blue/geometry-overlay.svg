@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <image href="warp-terminal-1024.png" width="1024" height="1024"/>
+  <g fill="none" stroke-width="2" transform="translate(512 512) scale(0.9285714285714286) translate(-512 -512)">
+    <rect x="64" y="64" width="896" height="896" stroke="cyan"/>
+    <rect x="148" y="148" width="728" height="728" stroke="cyan"/>
+    <rect x="253.854125" y="305.4905675" width="516.29175" height="413.018865" stroke="#00ff88"/>
+    <path d="M512 0V1024M0 512H1024" stroke="magenta" stroke-dasharray="8 8"/>
+  </g>
+  <g font-family="sans-serif" font-size="20" fill="white">
+    <text x="70" y="50">Frame: 96,96 → 928,928 · 832×832</text>
+    <text x="156" y="140">Screen: 174,174 → 850,850 · 676×676</text>
+    <text x="258" y="295">Glyph: 479.41×383.52 · center 512,512</text>
+    <text x="310" y="998">Center deviation: x=0, y=0 px</text>
+  </g>
+</svg>

@@ -44,6 +44,10 @@ embed_plist::embed_info_plist_bytes!(r#"
     <string>6.0</string>
     <key>CFBundleName</key>
     <string>WarpLocal</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

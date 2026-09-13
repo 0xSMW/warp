@@ -195,6 +195,23 @@ impl AppearanceManager {
             let bundle_path = bundle.bundlePath();
             let workspace = NSWorkspace::sharedWorkspace();
 
+            if ChannelState::channel() == Channel::Local
+                && icon == AppIcon::Default
+                && let Some(icon_path) = bundle
+                    .pathForResource_ofType(Some(ns_string!("AppIcon")), Some(ns_string!("icns")))
+                && let Some(image) = NSImage::initWithContentsOfFile(NSImage::alloc(), &icon_path)
+            {
+                // Local bundles do not include the Dock tile plugin.
+                unsafe { ns_app.setApplicationIconImage(Some(&image)) };
+                workspace.setIcon_forFile_options(
+                    Some(&image),
+                    &bundle_path,
+                    NSWorkspaceIconCreationOptions::empty(),
+                );
+                workspace.noteFileSystemChanged_(&bundle_path);
+                return;
+            }
+
             // If the user has selected the default icon, reset to the icon that is statically
             // bundled in the app bundle. The bundled icon gets automatically "filtered" according
             // to the user's "Icon & Widget style" setting in the MacOS appearance settings (added
@@ -227,6 +244,25 @@ impl AppearanceManager {
             let icon_name = AppIconSettings::get_base_icon_file_name(icon);
 
             log::debug!("Setting app icon in memory to: {icon_name}");
+            if ChannelState::channel() == Channel::Local {
+                let Some(resources_path) = bundle.resourcePath() else {
+                    return;
+                };
+                let relative_path = NSString::from_str(&format!("app-icons/{icon_name}.png"));
+                let image_path = resources_path.stringByAppendingPathComponent(&relative_path);
+                let Some(image) = NSImage::initWithContentsOfFile(NSImage::alloc(), &image_path)
+                else {
+                    return;
+                };
+                unsafe { ns_app.setApplicationIconImage(Some(&image)) };
+                workspace.setIcon_forFile_options(
+                    Some(&image),
+                    &bundle_path,
+                    NSWorkspaceIconCreationOptions::empty(),
+                );
+                workspace.noteFileSystemChanged_(&bundle_path);
+                return;
+            }
             // Locate the plugin bundle.
             let Some(plugins_path) = bundle.builtInPlugInsPath() else {
                 log::warn!("Failed to get dock tile plugin bundle");

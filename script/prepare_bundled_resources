@@ -49,6 +49,11 @@ fi
 # Create the destination directory if it doesn't exist
 mkdir -p "$DEST_DIR"
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  mkdir -p "$DEST_DIR/app-icons"
+  cp "$REPO_ROOT"/app/DockTilePlugin/Resources/*.png "$DEST_DIR/app-icons/"
+fi
+
 # Copy bundled resources
 if [ -d "$RESOURCES_SRC/bundled" ]; then
   echo "Copying bundled resources to $DEST_DIR/bundled"

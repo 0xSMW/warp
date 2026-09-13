@@ -1665,6 +1665,9 @@ impl AppearanceSettingsPageView {
         match val {
             AppIcon::Aurora => "Aurora",
             AppIcon::Default => "Default",
+            AppIcon::CrtBlue => "CRT Blue",
+            AppIcon::CrtGreen => "CRT Green",
+            AppIcon::CrtAmber => "CRT Amber",
             AppIcon::Classic1 => "Classic 1",
             AppIcon::Classic2 => "Classic 2",
             AppIcon::Classic3 => "Classic 3",
