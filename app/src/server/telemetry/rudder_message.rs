@@ -15,6 +15,10 @@ use crate::auth::UserUid;
 #[cfg(test)]
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[allow(
+    dead_code,
+    reason = "Retained SDK wire envelope for telemetry compatibility tests"
+)]
 pub enum Message {
     Identify(Identify),
     Track(Track),
@@ -209,6 +213,10 @@ pub struct Alias {
 /// A batch of events.
 #[cfg(test)]
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Default)]
+#[allow(
+    dead_code,
+    reason = "Retained SDK batch envelope for telemetry compatibility tests"
+)]
 pub struct Batch {
     /// The batch of messages to send.
     pub batch: Vec<BatchMessageItem>,
