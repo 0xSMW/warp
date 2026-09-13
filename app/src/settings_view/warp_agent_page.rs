@@ -12,7 +12,7 @@ use std::ops::Not;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
-use ::ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent, ApiKeys, CustomEndpointParams};
+use ::ai::api_keys::{ApiKeyManager, ApiKeyManagerEvent, ApiKeys};
 #[cfg(not(target_family = "wasm"))]
 use ::ai::grok_subscription::oauth::{
     self, ManualCodeExchange, OauthCancellationHandle, TokenResponse,
@@ -1391,52 +1391,6 @@ impl WarpAgentPageView {
         self.show_set_default_model_modal(description, choices, ctx);
     }
 
-    /// After a custom endpoint is added or saved, offer to switch the default
-    /// Agent Mode model to one of its models.
-    fn maybe_prompt_set_default_model_for_custom_endpoint(
-        &mut self,
-        endpoint_index: usize,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if !Self::can_use_custom_inference_controls(ctx) {
-            return;
-        }
-        if !Self::should_offer_default_model_switch(ctx) {
-            return;
-        }
-        let Some(endpoint) = ApiKeyManager::as_ref(ctx)
-            .custom_endpoints()
-            .get(endpoint_index)
-            .cloned()
-        else {
-            return;
-        };
-        // Build directly from the endpoint's models rather than the synthetic
-        // `custom_llms`, which are rebuilt asynchronously on `KeysUpdated`.
-        let choices: Vec<(LLMId, String)> = endpoint
-            .models
-            .iter()
-            .filter(|m| !m.name.trim().is_empty() && !m.config_key.is_empty())
-            .map(|m| {
-                (
-                    LLMId::from(m.config_key.clone()),
-                    m.display_label().to_string(),
-                )
-            })
-            .collect();
-        if choices.is_empty() {
-            return;
-        }
-        let current_default = Self::active_base_model_display_name(ctx);
-        let description = format!(
-            "You added the \"{}\" custom endpoint, but your default model is currently set to \
-             {current_default}, which won't work without Warp credits. Would you like to change \
-             your default model?",
-            endpoint.name
-        );
-        self.show_set_default_model_modal(description, choices, ctx);
-    }
-
     fn sync_custom_endpoint_buttons(&mut self, ctx: &mut ViewContext<Self>) {
         let enabled = Self::can_use_custom_inference_controls(ctx);
 
@@ -1565,90 +1519,11 @@ impl WarpAgentPageView {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            CustomEndpointModalEvent::Close => {
+            CustomEndpointModalEvent::Close => self.hide_custom_endpoint_modal(ctx),
+            CustomEndpointModalEvent::AddEndpoint { .. }
+            | CustomEndpointModalEvent::SaveEndpoint { .. } => {
+                log::warn!("Custom inference endpoint changes are unavailable in local-only mode");
                 self.hide_custom_endpoint_modal(ctx);
-            }
-            CustomEndpointModalEvent::AddEndpoint {
-                name,
-                url,
-                api_key,
-                schema,
-                models,
-            } => {
-                if !Self::can_use_custom_inference_controls(ctx) {
-                    self.hide_custom_endpoint_modal(ctx);
-                    return;
-                }
-                let result = crate::ai::custom_endpoints::add(
-                    CustomEndpointParams {
-                        name: name.clone(),
-                        url: url.clone(),
-                        api_key: api_key.clone(),
-                        models: models.clone(),
-                        schema: *schema,
-                    },
-                    ctx,
-                );
-                if let Err(error) = result {
-                    log::warn!("Could not add custom endpoint: {error:#}");
-                    return;
-                }
-                self.hide_custom_endpoint_modal(ctx);
-
-                let window_id = ctx.window_id();
-                crate::ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = crate::view_components::DismissibleToast::success(
-                        "Endpoint added".to_string(),
-                    );
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-
-                // The new endpoint is appended last.
-                let new_index = ApiKeyManager::as_ref(ctx)
-                    .custom_endpoints()
-                    .len()
-                    .saturating_sub(1);
-                self.maybe_prompt_set_default_model_for_custom_endpoint(new_index, ctx);
-                ctx.notify();
-            }
-            CustomEndpointModalEvent::SaveEndpoint {
-                index,
-                name,
-                url,
-                api_key,
-                schema,
-                models,
-            } => {
-                if !Self::can_use_custom_inference_controls(ctx) {
-                    self.hide_custom_endpoint_modal(ctx);
-                    return;
-                }
-                let result = crate::ai::custom_endpoints::save(
-                    *index,
-                    CustomEndpointParams {
-                        name: name.clone(),
-                        url: url.clone(),
-                        api_key: api_key.clone(),
-                        models: models.clone(),
-                        schema: *schema,
-                    },
-                    ctx,
-                );
-                if let Err(error) = result {
-                    log::warn!("Could not save custom endpoint: {error:#}");
-                    return;
-                }
-                self.hide_custom_endpoint_modal(ctx);
-
-                let window_id = ctx.window_id();
-                crate::ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = crate::view_components::DismissibleToast::success(
-                        "Endpoint saved".to_string(),
-                    );
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-                self.maybe_prompt_set_default_model_for_custom_endpoint(*index, ctx);
-                ctx.notify();
             }
             CustomEndpointModalEvent::RemoveEndpoint { index } => {
                 if !Self::can_use_custom_inference_controls(ctx) {
@@ -1699,45 +1574,17 @@ impl WarpAgentPageView {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            RemoveCustomEndpointConfirmationDialogEvent::Cancel => {
-                self.pending_remove_custom_endpoint_index = None;
-                self.remove_custom_endpoint_confirmation_dialog
-                    .update(ctx, |dialog, ctx| {
-                        dialog.hide(ctx);
-                    });
-                ctx.notify();
-            }
-            RemoveCustomEndpointConfirmationDialogEvent::Confirm(index) => {
-                if !Self::can_use_custom_inference_controls(ctx) {
-                    self.pending_remove_custom_endpoint_index = None;
-                    self.remove_custom_endpoint_confirmation_dialog
-                        .update(ctx, |dialog, ctx| {
-                            dialog.hide(ctx);
-                        });
-                    ctx.notify();
-                    return;
-                }
-                if let Err(error) = crate::ai::custom_endpoints::remove(*index, ctx) {
-                    log::warn!("Could not remove custom endpoint: {error:#}");
-                    return;
-                }
-                self.pending_remove_custom_endpoint_index = None;
-                self.remove_custom_endpoint_confirmation_dialog
-                    .update(ctx, |dialog, ctx| {
-                        dialog.hide(ctx);
-                    });
-                self.sync_custom_endpoint_buttons(ctx);
-
-                let window_id = ctx.window_id();
-                crate::ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                    let toast = crate::view_components::DismissibleToast::success(
-                        "Endpoint removed".to_string(),
-                    );
-                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-                ctx.notify();
+            RemoveCustomEndpointConfirmationDialogEvent::Cancel => {}
+            RemoveCustomEndpointConfirmationDialogEvent::Confirm(_) => {
+                log::warn!("Custom inference endpoint changes are unavailable in local-only mode");
             }
         }
+        self.pending_remove_custom_endpoint_index = None;
+        self.remove_custom_endpoint_confirmation_dialog
+            .update(ctx, |dialog, ctx| {
+                dialog.hide(ctx);
+            });
+        ctx.notify();
     }
 
     #[cfg(not(target_family = "wasm"))]
@@ -2270,7 +2117,7 @@ impl WarpAgentPageView {
             .map(|router| {
                 let router_clone = router.clone();
                 let view = ctx.add_typed_action_view(|ctx| CustomRouterView::new(router, ctx));
-                ctx.subscribe_to_view(&view, move |me, _, event, ctx| match event {
+                ctx.subscribe_to_view(&view, move |_, _, event, ctx| match event {
                     CustomRouterViewEvent::OpenFile(path) => {
                         ctx.emit(WarpAgentPageEvent::OpenCustomRouterFile(path.clone()));
                     }
@@ -2279,18 +2126,9 @@ impl WarpAgentPageView {
                         ctx.emit(WarpAgentPageEvent::OpenCustomRouterEditor(Some(r)));
                     }
                     CustomRouterViewEvent::Delete => {
-                        if let Some(path) = &router_clone.source_path {
-                            #[cfg(feature = "local_fs")]
-                            {
-                                if let Err(e) =
-                                    crate::user_config::WarpConfig::delete_custom_model_router(path)
-                                {
-                                    log::warn!("Failed to delete custom router: {e:?}");
-                                }
-                            }
-                            me.router_views = Self::create_router_views(ctx);
-                            ctx.notify();
-                        }
+                        log::warn!(
+                            "Custom model router deletion is unavailable in local-only mode"
+                        );
                     }
                 });
                 view
