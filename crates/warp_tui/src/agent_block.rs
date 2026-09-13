@@ -48,6 +48,7 @@ use crate::agent_block_sections::{
 };
 use crate::agent_message::render_agent_message;
 use crate::orchestration_block::{TuiOrchestrationBlock, TuiOrchestrationBlockEvent};
+#[cfg(test)]
 use crate::orchestration_model::{TuiOrchestrationEvent, TuiOrchestrationModel};
 use crate::terminal_session_view::BlockingInputSource;
 use crate::transcript_view::BLOCK_TOP_PADDING_ROWS;
@@ -530,6 +531,7 @@ impl TuiAIBlock {
             },
         );
 
+        #[cfg(test)]
         if block.renders_agent_messages(ctx) && ctx.has_singleton_model::<TuiOrchestrationModel>() {
             ctx.subscribe_to_model(&TuiOrchestrationModel::handle(ctx), |me, _, event, ctx| {
                 if let TuiOrchestrationEvent::RestoredRemoteChildStatusUpdated { conversation_id } =
@@ -1127,6 +1129,7 @@ impl TuiAIBlock {
     }
 
     /// Returns whether this block renders any received-agent message.
+    #[cfg(test)]
     fn renders_agent_messages(&self, app: &AppContext) -> bool {
         let status = self.block_model.status(app);
         let Some(output) = status.output_to_render() else {
@@ -1143,6 +1146,7 @@ impl TuiAIBlock {
 
     /// Returns whether this block renders a received message whose sender
     /// resolves to `conversation_id`.
+    #[cfg(test)]
     fn renders_agent_message_from(
         &self,
         conversation_id: AIConversationId,

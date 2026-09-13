@@ -220,18 +220,18 @@ impl AgentToolbarItemKind {
             Self::ContextWindowUsage,
             Self::ModelSelector,
         ];
-        if FeatureFlag::CreatingSharedSessions.is_enabled()
-            && FeatureFlag::HOARemoteControl.is_enabled()
-        {
-            items.push(Self::ShareSession);
-        }
+        // if FeatureFlag::CreatingSharedSessions.is_enabled()
+        //     && FeatureFlag::HOARemoteControl.is_enabled()
+        // {
+        //     items.push(Self::ShareSession);
+        // }
         if FeatureFlag::OzHandoff.is_enabled()
             && FeatureFlag::HandoffLocalCloud.is_enabled()
             && cfg!(all(feature = "local_fs", not(target_family = "wasm")))
         {
             items.push(Self::HandoffToCloud);
         }
-        items.push(Self::VoiceInput);
+        // items.push(Self::VoiceInput);
         items.push(Self::FileAttach);
         items
     }
@@ -270,20 +270,20 @@ impl AgentToolbarItemKind {
 
     /// Default left-side items for the CLI agent footer.
     pub fn cli_default_left() -> Vec<Self> {
-        let mut items = vec![
+        let items = vec![
             Self::FileAttach,
-            Self::VoiceInput,
+            // Self::VoiceInput,
             Self::ContextChip(ContextChipKind::GitDiffStats),
         ];
-        if FeatureFlag::CreatingSharedSessions.is_enabled()
-            && FeatureFlag::HOARemoteControl.is_enabled()
-        {
-            items.push(Self::ShareSession);
-        }
-        items.push(Self::FileExplorer);
-        if FeatureFlag::CLIAgentRichInput.is_enabled() {
-            items.push(Self::RichInput);
-        }
+        // if FeatureFlag::CreatingSharedSessions.is_enabled()
+        //     && FeatureFlag::HOARemoteControl.is_enabled()
+        // {
+        //     items.push(Self::ShareSession);
+        // }
+        // items.push(Self::FileExplorer);
+        // if FeatureFlag::CLIAgentRichInput.is_enabled() {
+        //     items.push(Self::RichInput);
+        // }
         items
     }
 

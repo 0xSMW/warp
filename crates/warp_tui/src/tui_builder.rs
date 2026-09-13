@@ -27,6 +27,7 @@ use crate::orchestrated_agent_identity_styling::{AgentIdentity, agent_identity_p
 use crate::tab_bar::TuiTabBarStyles;
 use crate::terminal_background::probed_colors;
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 pub(crate) struct CloudRunMarkStyles {
     pub(crate) base: TuiStyle,
@@ -207,6 +208,7 @@ impl TuiUiBuilder {
         TuiStyle::default().fg(cell_color(ThemeFill::Solid(self.warp_theme.ansi_fg_blue())))
     }
 
+    #[cfg(test)]
     pub(crate) fn cloud_run_mark_styles(&self) -> CloudRunMarkStyles {
         let blue = ThemeFill::from(self.warp_theme.terminal_colors().normal.blue);
         let foreground = self.warp_theme.foreground();

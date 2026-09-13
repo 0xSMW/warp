@@ -4,40 +4,51 @@
 //! `CreateAgent` and waits for a frontend to materialize the child. In the
 //! GUI that materializer is `TerminalView` → `PaneGroup`'s hidden child
 //! panes; in the TUI, [`crate::session_registry::TuiSessions`] owns
-//! materialization. This singleton prepares native Oz children, requests
-//! background session lifecycle changes, tracks the session dimension of the
-//! orchestration tree, and projects that tree into the single visible tab bar.
+//! materialization. This singleton tracks the session dimension of the
+//! orchestration tree and projects that tree into the single visible tab bar.
 //! Conversation lineage and ordering policy stay in `BlocklistAIHistoryModel`
 //! and the shared topology helpers.
 //!
-//! Native local and remote Oz children run in retained TUI sessions. Local
-//! CLI-harness requests resolve with an explicit failure.
+//! Production TUI orchestration retains local terminal children. Cloud/remote
+//! launch, restore, cancellation, status fetches, and event streaming remain
+//! available to unit fixtures but are disabled in the production path.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(test)]
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use warp::tui_export::{
-    AIConversation, AIConversationId, AgentRunDisplayStatus, AmbientAgentTaskId,
-    BlocklistAIHistoryEvent, BlocklistAIHistoryModel, CloudAgentStartupIssue,
-    CloudConversationData, ConversationStatus, Harness, LoadedSubtreeRollup,
-    OrchestrationEventStreamer, OrchestrationEventStreamerEvent, PreparedRemoteChildLaunch,
-    RemoteChildLaunchConfig, RenderableAIError, RequestTeamScope, ServerApiProvider,
+    AIConversation, AIConversationId, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
+    CloudConversationData, ConversationStatus, LoadedSubtreeRollup, RenderableAIError,
     StartAgentExecutionMode, StartAgentRequest, TEAM_CHANGED_DURING_CHILD_LAUNCH_ERROR,
     TeamContextForOperation, UserWorkspaces, aggregated_orchestrator_status,
-    apply_child_agent_model_override, child_conversations_in_pill_order,
-    classify_cloud_agent_startup_error, descendant_conversation_ids_in_spawn_order,
-    descendant_conversations_in_pill_order, finish_local_oz_child_conversation,
-    inherit_child_agent_settings, loaded_subtree_rollup, orchestration_root_conversation_id,
-    oz_run_url, prepare_local_oz_child_launch, prepare_remote_child_launch,
-    register_agent_event_consumer, unregister_agent_event_consumer,
+    child_conversations_in_pill_order, descendant_conversation_ids_in_spawn_order,
+    descendant_conversations_in_pill_order, loaded_subtree_rollup,
+    orchestration_root_conversation_id,
+};
+#[cfg(test)]
+use warp::tui_export::{
+    AgentRunDisplayStatus, AmbientAgentTaskId, CloudAgentStartupIssue, Harness,
+    OrchestrationEventStreamer, OrchestrationEventStreamerEvent, PreparedRemoteChildLaunch,
+    RemoteChildLaunchConfig, RequestTeamScope, ServerApiProvider, apply_child_agent_model_override,
+    classify_cloud_agent_startup_error, finish_local_oz_child_conversation,
+    inherit_child_agent_settings, oz_run_url, prepare_local_oz_child_launch,
+    prepare_remote_child_launch, register_agent_event_consumer, unregister_agent_event_consumer,
 };
 use warp_core::features::FeatureFlag;
 use warpui::SingletonEntity;
-use warpui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle, ViewHandle};
+#[cfg(test)]
+use warpui_core::ViewHandle;
+use warpui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle};
 
+#[cfg(test)]
 use crate::cloud_run::TuiCloudRunState;
-use crate::session_registry::{RemoteChildSession, TuiSessionId, TuiSessions};
+#[cfg(test)]
+use crate::session_registry::RemoteChildSession;
+use crate::session_registry::{TuiSessionId, TuiSessions};
 use crate::tab_bar::{TuiTabBarNavigationDirection, TuiTabBarPagingState};
+#[cfg(test)]
 use crate::terminal_session_view::TuiTerminalSessionView;
 
 /// The main-tab label used for the orchestration tree root.
@@ -105,6 +116,7 @@ pub(crate) struct TuiOrchestrationModel {
     /// (`children_by_parent` / `parent_conversation_id`), never mirrored.
     child_session_by_conversation: HashMap<AIConversationId, TuiSessionId>,
     /// Conversations whose event streams are consumed by each live session.
+    #[cfg(test)]
     event_consumers_by_session: HashMap<TuiSessionId, HashSet<AIConversationId>>,
     /// Paging intent shared by the per-session tab-bar views, tracked per
     /// rendered level (keyed by the level's anchor conversation) so paging
@@ -113,6 +125,7 @@ pub(crate) struct TuiOrchestrationModel {
 }
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum TuiOrchestrationEvent {
+    #[cfg(test)]
     CreateLocalChildSession {
         parent_session_id: TuiSessionId,
         request: Box<StartAgentRequest>,
@@ -121,36 +134,46 @@ pub(crate) enum TuiOrchestrationEvent {
         task_id: warp::tui_export::AmbientAgentTaskId,
         conversation_name: String,
     },
+    #[cfg(test)]
     CreateRemoteChildSession {
         parent_session_id: TuiSessionId,
         request: Box<StartAgentRequest>,
+        #[cfg(test)]
         prepared: Box<PreparedRemoteChildLaunch>,
+        #[cfg(test)]
         team_scope: RequestTeamScope,
     },
+    #[cfg(test)]
     KillLocalChildSession {
         session_id: TuiSessionId,
         conversation_id: AIConversationId,
     },
+    #[cfg(test)]
     RemoveChildSession(TuiSessionId),
     /// Materialize a restored local Oz child on a fresh background terminal
     /// session hosted by `root_session_id`, without relaunching it.
+    #[cfg(test)]
     RestoreLocalChildSession {
         root_session_id: TuiSessionId,
         conversation: Box<AIConversation>,
     },
     /// Materialize a restored remote/cloud child on a fresh lightweight cloud
     /// session hosted by `root_session_id`, from its persisted identity.
+    #[cfg(test)]
     RestoreRemoteChildSession {
         root_session_id: TuiSessionId,
+        #[cfg(test)]
         conversation: Box<AIConversation>,
+        #[cfg(test)]
         task_id: AmbientAgentTaskId,
+        #[cfg(test)]
         run_id: String,
     },
-    RestoredRemoteChildStatusUpdated {
-        conversation_id: AIConversationId,
-    },
+    #[cfg(test)]
+    RestoredRemoteChildStatusUpdated { conversation_id: AIConversationId },
 }
 
+#[cfg(test)]
 pub(crate) struct MaterializedLocalOzChildSession {
     pub(crate) parent_session_id: TuiSessionId,
     pub(crate) session_id: TuiSessionId,
@@ -171,9 +194,9 @@ impl TuiOrchestrationModel {
     /// Registers the singleton before sessions are created and wired to it.
     pub(crate) fn register(ctx: &mut AppContext) -> ModelHandle<Self> {
         let history = BlocklistAIHistoryModel::handle(ctx);
-        let streamer = OrchestrationEventStreamer::handle(ctx);
         let model = ctx.add_singleton_model(|_| Self {
             child_session_by_conversation: HashMap::new(),
+            #[cfg(test)]
             event_consumers_by_session: HashMap::new(),
             tab_bar_paging_by_anchor: HashMap::new(),
         });
@@ -213,7 +236,12 @@ impl TuiOrchestrationModel {
                 model_for_history.update(ctx, |model, ctx| model.topology_changed(ctx));
             }
         });
+
+        #[cfg(test)]
+        let streamer = OrchestrationEventStreamer::handle(ctx);
+        #[cfg(test)]
         let model_for_streamer = model.clone();
+        #[cfg(test)]
         ctx.subscribe_to_model(&streamer, move |_, event, ctx| {
             model_for_streamer.update(ctx, |model, ctx| {
                 model.handle_streamer_event(event, ctx);
@@ -379,6 +407,7 @@ impl TuiOrchestrationModel {
     /// Fetches the authoritative lifecycle for a restored remote child once.
     /// The completion validates the retained session and task identity, so a
     /// late response cannot update a child whose restored tree was replaced.
+    #[cfg(test)]
     fn fetch_restored_remote_child_status(
         &mut self,
         session_id: TuiSessionId,
@@ -411,6 +440,7 @@ impl TuiOrchestrationModel {
         );
     }
 
+    #[cfg(test)]
     fn apply_restored_remote_child_status(
         &mut self,
         session_id: TuiSessionId,
@@ -495,7 +525,8 @@ impl TuiOrchestrationModel {
         &mut self,
         parent_session_id: TuiSessionId,
         request: StartAgentRequest,
-        working_directory: Option<PathBuf>,
+        #[cfg(test)] working_directory: Option<PathBuf>,
+        #[cfg(not(test))] _: Option<PathBuf>,
         ctx: &mut ModelContext<Self>,
     ) {
         let team_context = self.team_context_for_session(parent_session_id, ctx);
@@ -508,6 +539,7 @@ impl TuiOrchestrationModel {
             return;
         }
         match request.execution_mode.clone() {
+            #[cfg(test)]
             StartAgentExecutionMode::Local {
                 harness_type: None,
                 model_id,
@@ -518,21 +550,26 @@ impl TuiOrchestrationModel {
                 working_directory,
                 ctx,
             ),
-            StartAgentExecutionMode::Local {
-                harness_type: Some(harness_type),
-                ..
-            } => {
-                // Local non-oz children are not supported outside of dogfood in the GUI,
-                // and would be odd in the TUI. For now, we don't offer this option in the
-                // orchestration card, so this should never be reached.
+            #[cfg(not(test))]
+            StartAgentExecutionMode::Local { .. } => {
                 self.fail_child_request(
                     &request,
-                    format!(
-                        "Local {harness_type} child agents aren't supported in Warp Agent CLI yet."
-                    ),
+                    "Local child orchestration is unavailable in the local-only TUI.".to_owned(),
                     ctx,
                 );
             }
+            #[cfg(test)]
+            StartAgentExecutionMode::Local {
+                harness_type: Some(harness_type),
+                ..
+            } => self.fail_child_request(
+                &request,
+                format!(
+                    "Local {harness_type} child agents aren't supported in Warp Agent CLI yet."
+                ),
+                ctx,
+            ),
+            #[cfg(test)]
             StartAgentExecutionMode::Remote {
                 environment_id,
                 skill_references,
@@ -571,9 +608,19 @@ impl TuiOrchestrationModel {
                     ctx,
                 );
             }
+            #[cfg(not(test))]
+            StartAgentExecutionMode::Remote { .. } => {
+                log::warn!("TUI remote child orchestration is disabled in local-only mode");
+                self.fail_child_request(
+                    &request,
+                    "Remote agent orchestration is unavailable in the local-only TUI.".to_owned(),
+                    ctx,
+                );
+            }
         }
     }
 
+    #[cfg(test)]
     fn begin_remote_child_launch(
         &mut self,
         parent_session_id: TuiSessionId,
@@ -598,6 +645,7 @@ impl TuiOrchestrationModel {
     }
 
     /// Registers the remote child's conversation state, then starts its server-side launch.
+    #[cfg(test)]
     pub(crate) fn register_remote_child_session(
         &mut self,
         child: RemoteChildSession,
@@ -641,6 +689,7 @@ impl TuiOrchestrationModel {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn initialize_remote_child_session(
         &mut self,
         child: &RemoteChildSession,
@@ -671,6 +720,7 @@ impl TuiOrchestrationModel {
         conversation_id
     }
 
+    #[cfg(test)]
     fn finish_remote_child_launch(
         &mut self,
         conversation_id: AIConversationId,
@@ -729,6 +779,7 @@ impl TuiOrchestrationModel {
         }
     }
 
+    #[cfg(test)]
     fn handle_streamer_event(
         &mut self,
         event: &OrchestrationEventStreamerEvent,
@@ -775,6 +826,7 @@ impl TuiOrchestrationModel {
 
     /// Starts server-side task creation. The completion callback creates the
     /// TUI session only after the task has a stable run id.
+    #[cfg(test)]
     fn begin_local_oz_child_launch(
         &mut self,
         parent_session_id: TuiSessionId,
@@ -810,6 +862,7 @@ impl TuiOrchestrationModel {
 
     /// Registers a materialized background session and child conversation for
     /// a prepared task, then sends the child's first prompt.
+    #[cfg(test)]
     pub(crate) fn register_local_oz_child_session(
         &mut self,
         child: MaterializedLocalOzChildSession,
@@ -900,7 +953,7 @@ impl TuiOrchestrationModel {
         if descendant_ids.is_empty() {
             return;
         }
-        // The root parent remains responsible for descendant status watching.
+        #[cfg(test)]
         self.register_event_consumer(root_session_id, parent_conversation_id, ctx);
         for descendant_id in descendant_ids {
             self.restore_descendant_child(
@@ -924,18 +977,25 @@ impl TuiOrchestrationModel {
         root_session_id: TuiSessionId,
         ctx: &mut ModelContext<Self>,
     ) {
+        #[cfg(not(test))]
+        log::debug!(
+            "TUI restored-child discard is local-only for root session {root_session_id:?}"
+        );
         let descendant_ids = descendant_conversation_ids_in_spawn_order(
             BlocklistAIHistoryModel::as_ref(ctx),
             previous_parent_conversation_id,
         );
         for descendant_id in descendant_ids {
+            #[cfg(test)]
             if let Some(session_id) = self.child_session_by_conversation.remove(&descendant_id) {
-                // `RemoveChildSession` drops only the retained session and its
-                // event consumers (via `handle_session_removed`); it never
+                // `RemoveChildSession` drops only the retained session; it never
                 // deletes the conversation or cancels the child's execution.
                 ctx.emit(TuiOrchestrationEvent::RemoveChildSession(session_id));
             }
+            #[cfg(not(test))]
+            self.child_session_by_conversation.remove(&descendant_id);
         }
+        #[cfg(test)]
         self.unregister_event_consumer(root_session_id, previous_parent_conversation_id, ctx);
         ctx.notify();
     }
@@ -1031,6 +1091,7 @@ impl TuiOrchestrationModel {
     /// diagnostics so the rest of the tree still restores: shared-session
     /// viewers and explicit local non-Oz harnesses have no matching TUI view,
     /// and a remote child without stable task/run identity cannot be shown.
+    #[cfg(test)]
     fn emit_restore_child_session(
         &mut self,
         conversation: AIConversation,
@@ -1046,30 +1107,42 @@ impl TuiOrchestrationModel {
             return;
         }
         if conversation.is_remote_child() {
-            let (Some(task_id), Some(run_id)) = (conversation.task_id(), conversation.run_id())
-            else {
-                log::warn!(
-                    "TUI restore: skipping remote child {conversation_id:?} without stable \
-                     task/run identity."
-                );
-                return;
-            };
-            ctx.emit(TuiOrchestrationEvent::RestoreRemoteChildSession {
-                root_session_id,
-                conversation: Box::new(conversation),
-                task_id,
-                run_id,
-            });
+            #[cfg(test)]
+            {
+                let (Some(task_id), Some(run_id)) = (conversation.task_id(), conversation.run_id())
+                else {
+                    log::warn!(
+                        "TUI restore: skipping remote child {conversation_id:?} without stable \
+                         task/run identity."
+                    );
+                    return;
+                };
+                ctx.emit(TuiOrchestrationEvent::RestoreRemoteChildSession {
+                    root_session_id,
+                    conversation: Box::new(conversation),
+                    task_id,
+                    run_id,
+                });
+            }
+            #[cfg(not(test))]
+            log::debug!(
+                "TUI restore: skipping remote child {conversation_id:?} in local-only mode"
+            );
             return;
         }
         // A local child with no explicit harness predates orchestration-harness
         // stamping and is treated as legacy Oz.
         match conversation.orchestration_harness() {
             None | Some(Harness::Oz) => {
+                #[cfg(test)]
                 ctx.emit(TuiOrchestrationEvent::RestoreLocalChildSession {
                     root_session_id,
                     conversation: Box::new(conversation),
                 });
+                #[cfg(not(test))]
+                log::debug!(
+                    "TUI local child restoration is disabled in local-only mode for {conversation_id:?}"
+                );
             }
             Some(
                 harness @ (Harness::Claude
@@ -1086,23 +1159,32 @@ impl TuiOrchestrationModel {
         }
     }
 
+    #[cfg(not(test))]
+    fn emit_restore_child_session(
+        &mut self,
+        conversation: AIConversation,
+        root_session_id: TuiSessionId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let _ = (conversation, root_session_id, ctx);
+    }
+
     /// Registers a restored local Oz child after its session was materialized
     /// and its transcript restored by the session registry.
+    #[cfg(test)]
     pub(crate) fn register_restored_local_oz_child_session(
         &mut self,
         session_id: TuiSessionId,
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        // A local child consumes its own event stream, mirroring live children.
         self.register_event_consumer(session_id, conversation_id, ctx);
         self.child_session_by_conversation
             .insert(conversation_id, session_id);
         ctx.notify();
     }
 
-    /// Registers a restored remote child after its lightweight cloud session was
-    /// materialized by the session registry.
+    #[cfg(test)]
     pub(crate) fn register_restored_remote_child_session(
         &mut self,
         session_id: TuiSessionId,
@@ -1129,38 +1211,34 @@ impl TuiOrchestrationModel {
         BlocklistAIHistoryModel::handle(ctx).update(ctx, |history, ctx| {
             history.delete_conversation(*conversation_id, terminal_surface_id, ctx);
         });
+        #[cfg(test)]
         if let Some(session_id) = self.child_session_by_conversation.remove(conversation_id) {
             ctx.emit(TuiOrchestrationEvent::RemoveChildSession(session_id));
         }
+        #[cfg(not(test))]
+        self.child_session_by_conversation.remove(conversation_id);
         ctx.notify();
     }
 
-    /// Kills a child agent: tombstones late events, cancels any in-flight
-    /// execution (cloud task or local controller), deletes the conversation
-    /// from history, and removes the retained TUI session. Equivalent to the
-    /// GUI's `KillAgentConversation` path.
+    /// Kills a child agent, cancelling local execution when applicable and
+    /// removing its conversation and retained TUI session.
     pub(crate) fn kill_child_agent(
         &mut self,
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        // 1. Tombstone so late SSE events cannot resurrect the killed child.
+        #[cfg(test)]
         OrchestrationEventStreamer::handle(ctx).update(ctx, |streamer, ctx| {
             streamer.mark_conversation_killed(conversation_id, ctx);
         });
 
-        // 2. Cancel in-flight execution BEFORE deletion (AC 6).
-        //    Read what we need up front to avoid borrow-checker issues with the
-        //    subsequent mutable operations.
         let is_in_progress = BlocklistAIHistoryModel::as_ref(ctx)
             .conversation(&conversation_id)
             .is_some_and(|c| c.status().is_in_progress() || c.status().is_blocked());
         let is_remote = BlocklistAIHistoryModel::as_ref(ctx)
             .conversation(&conversation_id)
             .is_some_and(|c| c.is_remote_child());
-        let task_id: Option<AmbientAgentTaskId> = BlocklistAIHistoryModel::as_ref(ctx)
-            .conversation(&conversation_id)
-            .and_then(|c| c.task_id());
+        #[cfg(test)]
         let child_session_id = self
             .child_session_by_conversation
             .get(&conversation_id)
@@ -1168,10 +1246,11 @@ impl TuiOrchestrationModel {
 
         if is_in_progress {
             if is_remote {
-                // Remote (cloud) child: best-effort cancel the server-side task.
-                // This is async and fire-and-forget; the tombstone above ensures
-                // late events cannot resurrect the child regardless.
-                if let Some(task_id) = task_id {
+                #[cfg(test)]
+                if let Some(task_id) = BlocklistAIHistoryModel::as_ref(ctx)
+                    .conversation(&conversation_id)
+                    .and_then(|c| c.task_id())
+                {
                     let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
                     ctx.spawn(
                         async move { ai_client.cancel_ambient_agent_task(&task_id).await },
@@ -1182,7 +1261,14 @@ impl TuiOrchestrationModel {
                         },
                     );
                 }
-            } else if let Some(session_id) = child_session_id {
+                #[cfg(not(test))]
+                log::debug!(
+                    "TUI remote child cancellation skipped in local-only mode for \
+                     {conversation_id:?}"
+                );
+            }
+            #[cfg(test)]
+            if let Some(session_id) = child_session_id {
                 // Cancelling through the session is deferred until the current
                 // view update completes, then cleanup resumes from the event
                 // handler while the conversation is still available.
@@ -1194,10 +1280,8 @@ impl TuiOrchestrationModel {
             }
         }
 
-        // 3. Delete conversation and remove session.
         self.cleanup_child(&conversation_id, ctx);
     }
-
     /// Kills every descendant spawned by `conversation_id`, including nested
     /// descendants. Children are removed deepest-first so each retained
     /// session can tear down while its ancestry is still available.
@@ -1260,6 +1344,7 @@ impl TuiOrchestrationModel {
         });
     }
 
+    #[cfg(test)]
     fn register_event_consumer(
         &mut self,
         session_id: TuiSessionId,
@@ -1275,6 +1360,7 @@ impl TuiOrchestrationModel {
 
     /// Unregisters a single (session, conversation) event-consumer pairing,
     /// dropping the session's entry once it has no remaining consumers.
+    #[cfg(test)]
     fn unregister_event_consumer(
         &mut self,
         session_id: TuiSessionId,
@@ -1292,11 +1378,13 @@ impl TuiOrchestrationModel {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn handle_session_removed(
         &mut self,
         session_id: TuiSessionId,
         ctx: &mut ModelContext<Self>,
     ) {
+        #[cfg(test)]
         if let Some(conversation_ids) = self.event_consumers_by_session.remove(&session_id) {
             for conversation_id in conversation_ids {
                 unregister_agent_event_consumer(conversation_id, session_id.surface_id(), ctx);

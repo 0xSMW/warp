@@ -39,8 +39,8 @@ use crate::launch_configs::launch_config::LaunchConfig;
 use crate::menu::{MenuAction, MenuItem, MenuItemFields};
 use crate::pane_group::{PaneGroup, PaneId};
 use crate::shell_indicator::ShellIndicatorType;
-use crate::terminal::shared_session::SharedSessionStatus;
-use crate::terminal::shared_session::manager::Manager;
+// use crate::terminal::shared_session::SharedSessionStatus;
+// use crate::terminal::shared_session::manager::Manager;
 use crate::terminal::shared_session::render_util::shared_session_indicator_color;
 use crate::terminal::view::TerminalViewState;
 use crate::themes::theme::{AnsiColorIdentifier, Fill as ThemeFill, VerticalGradient};
@@ -456,7 +456,8 @@ impl TabData {
         for section_items in [
             self.pin_menu_items(index),
             self.tab_group_menu_items(index, tab_groups, is_only_member_of_group),
-            self.session_sharing_menu_items(index, ctx),
+            // Commented out: Share session
+            // self.session_sharing_menu_items(index, ctx),
             self.copy_metadata_menu_items(pane_name_target, ctx),
             self.modify_tab_menu_items(index, can_move_left, can_move_right, pane_name_target, ctx),
             self.close_tab_menu_items(index, tabs_len, ctx),
@@ -479,6 +480,7 @@ impl TabData {
         menu_items
     }
 
+    /* Session sharing menu is disabled in local-only mode.
     fn session_sharing_menu_items(
         &self,
         index: usize,
@@ -564,6 +566,7 @@ impl TabData {
 
         menu_items
     }
+    */
 
     fn copyable_pane_title(
         pane_group: &PaneGroup,

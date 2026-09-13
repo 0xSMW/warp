@@ -1,4 +1,9 @@
 use pathfinder_color::ColorU;
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
 use warp_core::ui::appearance::Appearance;
 use warpui::elements::{ChildView, Container, Fill};
 use warpui::ui_components::components::{Coords, UiComponentStyles};
@@ -10,17 +15,24 @@ use warpui::{
 use super::auth_manager::{AuthManager, AuthManagerEvent};
 use super::auth_override_warning_body::AuthOverrideWarningBodyEvent;
 use crate::auth::auth_override_warning_body::AuthOverrideWarningBody;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::auth::auth_view_modal::AuthRedirectPayload;
 use crate::modal::Modal;
 use crate::root_view::unthemed_window_border;
 
 pub struct AuthOverrideWarningModal {
     auth_override_warning_modal: ViewHandle<Modal<AuthOverrideWarningBody>>,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     interrupted_auth_payload: Option<AuthRedirectPayload>,
     variant: AuthOverrideWarningModalVariant,
 }
 
 pub enum AuthOverrideWarningModalVariant {
+    #[cfg(any(
+        test,
+        all(feature = "tui", feature = "test-util"),
+        target_family = "wasm"
+    ))]
     OnboardingView,
     WorkspaceModal,
 }
@@ -33,6 +45,7 @@ impl AuthOverrideWarningModal {
         ctx.subscribe_to_view(&auth_screen_view, |me, _, event, ctx| match event {
             AuthOverrideWarningBodyEvent::Close => me.close(ctx),
             AuthOverrideWarningBodyEvent::AllowLogin => {
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
                 if let Some(auth_payload) = me.interrupted_auth_payload.clone() {
                     AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
                         auth_manager.resume_interrupted_auth_payload(auth_payload, ctx);
@@ -65,6 +78,7 @@ impl AuthOverrideWarningModal {
 
         Self {
             auth_override_warning_modal,
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             interrupted_auth_payload: None,
             variant,
         }
@@ -84,12 +98,18 @@ impl AuthOverrideWarningModal {
         })
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn set_interrupted_auth_payload(&mut self, auth_payload: AuthRedirectPayload) {
         self.interrupted_auth_payload = Some(auth_payload);
     }
 
-    fn handle_auth_manager_event(&mut self, event: &AuthManagerEvent, ctx: &mut ViewContext<Self>) {
-        if let AuthManagerEvent::AuthComplete = event {
+    fn handle_auth_manager_event(
+        &mut self,
+        _event: &AuthManagerEvent,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+        if let AuthManagerEvent::AuthComplete = _event {
             self.interrupted_auth_payload = None;
             self.close(ctx);
         }
@@ -120,6 +140,11 @@ impl View for AuthOverrideWarningModal {
 
     fn render(&self, ctx: &AppContext) -> Box<dyn Element> {
         let background_color = match self.variant {
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOverrideWarningModalVariant::OnboardingView => {
                 Appearance::as_ref(ctx).theme().background().into()
             }

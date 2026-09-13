@@ -8,7 +8,7 @@ use enclose::enclose;
 use itertools::Itertools;
 use settings::Setting as _;
 use settings::manager::SettingsManager;
-use warp_core::context_flag::ContextFlag;
+// use warp_core::context_flag::ContextFlag;
 use warp_errors::{report_error, report_if_error};
 use warp_util::path::user_friendly_path;
 use warpui::actions::StandardAction;
@@ -70,8 +70,8 @@ pub fn menu_bar(ctx: &mut AppContext) -> MenuBar {
         make_new_view_menu(ctx),
         make_new_tab_menu(ctx),
         make_new_blocks_menu(ctx),
-        make_new_ai_menu(ctx),
-        make_new_drive_menu(ctx),
+        // make_new_ai_menu(ctx),
+        // make_new_drive_menu(ctx),
         make_new_window_menu(),
         make_new_help_menu(),
     ])
@@ -151,11 +151,12 @@ fn make_new_app_menu(ctx: &AppContext) -> Menu {
         ))
     }
 
-    menu_items.extend([
-        MenuItem::Separator,
-        updateable_custom_item_without_checkmark(CustomAction::ReferAFriend, ctx),
-        MenuItem::Separator,
-    ]);
+    // Commented out: Invite People...
+    // menu_items.extend([
+    //     MenuItem::Separator,
+    //     updateable_custom_item_without_checkmark(CustomAction::ReferAFriend, ctx),
+    //     MenuItem::Separator,
+    // ]);
 
     let preferences_menu_items = vec![
         updateable_custom_item_without_checkmark(CustomAction::ShowSettings, ctx),
@@ -174,13 +175,6 @@ fn make_new_app_menu(ctx: &AppContext) -> Menu {
         None,
         preferences_menu_items,
     )));
-
-    if FeatureFlag::Changelog.is_enabled() {
-        menu_items.push(updateable_custom_item_without_checkmark(
-            CustomAction::ViewChangelog,
-            ctx,
-        ));
-    }
 
     #[cfg(target_os = "macos")]
     {
@@ -375,19 +369,22 @@ fn make_new_edit_menu(ctx: &AppContext) -> Menu {
 
 fn make_new_view_menu(ctx: &AppContext) -> Menu {
     let mut items = vec![
-        updateable_custom_item_without_checkmark(CustomAction::ToggleWarpDrive, ctx),
-        MenuItem::Separator,
+        // Commented out: Open Left Panel (Tools Panel / Warp Drive)
+        // updateable_custom_item_without_checkmark(CustomAction::ToggleWarpDrive, ctx),
+        // MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::CommandPalette, ctx),
         updateable_custom_item_without_checkmark(CustomAction::NavigationPalette, ctx),
         updateable_custom_item_without_checkmark(CustomAction::LaunchConfigPalette, ctx),
         updateable_custom_item_without_checkmark(CustomAction::FilesPalette, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::ToggleProjectExplorer, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::ToggleConversationListView, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::ToggleGlobalSearch, ctx),
+        // Commented out: Left Panel views & Agent conversations
+        // updateable_custom_item_without_checkmark(CustomAction::ToggleProjectExplorer, ctx),
+        // updateable_custom_item_without_checkmark(CustomAction::ToggleConversationListView, ctx),
+        // updateable_custom_item_without_checkmark(CustomAction::ToggleGlobalSearch, ctx),
         MenuItem::Separator,
         updateable_custom_item_without_checkmark(CustomAction::History, ctx),
         updateable_custom_item_without_checkmark(CustomAction::CommandSearch, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::Workflows, ctx),
+        // Commented out: Workflows (Warp Drive)
+        // updateable_custom_item_without_checkmark(CustomAction::Workflows, ctx),
         MenuItem::Separator,
         MenuItem::Custom(CustomMenuItem::new(
             "Toggle Mouse Reporting",
@@ -514,38 +511,39 @@ fn make_new_tab_menu(ctx: &AppContext) -> Menu {
     Menu::new("Tab", items)
 }
 
-fn make_new_ai_menu(ctx: &AppContext) -> Menu {
-    let mut items = vec![updateable_custom_item_without_checkmark(
-        CustomAction::NewAgentModePane,
-        ctx,
-    )];
-
-    items.push(updateable_custom_item_without_checkmark(
-        CustomAction::AttachSelectionAsAgentModeContext,
-        ctx,
-    ));
-
-    items.extend([
-        MenuItem::Separator,
-        updateable_custom_item_without_checkmark(CustomAction::AISearch, ctx),
-    ]);
-
-    if FeatureFlag::AIRules.is_enabled() {
-        items.extend([
-            MenuItem::Separator,
-            updateable_custom_item_without_checkmark(CustomAction::OpenAIFactCollection, ctx),
-        ]);
-    }
-
-    if FeatureFlag::McpServer.is_enabled() && ContextFlag::ShowMCPServers.is_enabled() {
-        items.push(updateable_custom_item_without_checkmark(
-            CustomAction::OpenMCPServerCollection,
-            ctx,
-        ));
-    }
-
-    Menu::new("AI", items)
-}
+// Commented out: AI menu (local-only UI)
+// fn make_new_ai_menu(ctx: &AppContext) -> Menu {
+//     let mut items = vec![updateable_custom_item_without_checkmark(
+//         CustomAction::NewAgentModePane,
+//         ctx,
+//     )];
+//
+//     items.push(updateable_custom_item_without_checkmark(
+//         CustomAction::AttachSelectionAsAgentModeContext,
+//         ctx,
+//     ));
+//
+//     items.extend([
+//         MenuItem::Separator,
+//         updateable_custom_item_without_checkmark(CustomAction::AISearch, ctx),
+//     ]);
+//
+//     if FeatureFlag::AIRules.is_enabled() {
+//         items.extend([
+//             MenuItem::Separator,
+//             updateable_custom_item_without_checkmark(CustomAction::OpenAIFactCollection, ctx),
+//         ]);
+//     }
+//
+//     if FeatureFlag::McpServer.is_enabled() && ContextFlag::ShowMCPServers.is_enabled() {
+//         items.push(updateable_custom_item_without_checkmark(
+//             CustomAction::OpenMCPServerCollection,
+//             ctx,
+//         ));
+//     }
+//
+//     Menu::new("AI", items)
+// }
 
 fn make_new_blocks_menu(ctx: &AppContext) -> Menu {
     let mut items = vec![
@@ -566,8 +564,9 @@ fn make_new_blocks_menu(ctx: &AppContext) -> Menu {
     ));
     items.push(MenuItem::Separator);
     items.extend([
-        updateable_custom_item_without_checkmark(CustomAction::CreateBlockPermalink, ctx),
-        non_updateable_custom_item(CustomAction::ViewSharedBlocks, ctx),
+        // Commented out: Create Block Permalink and View Shared Blocks
+        // updateable_custom_item_without_checkmark(CustomAction::CreateBlockPermalink, ctx),
+        // non_updateable_custom_item(CustomAction::ViewSharedBlocks, ctx),
         updateable_custom_item_without_checkmark(CustomAction::ToggleBookmarkBlock, ctx),
         updateable_custom_item_without_checkmark(CustomAction::FindWithinBlock, ctx),
         MenuItem::Separator,
@@ -585,49 +584,50 @@ fn make_new_blocks_menu(ctx: &AppContext) -> Menu {
     Menu::new("Blocks", items)
 }
 
-fn make_new_drive_menu(ctx: &AppContext) -> Menu {
-    let mut items = vec![
-        updateable_custom_item_without_checkmark(CustomAction::NewPersonalWorkflow, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::NewPersonalNotebook, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::NewPersonalAIPrompt, ctx),
-    ];
-    items.push(updateable_custom_item_without_checkmark(
-        CustomAction::NewPersonalEnvVars,
-        ctx,
-    ));
-    items.extend([
-        MenuItem::Separator,
-        updateable_custom_item_without_checkmark(CustomAction::NewTeamWorkflow, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::NewTeamNotebook, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::NewTeamAIPrompt, ctx),
-    ]);
-    items.push(updateable_custom_item_without_checkmark(
-        CustomAction::NewTeamEnvVars,
-        ctx,
-    ));
-    items.extend([
-        MenuItem::Separator,
-        updateable_custom_item_without_checkmark(CustomAction::ToggleWarpDrive, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::SearchDrive, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::OpenTeamSettings, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::OpenAIFactCollection, ctx),
-        updateable_custom_item_without_checkmark(CustomAction::OpenMCPServerCollection, ctx),
-    ]);
-
-    items.push(updateable_custom_item_without_checkmark(
-        CustomAction::SharePaneContents,
-        ctx,
-    ));
-
-    if FeatureFlag::CreatingSharedSessions.is_enabled() {
-        items.extend([
-            MenuItem::Separator,
-            updateable_custom_item_without_checkmark(CustomAction::ShareCurrentSession, ctx),
-        ])
-    }
-
-    Menu::new("Drive", items)
-}
+// Commented out: Drive menu (local-only UI)
+// fn make_new_drive_menu(ctx: &AppContext) -> Menu {
+//     let mut items = vec![
+//         updateable_custom_item_without_checkmark(CustomAction::NewPersonalWorkflow, ctx),
+//         updateable_custom_item_without_checkmark(CustomAction::NewPersonalNotebook, ctx),
+//         updateable_custom_item_without_checkmark(CustomAction::NewPersonalAIPrompt, ctx),
+//     ];
+//     items.push(updateable_custom_item_without_checkmark(
+//         CustomAction::NewPersonalEnvVars,
+//         ctx,
+//     ));
+//     items.extend([
+//         MenuItem::Separator,
+//         updateable_custom_item_without_checkmark(CustomAction::NewTeamWorkflow, ctx),
+//         updateable_custom_item_without_checkmark(CustomAction::NewTeamNotebook, ctx),
+//         updateable_custom_item_without_checkmark(CustomAction::NewTeamAIPrompt, ctx),
+//     ]);
+//     items.push(updateable_custom_item_without_checkmark(
+//         CustomAction::NewTeamEnvVars,
+//         ctx,
+//     ));
+//     items.extend([
+//         MenuItem::Separator,
+//         updateable_custom_item_without_checkmark(CustomAction::ToggleWarpDrive, ctx),
+//         updateable_custom_item_without_checkmark(CustomAction::SearchDrive, ctx),
+//         updateable_custom_item_without_checkmark(CustomAction::OpenTeamSettings, ctx),
+//         updateable_custom_item_without_checkmark(CustomAction::OpenAIFactCollection, ctx),
+//         updateable_custom_item_without_checkmark(CustomAction::OpenMCPServerCollection, ctx),
+//     ]);
+//
+//     items.push(updateable_custom_item_without_checkmark(
+//         CustomAction::SharePaneContents,
+//         ctx,
+//     ));
+//
+//     if FeatureFlag::CreatingSharedSessions.is_enabled() {
+//         items.extend([
+//             MenuItem::Separator,
+//             updateable_custom_item_without_checkmark(CustomAction::ShareCurrentSession, ctx),
+//         ])
+//     }
+//
+//     Menu::new("Drive", items)
+// }
 
 /// Returns [`MenuItem`]s that aid debugging to be included in the Block menu.
 fn block_menu_debug_items() -> Vec<MenuItem> {
@@ -911,28 +911,30 @@ fn link_menu_item(title: &'static str, link: Cow<'static, str>) -> MenuItem {
     ))
 }
 
-fn feedback_menu_item() -> MenuItem {
-    MenuItem::Custom(CustomMenuItem::new(
-        "Send Feedback...",
-        move |ctx| {
-            // Route through the root-view action so workspace windows can open the
-            // guided AI flow, while non-workspace windows still fall back to the
-            // browser-based feedback form.
-            ctx.dispatch_global_action("root_view:send_feedback", &());
-        },
-        no_updates,
-        None,
-    ))
-}
+// Commented out: Feedback menu item (local-only UI)
+// fn feedback_menu_item() -> MenuItem {
+//     MenuItem::Custom(CustomMenuItem::new(
+//         "Send Feedback...",
+//         move |ctx| {
+//             // Route through the root-view action so workspace windows can open the
+//             // guided AI flow, while non-workspace windows still fall back to the
+//             // browser-based feedback form.
+//             ctx.dispatch_global_action("root_view:send_feedback", &());
+//         },
+//         no_updates,
+//         None,
+//     ))
+// }
 
 fn make_new_help_menu() -> Menu {
     Menu::new(
         "Help",
         vec![
-            feedback_menu_item(),
-            link_menu_item("Warp Documentation...", links::USER_DOCS_URL.into()),
+            // Commented out: Feedback, Documentation, Slack
+            // feedback_menu_item(),
+            // link_menu_item("Warp Documentation...", links::USER_DOCS_URL.into()),
             link_menu_item("GitHub Issues...", links::GITHUB_ISSUES_URL.into()),
-            link_menu_item("Join our Slack community...", links::SLACK_URL.into()),
+            // link_menu_item("Join our Slack community...", links::SLACK_URL.into()),
         ],
     )
 }
@@ -1004,7 +1006,7 @@ fn make_new_elements_menu_items(ctx: &AppContext) -> Vec<MenuItem> {
                 let is_default_session_mode_agent =
                     AISettings::handle(ctx).read(ctx, |ai_settings, ctx| {
                         ai_settings.is_any_ai_enabled(ctx)
-                            && ai_settings.default_session_mode(ctx) == DefaultSessionMode::Agent
+                            && ai_settings.default_session_mode() == DefaultSessionMode::Agent
                     });
                 let trigger = if is_default_session_mode_agent {
                     Trigger::Custom(CustomAction::NewTerminalTab.into())
@@ -1021,37 +1023,38 @@ fn make_new_elements_menu_items(ctx: &AppContext) -> Vec<MenuItem> {
             },
             Some(Keystroke::parse("cmd-t").expect("Valid keystroke")),
         )),
-        MenuItem::Custom(CustomMenuItem::new(
-            "New Agent Tab",
-            open_new_agent_tab_or_window,
-            move |_props: &MenuItemProperties, ctx: &mut AppContext| {
-                let mut changes = MenuItemPropertyChanges::default();
-                let (is_any_ai_enabled, is_default_session_mode_agent) = AISettings::handle(ctx)
-                    .read(ctx, |ai_settings, ctx| {
-                        let enabled = ai_settings.is_any_ai_enabled(ctx);
-                        let agent = enabled
-                            && ai_settings.default_session_mode(ctx) == DefaultSessionMode::Agent;
-                        (enabled, agent)
-                    });
-                if !is_any_ai_enabled {
-                    changes.disabled = Some(true);
-                    return changes;
-                }
-                let trigger = if is_default_session_mode_agent {
-                    Trigger::Custom(CustomAction::NewTab.into())
-                } else {
-                    Trigger::Custom(CustomAction::NewAgentTab.into())
-                };
-                let binding = ctx
-                    .get_key_bindings()
-                    .find(|b| b.trigger == &trigger || b.original_trigger == Some(&trigger));
-                if let Some(binding) = binding {
-                    changes.keystroke = Some(bindings::trigger_to_keystroke(binding.trigger));
-                }
-                changes
-            },
-            None,
-        )),
+        // Commented out: New Agent Tab
+        // MenuItem::Custom(CustomMenuItem::new(
+        //     "New Agent Tab",
+        //     open_new_agent_tab_or_window,
+        //     move |_props: &MenuItemProperties, ctx: &mut AppContext| {
+        //         let mut changes = MenuItemPropertyChanges::default();
+        //         let (is_any_ai_enabled, is_default_session_mode_agent) = AISettings::handle(ctx)
+        //             .read(ctx, |ai_settings, ctx| {
+        //                 let enabled = ai_settings.is_any_ai_enabled(ctx);
+        //                 let agent = enabled
+        //                     && ai_settings.default_session_mode() == DefaultSessionMode::Agent;
+        //                 (enabled, agent)
+        //             });
+        //         if !is_any_ai_enabled {
+        //             changes.disabled = Some(true);
+        //             return changes;
+        //         }
+        //         let trigger = if is_default_session_mode_agent {
+        //             Trigger::Custom(CustomAction::NewTab.into())
+        //         } else {
+        //             Trigger::Custom(CustomAction::NewAgentTab.into())
+        //         };
+        //         let binding = ctx
+        //             .get_key_bindings()
+        //             .find(|b| b.trigger == &trigger || b.original_trigger == Some(&trigger));
+        //         if let Some(binding) = binding {
+        //             changes.keystroke = Some(bindings::trigger_to_keystroke(binding.trigger));
+        //         }
+        //         changes
+        //     },
+        //     None,
+        // )),
         non_updateable_custom_item(CustomAction::NewFile, ctx),
     ];
 
@@ -1104,14 +1107,13 @@ fn open_new_default_tab_or_window(ctx: &mut AppContext) {
     }
 }
 
-/// Dispatch events to open an agent tab in the active window
-/// or make a new window if there is no active window.
-fn open_new_agent_tab_or_window(ctx: &mut AppContext) {
-    match WindowManager::handle(ctx).as_ref(ctx).active_window() {
-        Some(wid) => ctx.dispatch_custom_action(CustomAction::NewAgentTab, wid),
-        _ => open_new_window(ctx),
-    }
-}
+// Commented out: New Agent Tab (local-only UI)
+// fn open_new_agent_tab_or_window(ctx: &mut AppContext) {
+//     match WindowManager::handle(ctx).as_ref(ctx).active_window() {
+//         Some(wid) => ctx.dispatch_custom_action(CustomAction::NewAgentTab, wid),
+//         _ => open_new_window(ctx),
+//     }
+// }
 
 /// Dispatch event to open a new Warp window
 fn open_new_window(ctx: &mut AppContext) {

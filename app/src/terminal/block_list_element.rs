@@ -61,15 +61,12 @@ use super::view::{
 };
 use super::warpify::render::{draw_flag_pole, render_subshell_flag};
 use super::{HEIGHT_FUDGE_FACTOR_LINES, TerminalModel, heights_approx_eq};
-use crate::ai::blocklist::{ATTACH_AS_AGENT_MODE_CONTEXT_TEXT, ai_brand_color};
-use crate::ai_assistant::{AI_ASSISTANT_SVG_PATH, ASK_AI_ASSISTANT_TEXT};
+use crate::ai::blocklist::ai_brand_color;
 use crate::appearance::Appearance;
 use crate::drive::settings::WarpDriveSettings;
 use crate::features::FeatureFlag;
 use crate::pane_group::SplitPaneState;
-use crate::settings::{
-    AISettings, DebugSettings, EnforceMinimumContrast, PrivacySettings, TerminalSpacing,
-};
+use crate::settings::{DebugSettings, EnforceMinimumContrast, PrivacySettings, TerminalSpacing};
 use crate::terminal::alt_screen::{should_intercept_mouse, should_intercept_scroll};
 use crate::terminal::block_list_viewport::AutoscrollBehavior;
 use crate::terminal::blockgrid_renderer::BlockGridParams;
@@ -149,7 +146,7 @@ const LINEAR_SCROLLING: ScrollingAcceleration = ScrollingAcceleration::Polynomia
 /// have a height that extends down to the bottom of the window when there's a horizontal scroll bar, which messes with the on-hover behavior.
 const BLOCK_HOVER_BUTTON_HEIGHT: f32 = 28.;
 
-const TAG_AGENT_FOR_ASSISTANCE_TEXT: &str = "Tag agent for assistance";
+// const TAG_AGENT_FOR_ASSISTANCE_TEXT: &str = "Tag agent for assistance";
 
 const SAVE_AS_WORKFLOW_TEXT: &str = "Save as Workflow";
 const SAVE_AS_WORKFLOW_SECRETS_TEXT: &str = "Blocks containing secrets cannot be saved.";
@@ -1134,70 +1131,71 @@ impl BlockListElement {
             .finish(),
         );
 
-        if AISettings::as_ref(app).is_any_ai_enabled(app) {
-            let icon = Container::new(
-                ConstrainedBox::new(if FeatureFlag::AgentView.is_enabled() {
-                    UIIcon::Icon::Paperclip
-                        .to_warpui_icon(icon_color.into())
-                        .finish()
-                } else if FeatureFlag::AgentMode.is_enabled() {
-                    UIIcon::Icon::Stars
-                        .to_warpui_icon(icon_color.into())
-                        .finish()
-                } else {
-                    Icon::new(AI_ASSISTANT_SVG_PATH, icon_color).finish()
-                })
-                .with_height(16.)
-                .with_width(16.)
-                .finish(),
-            )
-            .with_vertical_padding(5.)
-            .with_padding_left(6.)
-            .with_padding_right(4.);
+        // Commented out: Tag agent for assistance / AI assistant block button
+        // if AISettings::as_ref(app).is_any_ai_enabled(app) {
+        //     let icon = Container::new(
+        //         ConstrainedBox::new(if FeatureFlag::AgentView.is_enabled() {
+        //             UIIcon::Icon::Paperclip
+        //                 .to_warpui_icon(icon_color.into())
+        //                 .finish()
+        //         } else if FeatureFlag::AgentMode.is_enabled() {
+        //             UIIcon::Icon::Stars
+        //                 .to_warpui_icon(icon_color.into())
+        //                 .finish()
+        //         } else {
+        //             Icon::new(AI_ASSISTANT_SVG_PATH, icon_color).finish()
+        //         })
+        //         .with_height(16.)
+        //         .with_width(16.)
+        //         .finish(),
+        //     )
+        //     .with_vertical_padding(5.)
+        //     .with_padding_left(6.)
+        //     .with_padding_right(4.);
 
-            let (ai_button_action, ai_button_tooltip) = if FeatureFlag::AgentMode.is_enabled() {
-                let active_block = model.block_list().active_block();
-                let has_active_long_running_command = active_block.is_active_and_long_running();
+        //     let (ai_button_action, ai_button_tooltip) = if FeatureFlag::AgentMode.is_enabled() {
+        //         let active_block = model.block_list().active_block();
+        //         let has_active_long_running_command = active_block.is_active_and_long_running();
 
-                if has_active_long_running_command && active_block.index() == block_index {
-                    (
-                        Some(TerminalAction::SetInputModeAgent),
-                        TAG_AGENT_FOR_ASSISTANCE_TEXT,
-                    )
-                } else {
-                    (
-                        Some(TerminalAction::AskAIAssistant { block_index }),
-                        *ATTACH_AS_AGENT_MODE_CONTEXT_TEXT,
-                    )
-                }
-            } else {
-                (
-                    Some(TerminalAction::AskAIAssistant { block_index }),
-                    ASK_AI_ASSISTANT_TEXT,
-                )
-            };
+        //         if has_active_long_running_command && active_block.index() == block_index {
+        //             (
+        //                 Some(TerminalAction::SetInputModeAgent),
+        //                 TAG_AGENT_FOR_ASSISTANCE_TEXT,
+        //             )
+        //         } else {
+        //             (
+        //                 Some(TerminalAction::AskAIAssistant { block_index }),
+        //                 *ATTACH_AS_AGENT_MODE_CONTEXT_TEXT,
+        //             )
+        //         }
+        //     } else {
+        //         (
+        //             Some(TerminalAction::AskAIAssistant { block_index }),
+        //             ASK_AI_ASSISTANT_TEXT,
+        //         )
+        //     };
 
-            let tooltip = ToolbeltButtonTooltip {
-                label: ai_button_tooltip.to_owned(),
-                tool_tip_below_button: should_render_tooltip_below_button,
-            };
+        //     let tooltip = ToolbeltButtonTooltip {
+        //         label: ai_button_tooltip.to_owned(),
+        //         tool_tip_below_button: should_render_tooltip_below_button,
+        //     };
 
-            let element = render_hoverable_block_button(
-                icon,
-                Some(tooltip),
-                false,
-                true,
-                self.mouse_states.ai_assistant_button_mouse_state.clone(),
-                &self.warp_theme,
-                &self.ui_builder,
-                move |ctx: &mut EventContext, _, _| {
-                    if let Some(action) = ai_button_action.clone() {
-                        ctx.dispatch_typed_action(action);
-                    }
-                },
-            );
-            self.ask_ai_assistant_button = Some(element);
-        }
+        //     let element = render_hoverable_block_button(
+        //         icon,
+        //         Some(tooltip),
+        //         false,
+        //         true,
+        //         self.mouse_states.ai_assistant_button_mouse_state.clone(),
+        //         &self.warp_theme,
+        //         &self.ui_builder,
+        //         move |ctx: &mut EventContext, _, _| {
+        //             if let Some(action) = ai_button_action.clone() {
+        //                 ctx.dispatch_typed_action(action);
+        //             }
+        //         },
+        //     );
+        //     self.ask_ai_assistant_button = Some(element);
+        // }
 
         if WarpDriveSettings::is_warp_drive_enabled(app) {
             let icon = Container::new(

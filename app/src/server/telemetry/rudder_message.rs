@@ -12,6 +12,7 @@ use serde_json::Value;
 use crate::auth::UserUid;
 
 /// An enum containing all values which may be sent to RudderStack's API.
+#[cfg(test)]
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Message {
@@ -206,6 +207,7 @@ pub struct Alias {
 }
 
 /// A batch of events.
+#[cfg(test)]
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Batch {
     /// The batch of messages to send.

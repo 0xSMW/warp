@@ -21,6 +21,7 @@
 use std::collections::HashMap;
 
 use uuid::Uuid;
+#[cfg(test)]
 use warp_core::channel::ChannelState;
 
 use super::templatable::{JsonTemplate, TemplatableMCPServer};
@@ -62,11 +63,23 @@ pub fn builtin_bearer_token(credentials: &Credentials) -> Option<String> {
 /// Builds the ephemeral installation for the built-in Factory MCP server: a
 /// streamable-HTTP MCP server hosted by warp-server at `/api/v1/mcp/factory`,
 /// pre-authenticated via the `Authorization` header.
-pub fn factory_mcp_installation(bearer_token: &str) -> TemplatableMCPServerInstallation {
-    factory_mcp_installation_for_server_root(&ChannelState::server_root_url(), bearer_token)
+pub fn factory_mcp_installation(_bearer_token: &str) -> TemplatableMCPServerInstallation {
+    #[cfg(test)]
+    {
+        return factory_mcp_installation_for_server_root(
+            &ChannelState::server_root_url(),
+            _bearer_token,
+        );
+    }
+
+    #[cfg(not(test))]
+    {
+        factory_mcp_installation_from_template("{}".to_string())
+    }
 }
 
 /// Like [`factory_mcp_installation`], with an explicit server root for tests.
+#[cfg(test)]
 fn factory_mcp_installation_for_server_root(
     server_root: &str,
     bearer_token: &str,
@@ -79,8 +92,12 @@ fn factory_mcp_installation_for_server_root(
     });
     let mut root = serde_json::Map::new();
     root.insert(FACTORY_MCP_SERVER_NAME.to_string(), server_config);
-    let template_json = serde_json::Value::Object(root).to_string();
+    factory_mcp_installation_from_template(serde_json::Value::Object(root).to_string())
+}
 
+fn factory_mcp_installation_from_template(
+    template_json: String,
+) -> TemplatableMCPServerInstallation {
     let templatable_mcp_server = TemplatableMCPServer {
         uuid: FACTORY_MCP_TEMPLATE_UUID,
         name: FACTORY_MCP_SERVER_NAME.to_string(),
@@ -109,6 +126,7 @@ fn factory_mcp_installation_for_server_root(
 }
 
 /// Joins the Factory MCP endpoint path onto a server root URL.
+#[cfg(test)]
 fn factory_mcp_url(server_root: &str) -> String {
     format!("{}/api/v1/mcp/factory", server_root.trim_end_matches('/'))
 }

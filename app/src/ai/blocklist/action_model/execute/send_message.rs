@@ -69,7 +69,6 @@ fn sender_run_id_and_task_id_for_send(
 
 #[cfg(not(target_family = "wasm"))]
 async fn send_agent_message_with_timeout(
-    server_api: std::sync::Arc<crate::server::server_api::ServerApi>,
     ai_client: std::sync::Arc<dyn crate::server::server_api::ai::AIClient>,
     task_id: Option<AmbientAgentTaskId>,
     request: SendAgentMessageRequest,
@@ -77,11 +76,9 @@ async fn send_agent_message_with_timeout(
     let task_id_for_timeout = task_id.map(|task_id| task_id.to_string());
     let send_message = async move {
         match task_id {
-            Some(task_id) => {
-                server_api
-                    .send_agent_message_for_task(&task_id, request)
-                    .await
-            }
+            Some(_) => Err(anyhow!(
+                "Sending messages for cloud tasks is disabled in local-only mode"
+            )),
             None => ai_client.send_agent_message(request).await,
         }
     };
@@ -102,17 +99,14 @@ async fn send_agent_message_with_timeout(
 
 #[cfg(target_family = "wasm")]
 async fn send_agent_message_with_timeout(
-    server_api: std::sync::Arc<crate::server::server_api::ServerApi>,
     ai_client: std::sync::Arc<dyn crate::server::server_api::ai::AIClient>,
     task_id: Option<AmbientAgentTaskId>,
     request: SendAgentMessageRequest,
 ) -> anyhow::Result<SendAgentMessageResponse, anyhow::Error> {
     match task_id {
-        Some(task_id) => {
-            server_api
-                .send_agent_message_for_task(&task_id, request)
-                .await
-        }
+        Some(_) => Err(anyhow!(
+            "Sending messages for cloud tasks is disabled in local-only mode"
+        )),
         None => ai_client.send_agent_message(request).await,
     }
 }
@@ -166,7 +160,6 @@ impl SendMessageToAgentExecutor {
         let log_sender_run_id = sender_run_id.clone();
         let log_task_id = task_id.map(|task_id| task_id.to_string());
         let log_body_len = message_body.chars().count();
-        let server_api = ServerApiProvider::as_ref(ctx).get();
         let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
         log::info!(
             "Sending orchestration message: conversation_id={conversation_id:?} resolution={task_resolution:?} sender_run_id={log_sender_run_id:?} task_id={log_task_id:?} target_agent_ids={log_addresses:?} subject={log_subject:?} body_len={log_body_len}"
@@ -179,7 +172,7 @@ impl SendMessageToAgentExecutor {
         };
         ActionExecution::new_async(
             async move {
-                send_agent_message_with_timeout(server_api, ai_client, task_id, request).await
+                send_agent_message_with_timeout(ai_client, task_id, request).await
             },
             move |result, ctx| match result {
                 Ok(response) => {

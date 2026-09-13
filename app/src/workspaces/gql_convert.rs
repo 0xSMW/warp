@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use anyhow::{Result, anyhow, bail};
+#[cfg(test)]
+use anyhow::bail;
+use anyhow::{Result, anyhow};
 use regex::Regex;
 use warp_errors::report_error;
 use warp_graphql::billing::{
@@ -26,7 +28,9 @@ use warp_graphql::billing::{
     UsageVisibilityPolicy as GqlUsageVisibilityPolicy, WarpAiPolicy as GqlWarpAiPolicy,
 };
 use warp_graphql::queries::get_conversation_usage as gql_usage;
+#[cfg(test)]
 use warp_graphql::queries::get_workspaces_metadata_for_user::User as GqlUser;
+#[cfg(test)]
 use warp_graphql::subscriptions::get_warp_drive_updates::WarpDriveUpdate;
 use warp_graphql::user::DiscoverableTeamData as GqlDiscoverableTeamData;
 use warp_graphql::workspace::{
@@ -49,6 +53,7 @@ use warp_graphql::workspace::{
 };
 
 use super::team::{DiscoverableTeam, MembershipRole, Team, TeamMember, TeamVisibility};
+#[cfg(test)]
 use super::user_workspaces::WorkspacesMetadataResponse;
 use super::workspace::{
     AIAutonomyPolicy, AddonCreditsSettings, AdminEnablementSetting, AiAutonomySettings,
@@ -73,9 +78,13 @@ use crate::ai::execution_profiles::{
 use crate::ai::llms::ModelsByFeature;
 use crate::ai::{BonusGrant, BonusGrantScope};
 use crate::auth::UserUid;
+#[cfg(test)]
 use crate::convert_to_server_experiment;
+#[cfg(test)]
 use crate::server::cloud_objects::listener::ObjectUpdateMessage;
+#[cfg(test)]
 use crate::server::experiments::ServerExperiment;
+#[cfg(test)]
 use crate::server::graphql::schema::object_action_history_from_gql;
 use crate::server::ids::ServerId;
 use crate::settings::AgentModeCommandExecutionPredicate;
@@ -86,6 +95,7 @@ use crate::workspaces::workspace::{
     UsageBasedPricingSettings, WorkspaceUid,
 };
 
+#[cfg(test)]
 pub const PLACEHOLDER_WORKSPACE_UID: &str = "NOT_A_REAL_WORKSPACE_UID";
 
 impl From<GqlTeamMember> for TeamMember {
@@ -111,6 +121,7 @@ impl From<GqlTeamMember> for TeamMember {
 /// user-role memberships), so this membership check cannot recognize them and would strip
 /// every team out from under any service account. Skip it in that case and trust the server
 /// to have already scoped `teams` to the service account's own team.
+#[cfg(test)]
 fn retain_authenticated_teams(
     workspace: &mut Workspace,
     user_uid: UserUid,
@@ -1469,6 +1480,7 @@ impl From<GqlWorkspace> for Workspace {
 /// `is_service_account` controls whether [`retain_authenticated_teams`] filters each
 /// workspace's teams down to the caller's own human memberships; see that function's doc
 /// comment for why service accounts must skip it.
+#[cfg(test)]
 pub fn workspaces_metadata_response_from_gql(
     gql_user: GqlUser,
     is_service_account: bool,
@@ -1526,6 +1538,7 @@ pub fn workspaces_metadata_response_from_gql(
 #[path = "gql_convert_tests.rs"]
 mod tests;
 
+#[cfg(test)]
 pub fn object_update_message_from_gql(value: WarpDriveUpdate) -> Result<ObjectUpdateMessage> {
     match value {
         WarpDriveUpdate::ObjectActionOccurred(message) => {

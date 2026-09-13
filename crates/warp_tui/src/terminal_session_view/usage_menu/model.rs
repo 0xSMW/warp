@@ -143,7 +143,8 @@ impl TuiUsageSnapshot {
 
         let manage_billing_url = team
             .filter(|_| is_admin)
-            .map(|team| UserWorkspaces::admin_billing_link_for_team(team.uid));
+            .map(|team| UserWorkspaces::admin_billing_link_for_team(team.uid))
+            .filter(|url| !url.is_empty());
 
         Self {
             plan_name: workspace

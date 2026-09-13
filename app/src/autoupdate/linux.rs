@@ -1,14 +1,21 @@
+#[cfg(test)]
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result, bail};
+#[cfg(test)]
+use anyhow::Context as _;
+use anyhow::{Result, bail};
 use channel_versions::VersionInfo;
+#[cfg(test)]
 use instant::Duration;
+#[cfg(test)]
 use warp_core::channel::{Channel, ChannelState};
 use warp_terminal::shell::ShellType;
 use warpui::ViewContext;
 
-use super::{DownloadReady, ReadyForRelaunch, release_assets_directory_url};
+#[cfg(test)]
+use super::release_assets_directory_url;
+use super::{DownloadReady, ReadyForRelaunch};
 use crate::workspace::Workspace;
 
 lazy_static::lazy_static! {
@@ -20,6 +27,16 @@ lazy_static::lazy_static! {
     static ref CURRENT_EXE: std::io::Result<PathBuf> = std::env::current_exe();
 }
 
+#[cfg(not(test))]
+pub(super) async fn download_update_and_cleanup(
+    _version_info: &VersionInfo,
+    _update_id: &str,
+    _client: &http_client::Client,
+) -> Result<DownloadReady> {
+    Ok(DownloadReady::No)
+}
+
+#[cfg(test)]
 pub(super) async fn download_update_and_cleanup(
     version_info: &VersionInfo,
     _update_id: &str,
@@ -37,6 +54,16 @@ pub(super) async fn download_update_and_cleanup(
     }
 }
 
+#[cfg(not(test))]
+pub(super) fn apply_update(
+    _initiating_workspace: &mut Workspace,
+    _update_id: &str,
+    _ctx: &mut ViewContext<Workspace>,
+) -> Result<ReadyForRelaunch> {
+    bail!("Linux autoupdate is disabled in local-only mode")
+}
+
+#[cfg(test)]
 pub(super) fn apply_update(
     initiating_workspace: &mut Workspace,
     update_id: &str,
@@ -75,6 +102,7 @@ mod appimage {
 
     use super::*;
 
+    #[cfg(test)]
     pub(super) async fn download_update_and_cleanup(
         version_info: &VersionInfo,
         appimage_path: &Path,
@@ -159,20 +187,26 @@ mod appimage {
 }
 
 mod package_manager {
+    #[cfg(test)]
     use markdown_parser::{
         FormattedText, FormattedTextFragment, FormattedTextHeader, FormattedTextLine,
     };
+    #[cfg(test)]
     use warpui::elements::{Container, FormattedTextElement, HighlightedHyperlink};
+    #[cfg(test)]
     use warpui::{Element, SingletonEntity as _};
 
     use super::*;
+    #[cfg(test)]
     use crate::appearance::Appearance;
 
+    #[cfg(test)]
     pub struct AutoupdateContextBlock {
         package_manager: PackageManager,
         hyperlink: HighlightedHyperlink,
     }
 
+    #[cfg(test)]
     impl AutoupdateContextBlock {
         pub fn new(package_manager: PackageManager) -> Self {
             AutoupdateContextBlock {
@@ -182,10 +216,12 @@ mod package_manager {
         }
     }
 
+    #[cfg(test)]
     impl warpui::Entity for AutoupdateContextBlock {
         type Event = ();
     }
 
+    #[cfg(test)]
     impl warpui::View for AutoupdateContextBlock {
         fn ui_name() -> &'static str {
             "AutoupdateContextBlock"
@@ -322,6 +358,7 @@ impl UpdateMethod {
         if let Some(appimage_path) = std::env::var_os("APPIMAGE").map(PathBuf::from) {
             return Self::AppImage(appimage_path);
         }
+        #[cfg(test)]
         if let Ok(package_manager) = PackageManager::detect() {
             return Self::PackageManager(package_manager);
         }
@@ -346,6 +383,12 @@ pub enum PackageManager {
 }
 
 impl PackageManager {
+    #[cfg(not(test))]
+    pub fn update_command(&self, _shell_type: ShellType, _update_id: &str) -> String {
+        "false".to_owned()
+    }
+
+    #[cfg(test)]
     pub fn update_command(&self, shell_type: ShellType, update_id: &str) -> String {
         let package_name = Self::package_name();
         let repo_name = Self::repo_name();
@@ -419,14 +462,17 @@ impl PackageManager {
         format!("{base_command}{and}{finish_update_fn} {update_id}")
     }
 
+    #[cfg(test)]
     fn package_name() -> &'static str {
         package_name(ChannelState::channel())
     }
 
+    #[cfg(test)]
     fn repo_name() -> String {
         repo_name(ChannelState::channel())
     }
 
+    #[cfg(test)]
     fn detect() -> Result<Self> {
         let package_name = Self::package_name();
 
@@ -503,6 +549,7 @@ impl PackageManager {
         }
     }
 
+    #[cfg(test)]
     fn distribution_update_disabled_repository(&self) -> bool {
         match self {
             PackageManager::Apt {
@@ -512,6 +559,7 @@ impl PackageManager {
         }
     }
 
+    #[cfg(test)]
     fn needs_repository_configuration(&self) -> bool {
         match self {
             PackageManager::Pacman {
@@ -551,6 +599,7 @@ impl std::fmt::Display for PackageManager {
 /// `signed-by` key) so it only leaves the `*.distUpgrade` source file. We use the existence of this
 /// file to determine whether we need to run the special `warp_handle_dist_upgrade` function to copy
 /// `warpdotdev.list.distUpgrade` back to `warpdotdev.list` to re-enable the repository.
+#[cfg(test)]
 fn is_apt_repository_disabled_due_to_version_update(repo_name: &str) -> bool {
     let apt_sources_directory = match get_apt_sources_directory() {
         Ok(apt_sources_directory) => apt_sources_directory,
@@ -573,6 +622,7 @@ fn is_apt_repository_disabled_due_to_version_update(repo_name: &str) -> bool {
 }
 
 /// Returns the directory that contains apt sources.
+#[cfg(test)]
 fn get_apt_sources_directory() -> Result<PathBuf> {
     let output = command::blocking::Command::new("sh")
         .arg("-c")
@@ -584,6 +634,7 @@ fn get_apt_sources_directory() -> Result<PathBuf> {
     Ok(PathBuf::from(stdout.trim()))
 }
 
+#[cfg(test)]
 fn is_pacman_repo_installed(package_name: &str) -> bool {
     match command::blocking::Command::new("pacman")
         .arg("-S")
@@ -600,6 +651,7 @@ fn is_pacman_repo_installed(package_name: &str) -> bool {
     }
 }
 
+#[cfg(test)]
 fn is_pacman_signing_key_installed() -> bool {
     // Check if the key exists and get its expiry date from pacman's GPG keyring.
     let output = match command::blocking::Command::new("gpg")
@@ -667,6 +719,7 @@ fn is_pacman_signing_key_installed() -> bool {
     expiry_timestamp > sixty_days_from_now.timestamp()
 }
 
+#[cfg(test)]
 fn package_name(channel: Channel) -> &'static str {
     match channel {
         Channel::Stable => "warp-terminal",
@@ -678,6 +731,7 @@ fn package_name(channel: Channel) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn repo_name(channel: Channel) -> String {
     let package_name = package_name(channel);
     let channel_suffix = package_name

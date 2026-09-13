@@ -1,57 +1,82 @@
+#[cfg(test)]
 use anyhow::{Result, anyhow};
+#[cfg(test)]
 use async_trait::async_trait;
-use cynic::{MutationBuilder, QueryBuilder};
+#[cfg(test)]
+use cynic::MutationBuilder;
+#[cfg(test)]
+use cynic::QueryBuilder;
 #[cfg(test)]
 use mockall::automock;
+// Cloud integration mutations and auth flows are retained only for unit-test mocks while the
+// local-only production build has no callers.
+#[cfg(test)]
 use warp_graphql::mutations::create_simple_integration::{
     CreateSimpleIntegration, CreateSimpleIntegrationOutput, CreateSimpleIntegrationResult,
     CreateSimpleIntegrationVariables, SimpleIntegrationConfig,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_integrations_using_environment::{
     GetIntegrationsUsingEnvironment, GetIntegrationsUsingEnvironmentInput,
     GetIntegrationsUsingEnvironmentOutput, GetIntegrationsUsingEnvironmentResult,
     GetIntegrationsUsingEnvironmentVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_oauth_connect_tx_status::{
     GetOAuthConnectTxStatus, GetOAuthConnectTxStatusInput, GetOAuthConnectTxStatusResult,
     GetOAuthConnectTxStatusVariables, OauthConnectTxStatus,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_simple_integrations::{
     SimpleIntegrations, SimpleIntegrationsInput, SimpleIntegrationsOutput,
     SimpleIntegrationsResult, SimpleIntegrationsVariables,
 };
+#[cfg(test)]
+use warp_graphql::queries::suggest_cloud_environment_image::SuggestCloudEnvironmentImageResult;
+#[cfg(test)]
 use warp_graphql::queries::suggest_cloud_environment_image::{
     RepoInput as SuggestCloudEnvironmentImageRepoInput, SuggestCloudEnvironmentImage,
-    SuggestCloudEnvironmentImageInput, SuggestCloudEnvironmentImageResult,
-    SuggestCloudEnvironmentImageVariables,
+    SuggestCloudEnvironmentImageInput, SuggestCloudEnvironmentImageVariables,
 };
+#[cfg(test)]
+use warp_graphql::queries::user_github_info::UserGithubInfoResult;
+#[cfg(test)]
 use warp_graphql::queries::user_github_info::{
-    GithubAuthRequiredOutput, UserGithubInfo, UserGithubInfoResult, UserGithubInfoVariables,
+    GithubAuthRequiredOutput, UserGithubInfo, UserGithubInfoVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::user_repo_auth_status::{
     RepoInput as UserRepoAuthStatusRepoInput, UserRepoAuthStatus, UserRepoAuthStatusInput,
     UserRepoAuthStatusOutput, UserRepoAuthStatusResult, UserRepoAuthStatusVariables,
 };
 
+#[cfg(test)]
 use super::ServerApi;
+#[cfg(test)]
 use crate::channel::ChannelState;
+#[cfg(test)]
 use crate::features::FeatureFlag;
+#[cfg(test)]
 use crate::server::graphql::{get_request_context, get_user_facing_error_message};
 
 #[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 pub trait IntegrationsClientBounds: Send + Sync {}
 
 #[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 impl<T: 'static + Send + Sync> IntegrationsClientBounds for T {}
 
 #[cfg(target_family = "wasm")]
+#[cfg(test)]
 pub trait IntegrationsClientBounds {}
 
 #[cfg(target_family = "wasm")]
+#[cfg(test)]
 impl<T: 'static> IntegrationsClientBounds for T {}
 
+#[cfg(test)]
 #[cfg_attr(test, automock)]
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub trait IntegrationsClient: 'static + IntegrationsClientBounds {
@@ -59,6 +84,7 @@ pub trait IntegrationsClient: 'static + IntegrationsClientBounds {
     ///
     /// Returns a list of statuses for each repo, indicating whether the user has
     /// access to the repo, and an optional auth URL for the user to authorize.
+    #[cfg(test)]
     async fn check_user_repo_auth_status(
         &self,
         repos: Vec<(String, String)>,
@@ -76,6 +102,7 @@ pub trait IntegrationsClient: 'static + IntegrationsClientBounds {
     /// * `remove_mcp_server_names` - Optional list of MCP server names to remove (applies on update)
     /// * `worker_host` - Optional worker host ID for self-hosted workers
     /// * `enabled` - Whether the integration should be enabled on creation
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     async fn create_or_update_simple_integration(
         &self,
@@ -94,6 +121,7 @@ pub trait IntegrationsClient: 'static + IntegrationsClientBounds {
     ///
     /// The server will return one SimpleIntegration entry per requested provider,
     /// regardless of whether the connection or integration currently exists.
+    #[cfg(test)]
     async fn list_simple_integrations(
         &self,
         providers: Vec<String>,
@@ -107,6 +135,7 @@ pub trait IntegrationsClient: 'static + IntegrationsClientBounds {
     /// # Returns
     /// * `Ok(OauthConnectTxStatus)` - The current status of the transaction
     /// * `Err` - If the transaction is not found or polling fails
+    #[cfg(test)]
     async fn poll_oauth_connect_status(&self, tx_id: String) -> Result<OauthConnectTxStatus>;
 
     /// Gets the list of integration provider names that are using the specified environment.
@@ -117,6 +146,7 @@ pub trait IntegrationsClient: 'static + IntegrationsClientBounds {
     /// # Returns
     /// * `Ok(Vec<String>)` - List of provider names (e.g., ["linear", "slack"]) using this environment
     /// * `Err` - If the query fails
+    #[cfg(test)]
     async fn get_integrations_using_environment(
         &self,
         environment_id: String,
@@ -136,9 +166,11 @@ pub trait IntegrationsClient: 'static + IntegrationsClientBounds {
     ) -> Result<SuggestCloudEnvironmentImageResult>;
 }
 
+#[cfg(test)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl IntegrationsClient for ServerApi {
+    #[cfg(test)]
     async fn check_user_repo_auth_status(
         &self,
         repos: Vec<(String, String)>,
@@ -164,6 +196,7 @@ impl IntegrationsClient for ServerApi {
         }
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     async fn create_or_update_simple_integration(
         &self,
@@ -205,6 +238,7 @@ impl IntegrationsClient for ServerApi {
         }
     }
 
+    #[cfg(test)]
     async fn get_integrations_using_environment(
         &self,
         environment_id: String,
@@ -230,6 +264,7 @@ impl IntegrationsClient for ServerApi {
         }
     }
 
+    #[cfg(test)]
     async fn list_simple_integrations(
         &self,
         providers: Vec<String>,
@@ -253,6 +288,7 @@ impl IntegrationsClient for ServerApi {
         }
     }
 
+    #[cfg(test)]
     async fn poll_oauth_connect_status(&self, tx_id: String) -> Result<OauthConnectTxStatus> {
         let variables = GetOAuthConnectTxStatusVariables {
             request_context: get_request_context(),
@@ -277,6 +313,7 @@ impl IntegrationsClient for ServerApi {
         }
     }
 
+    #[cfg(test)]
     async fn get_user_github_info(&self) -> Result<UserGithubInfoResult> {
         let variables = UserGithubInfoVariables {
             request_context: get_request_context(),
@@ -310,6 +347,15 @@ impl IntegrationsClient for ServerApi {
         Ok(result)
     }
 
+    #[cfg(not(test))]
+    async fn get_user_github_info(&self) -> Result<UserGithubInfoResult> {
+        let _ = self;
+        Err(anyhow!(
+            "GitHub integrations are unavailable in local-only mode"
+        ))
+    }
+
+    #[cfg(test)]
     async fn suggest_cloud_environment_image(
         &self,
         repos: Vec<(String, String)>,
@@ -345,5 +391,16 @@ impl IntegrationsClient for ServerApi {
                 "Unknown response from suggestCloudEnvironmentImage query"
             )),
         }
+    }
+
+    #[cfg(not(test))]
+    async fn suggest_cloud_environment_image(
+        &self,
+        repos: Vec<(String, String)>,
+    ) -> Result<SuggestCloudEnvironmentImageResult> {
+        let _ = (self, repos);
+        Err(anyhow!(
+            "Cloud environment image suggestions are unavailable in local-only mode"
+        ))
     }
 }

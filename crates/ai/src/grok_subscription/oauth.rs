@@ -1,80 +1,92 @@
-//! OAuth flow for connecting an xAI / Grok subscription (e.g. SuperGrok) to
-//! Warp, so users can "plug in" their subscription instead of pasting a
-//! pay-as-you-go API key.
+//! Pure token data and test coverage for the xAI / Grok subscription OAuth flow.
 //!
-//! This mirrors the public Grok-CLI desktop OAuth flow: an OAuth 2.0
-//! Authorization Code grant with PKCE and a fixed loopback redirect URI. xAI's
-//! auth server only accepts the loopback redirect for an allowlisted
-//! `client_id` bound to a specific port, so we reuse the Grok-CLI client and
-//! bind the callback server to that exact port.
-//!
-//! Some browsers/networks can't reach the loopback callback (e.g. Private
-//! Network Access is blocked), in which case xAI's consent screen instead
-//! *displays* the authorization code for the user to paste back into the app.
-//! [`OauthAttempt::manual_code_exchange`] supports that fallback by capturing
-//! the attempt's PKCE verifier so a pasted code can be exchanged directly,
-//! without ever observing the loopback redirect.
-//!
-//! This module owns only the network/protocol side: building the authorize
-//! URL, running the loopback callback server, and exchanging/refreshing tokens
-//! at xAI's token endpoint. Persistence of the resulting tokens, proactive
-//! refresh scheduling, and injection into the request live in the parent
-//! [`crate::grok_subscription`] module (refresh orchestration) and
-//! [`crate::api_keys::ApiKeyManager`] (storage + request injection).
+//! The local-only production build fails closed for OAuth start, callback,
+//! authorization-code exchange, and token refresh. It neither opens an
+//! external authorization URL nor binds a loopback listener or sends a network
+//! request. The protocol implementation remains available under `cfg(test)`
+//! so the pure PKCE/token behavior and callback tests stay covered.
 
 use std::future::Future;
+#[cfg(test)]
 use std::io::{ErrorKind, Read, Write};
+#[cfg(test)]
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
 use std::time::Duration;
 
-use anyhow::{Context as _, bail};
+#[cfg(test)]
+use anyhow::Context as _;
+use anyhow::bail;
+#[cfg(test)]
 use base64::Engine as _;
+#[cfg(test)]
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 // `std::time::Instant` is disallowed (no wasm support); `instant::Instant` is a
 // drop-in that re-exports the std type on native targets.
+#[cfg(test)]
 use instant::Instant;
+#[cfg(test)]
 use rand::RngCore as _;
 use serde::Deserialize;
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 
+#[cfg(not(test))]
+const LOCAL_ONLY_OAUTH_ERROR: &str = "Grok OAuth is unavailable in local-only builds";
+
+#[cfg(test)]
 const CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
+#[cfg(test)]
 const AUTHORIZE_URL: &str = "https://auth.x.ai/oauth2/authorize";
+#[cfg(test)]
 const TOKEN_URL: &str = "https://auth.x.ai/oauth2/token";
+#[cfg(test)]
 const SCOPE: &str = "openid profile email offline_access grok-cli:access api:access";
 
+#[cfg(test)]
 const REDIRECT_HOST: &str = "127.0.0.1";
+#[cfg(test)]
 const REDIRECT_PORT: u16 = 56121;
 
 /// How long we keep the loopback server open waiting for the user to approve
 /// the consent screen in their browser.
+#[cfg(test)]
 const CALLBACK_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long to nap between non-blocking `accept()` attempts.
+#[cfg(test)]
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// How long to wait for an accepted connection to send its request before
 /// giving up on it.
+#[cfg(test)]
 const CALLBACK_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// xAI's browser consent screen fetches the loopback callback from these
 /// origins. Since that request crosses origins (https://accounts.x.ai ->
 /// http://127.0.0.1), browsers require CORS and Private Network Access headers
 /// before the page can observe the callback response.
+#[cfg(test)]
 const CORS_ALLOWED_ORIGINS: [&str; 2] = ["https://accounts.x.ai", "https://auth.x.ai"];
 
+#[cfg(test)]
 fn redirect_uri() -> String {
     format!("http://{REDIRECT_HOST}:{REDIRECT_PORT}/callback")
 }
 
-/// One in-flight OAuth login attempt: the bound loopback callback listener
-/// plus the per-attempt PKCE/CSRF secrets, which never leave this module.
+/// One in-flight OAuth login attempt in test builds: the bound loopback
+/// callback listener plus the per-attempt PKCE/CSRF secrets, which never leave
+/// this module. The production-compatible shell fails closed before an
+/// attempt can be created.
 ///
 /// Construct with [`OauthAttempt::start`], open [`OauthAttempt::authorize_url`]
 /// in the browser, then await [`OauthAttempt::finish`] to obtain tokens. Tying
 /// the secrets to the attempt guarantees the same PKCE verifier and CSRF state
 /// are used for both the authorize URL and the code exchange.
 pub struct OauthAttempt {
+    #[cfg(test)]
     listener: TcpListener,
+    #[cfg(test)]
     pkce: PkceParams,
     cancellation: OauthCancellationHandle,
 }
@@ -105,6 +117,7 @@ impl OauthReleaseSignal {
     }
 }
 
+#[cfg(test)]
 impl OauthAttempt {
     /// Binds the loopback callback server and generates fresh per-attempt
     /// secrets. Call this before opening the browser so a bind failure (e.g.
@@ -157,15 +170,48 @@ impl OauthAttempt {
     }
 }
 
+#[cfg(not(test))]
+impl OauthAttempt {
+    pub fn start() -> anyhow::Result<Self> {
+        bail!("{LOCAL_ONLY_OAUTH_ERROR}");
+    }
+
+    pub fn authorize_url(&self) -> String {
+        String::new()
+    }
+
+    pub fn finish(
+        self,
+    ) -> (
+        OauthReleaseSignal,
+        impl Future<Output = anyhow::Result<TokenResponse>>,
+    ) {
+        let (release_tx, release_rx) = async_channel::bounded(1);
+        let _ = release_tx.try_send(());
+        let result = async { bail!("{LOCAL_ONLY_OAUTH_ERROR}") };
+        (OauthReleaseSignal(release_rx), result)
+    }
+
+    pub fn manual_code_exchange(&self) -> ManualCodeExchange {
+        ManualCodeExchange {}
+    }
+
+    pub fn cancellation_handle(&self) -> OauthCancellationHandle {
+        self.cancellation.clone()
+    }
+}
+
 /// Completes OAuth from a manually-pasted authorization code.
 ///
 /// There is no redirect `state` to validate in this out-of-band path; PKCE
 /// protects the exchange.
 #[derive(Clone)]
 pub struct ManualCodeExchange {
+    #[cfg(test)]
     verifier: String,
 }
 
+#[cfg(test)]
 impl ManualCodeExchange {
     /// Exchanges a user-pasted authorization `code` with the attempt's PKCE verifier.
     pub async fn exchange(&self, code: &str) -> anyhow::Result<TokenResponse> {
@@ -177,8 +223,17 @@ impl ManualCodeExchange {
     }
 }
 
+#[cfg(not(test))]
+impl ManualCodeExchange {
+    pub async fn exchange(&self, code: &str) -> anyhow::Result<TokenResponse> {
+        let _ = code;
+        bail!("{LOCAL_ONLY_OAUTH_ERROR}");
+    }
+}
+
 /// The per-attempt secrets for one authorization request: the PKCE
 /// verifier/challenge pair and the CSRF `state` value.
+#[cfg(test)]
 struct PkceParams {
     verifier: String,
     challenge: String,
@@ -187,6 +242,7 @@ struct PkceParams {
     state: String,
 }
 
+#[cfg(test)]
 impl PkceParams {
     /// Generates a fresh PKCE verifier + S256 challenge and a random CSRF state.
     fn generate() -> Self {
@@ -204,6 +260,7 @@ impl PkceParams {
 /// Returns a URL-safe, unpadded base64 string of 32 random bytes. This is used
 /// for both the PKCE code verifier (RFC 7636 allows 43-128 chars from the
 /// unreserved set) and the CSRF state.
+#[cfg(test)]
 fn random_url_safe_token() -> String {
     let mut bytes = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut bytes);
@@ -212,6 +269,7 @@ fn random_url_safe_token() -> String {
 
 /// Builds the authorization URL the user's browser should open to begin the
 /// flow.
+#[cfg(test)]
 fn authorize_url(pkce: &PkceParams) -> String {
     let redirect = redirect_uri();
     // `plan=generic` opts the consent screen into xAI's generic OAuth plan tier
@@ -246,12 +304,14 @@ pub struct TokenResponse {
 }
 
 /// The authorization code and state captured from the loopback redirect.
+#[cfg(test)]
 struct CallbackData {
     code: String,
     state: String,
 }
 
 /// Binds the loopback callback server to the fixed redirect address.
+#[cfg(test)]
 fn bind_callback_listener() -> anyhow::Result<TcpListener> {
     let listener = TcpListener::bind((REDIRECT_HOST, REDIRECT_PORT)).with_context(|| {
         format!(
@@ -268,6 +328,7 @@ fn bind_callback_listener() -> anyhow::Result<TcpListener> {
 /// Runs the full browser-based PKCE flow: waits for the loopback callback on a
 /// dedicated thread, validates the CSRF state, and exchanges the authorization
 /// code for tokens.
+#[cfg(test)]
 async fn run_oauth_flow(
     listener: TcpListener,
     pkce: PkceParams,
@@ -318,6 +379,7 @@ async fn run_oauth_flow(
 
 /// Blocks (on a non-blocking listener with polling) until the browser hits the
 /// redirect URI, returning the captured code and state, or an error on timeout.
+#[cfg(test)]
 fn wait_for_callback(
     listener: &TcpListener,
     timeout: Duration,
@@ -353,6 +415,7 @@ fn wait_for_callback(
 /// Returns `Ok(None)` for requests that aren't the OAuth callback (so the
 /// caller keeps listening), `Ok(Some(..))` on a successful callback, and `Err`
 /// when the provider reported an error or the callback was malformed.
+#[cfg(test)]
 fn handle_callback_connection(
     mut stream: TcpStream,
     cancellation: &OauthCancellationHandle,
@@ -432,6 +495,7 @@ fn handle_callback_connection(
 /// elapses -- otherwise a connection that's accepted but never sends anything
 /// (e.g. a stray network probe) would hold the listener for that long after
 /// Cancel.
+#[cfg(test)]
 fn read_callback_request(
     stream: &mut TcpStream,
     cancellation: &OauthCancellationHandle,
@@ -474,6 +538,7 @@ fn read_callback_request(
     Ok(String::from_utf8_lossy(&buf[..total]).into_owned())
 }
 
+#[cfg(test)]
 fn request_header(request: &str, header_name: &str) -> Option<String> {
     request.lines().skip(1).find_map(|line| {
         let (name, value) = line.split_once(':')?;
@@ -483,6 +548,7 @@ fn request_header(request: &str, header_name: &str) -> Option<String> {
 }
 
 /// Writes a minimal HTTP/1.1 response and closes the connection.
+#[cfg(test)]
 fn write_response(stream: &mut TcpStream, status: &str, body: &str, origin: Option<&str>) {
     let cors_headers = cors_headers(origin);
     let response = format!(
@@ -495,6 +561,7 @@ fn write_response(stream: &mut TcpStream, status: &str, body: &str, origin: Opti
     let _ = stream.shutdown(Shutdown::Both);
 }
 
+#[cfg(test)]
 fn cors_headers(origin: Option<&str>) -> String {
     origin
         .filter(|origin| CORS_ALLOWED_ORIGINS.contains(origin))
@@ -511,6 +578,7 @@ fn cors_headers(origin: Option<&str>) -> String {
 }
 
 /// Exchanges the authorization code for OAuth tokens at xAI's token endpoint.
+#[cfg(test)]
 async fn exchange_code_for_tokens(code: &str, verifier: &str) -> anyhow::Result<TokenResponse> {
     let redirect = redirect_uri();
     let form: [(&str, &str); 5] = [
@@ -530,6 +598,7 @@ async fn exchange_code_for_tokens(code: &str, verifier: &str) -> anyhow::Result<
 /// xAI may or may not return a new `refresh_token`; callers should fall back to
 /// the existing one when [`TokenResponse::refresh_token`] is `None` (rotation is
 /// optional in OAuth 2.0).
+#[cfg(test)]
 pub async fn refresh_access_token(refresh_token: &str) -> anyhow::Result<TokenResponse> {
     let form: [(&str, &str); 3] = [
         ("grant_type", "refresh_token"),
@@ -539,8 +608,15 @@ pub async fn refresh_access_token(refresh_token: &str) -> anyhow::Result<TokenRe
     post_token_request(&form).await
 }
 
+#[cfg(not(test))]
+pub async fn refresh_access_token(refresh_token: &str) -> anyhow::Result<TokenResponse> {
+    let _ = refresh_token;
+    bail!("{LOCAL_ONLY_OAUTH_ERROR}");
+}
+
 /// POSTs a form-encoded body to xAI's token endpoint and parses the
 /// [`TokenResponse`]. Shared by the initial code exchange and refresh grants.
+#[cfg(test)]
 async fn post_token_request<T: serde::Serialize + ?Sized>(
     form: &T,
 ) -> anyhow::Result<TokenResponse> {
@@ -563,11 +639,13 @@ async fn post_token_request<T: serde::Serialize + ?Sized>(
         .context("failed to parse the Grok token response")
 }
 
+#[cfg(test)]
 const SUCCESS_HTML: &str = "<!doctype html><html><head><meta charset=\"utf-8\">\
 <title>Warp — Grok connected</title></head>\
 <body style=\"font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:3rem\">\
 <h1>Grok connected</h1><p>You can close this window and return to Warp.</p></body></html>";
 
+#[cfg(test)]
 const FAILURE_HTML: &str = "<!doctype html><html><head><meta charset=\"utf-8\">\
 <title>Warp — Grok authorization failed</title></head>\
 <body style=\"font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:3rem\">\

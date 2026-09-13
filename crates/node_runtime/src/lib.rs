@@ -74,6 +74,7 @@ pub enum ArchiveType {
 struct NodeDistribution {
     os: &'static str,
     arch: &'static str,
+    #[cfg(test)]
     archive_type: ArchiveType,
 }
 
@@ -94,6 +95,7 @@ impl NodeDistribution {
             other => bail!("Unsupported architecture: {}", other),
         };
 
+        #[cfg(test)]
         let archive_type = match std::env::consts::OS {
             "windows" => ArchiveType::Zip,
             _ => ArchiveType::TarGz,
@@ -102,6 +104,7 @@ impl NodeDistribution {
         Ok(Self {
             os,
             arch,
+            #[cfg(test)]
             archive_type,
         })
     }
@@ -112,6 +115,7 @@ impl NodeDistribution {
     }
 
     /// Returns the file extension for the archive.
+    #[cfg(test)]
     fn file_extension(&self) -> &'static str {
         match self.archive_type {
             ArchiveType::TarGz => "tar.gz",
@@ -120,6 +124,7 @@ impl NodeDistribution {
     }
 
     /// Returns the download URL for the Node.js distribution.
+    #[cfg(test)]
     fn download_url(&self, version: &str) -> String {
         let file_name = format!(
             "node-{}-{}-{}.{}",
@@ -156,8 +161,8 @@ pub fn npm_binary_path() -> Result<PathBuf> {
 ///
 /// This function will:
 /// 1. Check if a valid Node.js installation already exists
-/// 2. Download the appropriate Node.js distribution for the current platform
-/// 3. Extract it to the Warp data directory
+/// 2. In tests, download the appropriate Node.js distribution for the current platform
+/// 3. Extract a test download to the Warp data directory
 ///
 /// # Returns
 /// Returns the path to the Node.js installation directory on success.
@@ -165,7 +170,8 @@ pub fn npm_binary_path() -> Result<PathBuf> {
 /// # Errors
 /// Returns an error if:
 /// - The current platform/architecture is not supported
-/// - Network errors occur during download
+/// - A local runtime is unavailable in a production local-only build
+/// - Network errors occur during a test download
 /// - Extraction fails
 #[cfg(feature = "local_fs")]
 pub async fn install_npm(client: &http_client::Client) -> Result<PathBuf> {
@@ -188,57 +194,68 @@ pub async fn install_npm(client: &http_client::Client) -> Result<PathBuf> {
         return Ok(node_dir);
     }
 
-    // Remove any existing (potentially corrupted) installation
-    if async_fs::metadata(&node_containing_dir).await.is_ok() {
-        log::info!("Removing existing Node.js directory for clean installation");
-        async_fs::remove_dir_all(&node_containing_dir)
-            .await
-            .context("Failed to remove existing Node.js directory")?;
-    }
-
-    // Create the containing directory
-    async_fs::create_dir_all(&node_containing_dir)
-        .await
-        .context("Failed to create Node.js containing directory")?;
-
-    // Download Node.js
-    let url = dist.download_url(version);
-    log::info!("Downloading Node.js from {}", url);
-
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .context("Failed to download Node.js")?;
-
-    if !response.status().is_success() {
+    #[cfg(not(test))]
+    {
+        let _ = client;
         bail!(
-            "Node.js download failed with status {}: {}",
-            response.status(),
-            response.text().await.unwrap_or_default()
+            "Node.js installation requires network access, which is disabled in local-only builds; use a system or cached local runtime"
         );
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .context("Failed to read Node.js download response")?;
-
-    log::info!("Download complete, extracting...");
-
-    // Extract the archive
-    match dist.archive_type {
-        ArchiveType::TarGz => {
-            extract_tar_gz(&bytes, &node_containing_dir)?;
+    #[cfg(test)]
+    {
+        // Remove any existing (potentially corrupted) installation
+        if async_fs::metadata(&node_containing_dir).await.is_ok() {
+            log::info!("Removing existing Node.js directory for clean installation");
+            async_fs::remove_dir_all(&node_containing_dir)
+                .await
+                .context("Failed to remove existing Node.js directory")?;
         }
-        ArchiveType::Zip => {
-            extract_zip(&bytes, &node_containing_dir, None::<fn(&str) -> bool>).await?;
+
+        // Create the containing directory
+        async_fs::create_dir_all(&node_containing_dir)
+            .await
+            .context("Failed to create Node.js containing directory")?;
+
+        // Download Node.js
+        let url = dist.download_url(version);
+        log::info!("Downloading Node.js from {}", url);
+
+        let response = client
+            .get(&url)
+            .send()
+            .await
+            .context("Failed to download Node.js")?;
+
+        if !response.status().is_success() {
+            bail!(
+                "Node.js download failed with status {}: {}",
+                response.status(),
+                response.text().await.unwrap_or_default()
+            );
         }
+
+        let bytes = response
+            .bytes()
+            .await
+            .context("Failed to read Node.js download response")?;
+
+        log::info!("Download complete, extracting...");
+
+        // Extract the archive
+        match dist.archive_type {
+            ArchiveType::TarGz => {
+                extract_tar_gz(&bytes, &node_containing_dir)?;
+            }
+            ArchiveType::Zip => {
+                extract_zip(&bytes, &node_containing_dir, None::<fn(&str) -> bool>).await?;
+            }
+        }
+
+        log::info!("Node.js extracted successfully to {}", node_dir.display());
+
+        Ok(node_dir)
     }
-
-    log::info!("Node.js extracted successfully to {}", node_dir.display());
-
-    Ok(node_dir)
 }
 
 /// Checks if an existing Node.js installation is valid.
@@ -507,29 +524,38 @@ pub async fn fetch_npm_package_version(
     client: &http_client::Client,
     package_name: &str,
 ) -> Result<String> {
-    let url = format!("https://registry.npmjs.org/{}", package_name);
-
-    let response = client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .with_context(|| format!("Failed to fetch npm info for {}", package_name))?;
-
-    if !response.status().is_success() {
-        bail!(
-            "npm registry returned status {} for {}",
-            response.status(),
-            package_name
-        );
+    #[cfg(not(test))]
+    {
+        let _ = (client, package_name);
+        bail!("npm registry access is disabled in local-only builds");
     }
 
-    let info: NpmInfo = response
-        .json()
-        .await
-        .with_context(|| format!("Failed to parse npm info for {}", package_name))?;
+    #[cfg(test)]
+    {
+        let url = format!("https://registry.npmjs.org/{}", package_name);
 
-    info.latest_version()
-        .map(|s| s.to_string())
-        .with_context(|| format!("No version found for npm package {}", package_name))
+        let response = client
+            .get(&url)
+            .header("Accept", "application/json")
+            .send()
+            .await
+            .with_context(|| format!("Failed to fetch npm info for {}", package_name))?;
+
+        if !response.status().is_success() {
+            bail!(
+                "npm registry returned status {} for {}",
+                response.status(),
+                package_name
+            );
+        }
+
+        let info: NpmInfo = response
+            .json()
+            .await
+            .with_context(|| format!("Failed to parse npm info for {}", package_name))?;
+
+        info.latest_version()
+            .map(|s| s.to_string())
+            .with_context(|| format!("No version found for npm package {}", package_name))
+    }
 }

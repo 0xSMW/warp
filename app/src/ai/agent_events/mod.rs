@@ -4,9 +4,16 @@
 mod driver;
 mod message_hydrator;
 
+#[cfg(any(
+    test,
+    feature = "integration_tests",
+    feature = "local_claude_codex_child_harnesses"
+))]
+pub(crate) use driver::AgentMessageEventMetadata;
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) use driver::{
     AgentEventConsumer, AgentEventConsumerControlFlow, AgentEventDriverConfig, AgentEventFilter,
-    AgentMessageEventMetadata, ServerApiAgentEventSource, run_agent_event_driver,
+    ServerApiAgentEventSource, run_agent_event_driver,
 };
 #[cfg(test)]
 pub(crate) use driver::{
@@ -15,6 +22,7 @@ pub(crate) use driver::{
     DEFAULT_PERMANENT_ERROR_BACKOFF_STEPS, agent_event_backoff,
     agent_event_failures_exceeded_threshold,
 };
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) use message_hydrator::MessageHydrator;
 
 #[cfg(test)]

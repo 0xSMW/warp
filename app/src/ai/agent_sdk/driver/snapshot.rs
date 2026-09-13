@@ -1,4 +1,6 @@
 //! End-of-run snapshot upload pipeline invoked from `AgentDriver::run_snapshot_upload`.
+//! The declaration, gather, and upload implementation is test-only; local builds retain
+//! no-op compatibility shims so they cannot generate or upload cloud snapshots.
 //!
 //! Reads a JSONL declarations file listing repos and files, gathers git-diff patches or file
 //! contents for each, and uploads them (plus a `snapshot_state.json` manifest) to presigned GCS
@@ -22,41 +24,62 @@
 //! `version`, unknown `kind`, non-absolute path) are logged at WARN and skipped; they never abort
 //! parsing. Non-UTF-8 content short-circuits the read with a WARN because
 //! [`std::fs::read_to_string`] fails.
-use std::collections::{HashMap, HashSet};
-use std::ffi::{OsStr, OsString};
-#[cfg(unix)]
+#[cfg(test)]
+use std::collections::HashMap;
+#[cfg(test)]
+use std::collections::HashSet;
+#[cfg(all(test, unix))]
+use std::ffi::OsStr;
+use std::ffi::OsString;
+#[cfg(all(test, unix))]
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context as _, Result};
-use command::Stdio;
-use command::r#async::Command;
-use futures::future::join_all;
-use tokio::fs::{self as tokio_fs, OpenOptions};
-use tokio::io::AsyncWriteExt as _;
-use tokio::sync::{mpsc, oneshot};
-use warp_core::safe_info;
-use warp_errors::report_error;
-use warpui::r#async::FutureExt as _;
+use anyhow::Result;
 use warpui::r#async::executor::Background;
 
-use crate::ai::agent_sdk::retry::with_bounded_retry;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
+use crate::server::server_api::ai::{AIClient, InitialSnapshotToken};
+use crate::server::server_api::harness_support::{CheckpointGeneration, HarnessSupportClient};
+
+#[cfg(test)]
+use crate::ai::agent_sdk::retry::with_bounded_retry;
+#[cfg(test)]
 use crate::server::server_api::ai::{
-    AIClient, InitialSnapshotToken, SnapshotUploadFileInfo as AiSnapshotUploadFileInfo,
-    UploadLocalHandoffSnapshotRequest,
+    SnapshotUploadFileInfo as AiSnapshotUploadFileInfo, UploadLocalHandoffSnapshotRequest,
 };
+#[cfg(test)]
 use crate::server::server_api::harness_support::{
-    CheckpointGeneration, CommitSnapshotRequest, HarnessSupportClient, SnapshotFileInfo,
-    SnapshotUploadRequest, UploadTarget, upload_to_target,
+    CommitSnapshotRequest, SnapshotFileInfo, SnapshotUploadRequest, UploadTarget, upload_to_target,
 };
+#[cfg(test)]
+use anyhow::Context as _;
+#[cfg(test)]
+use command::Stdio;
+#[cfg(test)]
+use command::r#async::Command;
+#[cfg(test)]
+use futures::future::join_all;
+#[cfg(test)]
+use tokio::fs::{self as tokio_fs, OpenOptions};
+#[cfg(test)]
+use tokio::io::AsyncWriteExt as _;
+#[cfg(test)]
+use tokio::sync::{mpsc, oneshot};
+#[cfg(test)]
+use warp_core::safe_info;
+#[cfg(test)]
+use warp_errors::report_error;
+#[cfg(test)]
+use warpui::r#async::FutureExt as _;
 
 /// Default path of the declarations file when neither the env var override nor a task ID
 /// is available. Per-run files use `{DEFAULT_DECLARATIONS_DIR}/<id>/{DEFAULT_DECLARATIONS_FILENAME}`.
 const DEFAULT_DECLARATIONS_DIR: &str = "/tmp/oz";
 const DEFAULT_DECLARATIONS_FILENAME: &str = "snapshot-declarations.jsonl";
+#[cfg(test)]
 const DECLARATION_VERSION: u32 = 1;
 
 /// Env var override for the declarations file path (useful for tests and operators).
@@ -64,25 +87,31 @@ const DECLARATIONS_PATH_ENV_VAR: &str = "OZ_SNAPSHOT_DECLARATIONS_FILE";
 
 /// Warp-branded name for the same path, set alongside [`DECLARATIONS_PATH_ENV_VAR`] with the
 /// same value. Only the `OZ_` name is read back.
+#[cfg(test)]
 const WARP_DECLARATIONS_PATH_ENV_VAR: &str = "WARP_SNAPSHOT_DECLARATIONS_FILE";
 
 /// Env var pointing directly at the declarations-generator script.
 /// Set by `entrypoint.sh` in containerized runs and by `oz-local --docker-dir` in local dev.
+#[cfg(test)]
 const DECLARATIONS_SCRIPT_PATH_ENV_VAR: &str = "OZ_SNAPSHOT_DECLARATIONS_SCRIPT";
 
 /// Upper bound on declarations-script runtime. If the script takes longer we log an error and
 /// move on; the upload step then reads whatever the file already contains (possibly nothing).
+#[cfg(test)]
 pub(super) const DEFAULT_DECLARATIONS_SCRIPT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Upper bound on the end-of-run upload pipeline's total runtime, enforced at the call site in
 /// `AgentDriver::run_snapshot_upload`. Cleanup continues regardless of the outcome.
+#[cfg(test)]
 pub(super) const DEFAULT_SNAPSHOT_UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 /// Upper bound for each git subprocess spawned during the gather phase.
+#[cfg(test)]
 const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Max files per `POST /harness-support/upload-snapshot` call.
 /// Must match the server-side `binding:"required,min=1,max=25"` on
 /// `UploadSnapshotRequest.Files` in `router/handlers/public_api/harness_support.go`.
+#[cfg(test)]
 const UPLOAD_BATCH_SIZE: usize = 25;
 
 /// Total cap on files (blobs + manifest) uploaded per run.
@@ -90,6 +119,7 @@ const UPLOAD_BATCH_SIZE: usize = 25;
 /// filename, so we chunk into requests of [`UPLOAD_BATCH_SIZE`] and enforce the per-run total
 /// here. Blobs beyond the cap are dropped from upload and marked `skipped` in the manifest so
 /// consumers can distinguish capped entries from real upload failures.
+#[cfg(test)]
 const MAX_SNAPSHOT_FILES_PER_RUN: usize = 100;
 
 /// Per-file ceiling, mirroring the server's `handoff_snapshots.max_file_upload_size_bytes`.
@@ -99,23 +129,27 @@ const MAX_SNAPSHOT_FILES_PER_RUN: usize = 100;
 /// fail: a checkpoint attempt refuses to commit when any required blob failed, so one
 /// too-large file would otherwise block every future attempt for the run rather than costing
 /// just itself.
+#[cfg(test)]
 const MAX_SNAPSHOT_FILE_SIZE_BYTES: u64 = 25 * 1024 * 1024;
 
 // --- Declarations file parsing ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg(test)]
 enum EntryKind {
     Repo,
     File,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
 struct DeclarationEntry {
     kind: EntryKind,
     path: String,
 }
 
 #[derive(serde::Deserialize)]
+#[cfg(test)]
 struct DeclarationLine {
     version: Option<u32>,
     kind: String,
@@ -124,6 +158,7 @@ struct DeclarationLine {
 
 /// Serialize-only sibling of [`DeclarationLine`] used by the writer task to emit `file`
 /// entries with a fixed `version` and `kind`.
+#[cfg(test)]
 #[derive(serde::Serialize)]
 struct FileDeclaration<'a> {
     version: u32,
@@ -147,6 +182,7 @@ struct FileDeclaration<'a> {
 ///
 /// Exposed as a standalone helper so future call sites can trigger declarations generation at
 /// other points in the run lifecycle (e.g. periodic mid-run snapshots).
+#[cfg(test)]
 pub(super) async fn run_declarations_script(
     working_dir: &Path,
     task_id: &AmbientAgentTaskId,
@@ -223,6 +259,16 @@ pub(super) async fn run_declarations_script(
     }
 }
 
+/// Local-only builds keep the coordinator's API available without generating declarations.
+#[cfg(not(test))]
+pub(super) async fn run_declarations_script(
+    _working_dir: &Path,
+    _task_id: &AmbientAgentTaskId,
+    _script_timeout: Duration,
+) {
+    log::debug!("Snapshot declaration generation is disabled in local-only mode");
+}
+
 /// Resolve the declarations file path from the process env and optional task ID.
 ///
 /// Reads `$OZ_SNAPSHOT_DECLARATIONS_FILE` for the operator/test override, then delegates to
@@ -258,6 +304,7 @@ fn resolve_declarations_path_with_override(
 ///
 /// Returns `None` when the file is missing, unreadable, or yields no valid entries; logs a
 /// WARN describing why in each case. A returned `Some(entries)` is guaranteed non-empty.
+#[cfg(test)]
 fn read_and_parse_declarations(path: &Path) -> Option<Vec<DeclarationEntry>> {
     let contents = match std::fs::read_to_string(path) {
         Ok(c) => c,
@@ -293,6 +340,7 @@ fn read_and_parse_declarations(path: &Path) -> Option<Vec<DeclarationEntry>> {
 /// and `path` (absolute path). Blank lines are ignored. Malformed lines (invalid JSON, missing
 /// fields, unsupported versions, unknown kind, non-absolute path) are logged at WARN and skipped;
 /// they never abort parsing.
+#[cfg(test)]
 fn parse_declarations(contents: &str) -> Vec<DeclarationEntry> {
     let mut entries = Vec::new();
     let mut seen = HashSet::new();
@@ -352,6 +400,7 @@ fn parse_declarations(contents: &str) -> Vec<DeclarationEntry> {
 
 /// Drop `file` declarations whose path is already covered by a declared `repo` path so the
 /// gather step does not double-upload files the repo patch already carries.
+#[cfg(test)]
 fn drop_files_covered_by_repos(entries: Vec<DeclarationEntry>) -> Vec<DeclarationEntry> {
     let repo_paths: Vec<PathBuf> = entries
         .iter()
@@ -386,6 +435,7 @@ fn drop_files_covered_by_repos(entries: Vec<DeclarationEntry>) -> Vec<Declaratio
 // --- Declarations writer: SDK driver → declarations file ---
 
 /// Commands accepted by the async declarations writer task.
+#[cfg(test)]
 enum WriterCommand {
     /// Append `file` entries for the given paths to the declarations file.
     Append(Vec<String>),
@@ -401,11 +451,13 @@ enum WriterCommand {
 /// the resolved declarations path, and processes commands sequentially, which serializes
 /// writes within the process. Handles are cheaply cloneable because the underlying sender is;
 /// dropping every handle closes the channel and lets the writer task exit cleanly.
+#[cfg(test)]
 #[derive(Clone)]
 pub(super) struct DeclarationsWriterHandle {
     tx: mpsc::UnboundedSender<WriterCommand>,
 }
 
+#[cfg(test)]
 impl DeclarationsWriterHandle {
     /// Spawn the writer task on `background` and return a fire-and-forget handle.
     pub(super) fn new(
@@ -464,8 +516,30 @@ impl DeclarationsWriterHandle {
     }
 }
 
+/// Local-only builds keep the writer handle type available to the coordinator without writing
+/// declaration files from subscription events.
+#[cfg(not(test))]
+#[derive(Clone)]
+pub(super) struct DeclarationsWriterHandle;
+
+#[cfg(not(test))]
+impl DeclarationsWriterHandle {
+    pub(super) fn new(
+        _task_id: AmbientAgentTaskId,
+        _working_dir: PathBuf,
+        _background: &Background,
+    ) -> Self {
+        Self
+    }
+
+    pub(super) fn append(&self, _paths: Vec<String>) {}
+
+    pub(super) async fn flush(&self) {}
+}
+
 /// Writer task loop: owns the `seen` set, lazily opens the file per write, and services
 /// `Append` and `Flush` commands in order.
+#[cfg(test)]
 async fn writer_task(
     mut rx: mpsc::UnboundedReceiver<WriterCommand>,
     declarations_path: PathBuf,
@@ -496,6 +570,7 @@ async fn writer_task(
 
 /// Normalize, preempt against existing repos, and write one JSONL line for `raw_path`.
 /// All failures log at WARN and return without advancing `seen`.
+#[cfg(test)]
 async fn process_append_path(
     raw_path: String,
     declarations_path: &Path,
@@ -545,6 +620,7 @@ async fn process_append_path(
 
 /// Walk ancestors of `path` and return `true` if any of them already contains a `.git`
 /// directory. Cheap enough to run per path: one `stat(2)` per ancestor up to `/`.
+#[cfg(test)]
 async fn path_is_under_existing_repo(path: &Path) -> bool {
     let mut current = path.parent();
     while let Some(dir) = current {
@@ -559,6 +635,7 @@ async fn path_is_under_existing_repo(path: &Path) -> bool {
 
 /// Open the declarations file in append-create mode and write one JSONL line for `path`.
 /// The serialized shape matches the schema the parser expects.
+#[cfg(test)]
 async fn append_declaration_line(declarations_path: &Path, path: &str) -> Result<()> {
     if let Some(parent) = declarations_path.parent() {
         tokio_fs::create_dir_all(parent)
@@ -589,6 +666,7 @@ async fn append_declaration_line(declarations_path: &Path, path: &str) -> Result
 
 // --- Gather phase: upload blobs and per-entry results ---
 
+#[cfg(test)]
 struct SnapshotUploadFile {
     filename: String,
     content: Vec<u8>,
@@ -596,6 +674,7 @@ struct SnapshotUploadFile {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(test)]
 enum EntryStatus {
     Uploaded,
     Failed,
@@ -610,6 +689,7 @@ enum EntryStatus {
     ReadFailed,
 }
 
+#[cfg(test)]
 impl EntryStatus {
     fn as_str(&self) -> &'static str {
         match self {
@@ -624,6 +704,7 @@ impl EntryStatus {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 struct EntryResult {
     /// Label for log output — prefers the snapshot filename and falls back to the source path.
     label: String,
@@ -631,6 +712,7 @@ struct EntryResult {
     error: Option<String>,
 }
 
+#[cfg(test)]
 struct SnapshotSummary {
     uploaded: usize,
     failed: usize,
@@ -642,6 +724,7 @@ struct SnapshotSummary {
     manifest_uploaded: bool,
 }
 
+#[cfg(test)]
 impl SnapshotSummary {
     fn from_entries(entries: &[EntryResult], manifest_uploaded: bool) -> Self {
         let mut s = Self {
@@ -673,13 +756,13 @@ impl SnapshotSummary {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 struct SnapshotOutcome {
     entries: Vec<EntryResult>,
     manifest_uploaded: bool,
 }
 
-/// Outcome of one checkpoint attempt, where [`SnapshotOutcome`] only covers per-entry upload
-/// results within that attempt.
+/// Outcome of one checkpoint attempt, including the generation retained for a retry.
 #[derive(Debug)]
 pub(super) enum CheckpointResult {
     /// `generation` is now the server's selected checkpoint.
@@ -701,12 +784,14 @@ pub(super) enum CheckpointResult {
 
 /// Which upload-accounting path the shared gather/upload pipeline uses. See
 /// [`SnapshotUploadMode`] for the server-side semantics.
+#[cfg(test)]
 enum PipelineMode {
     Legacy,
     Checkpoint(CheckpointGeneration),
 }
 
 /// Disambiguates [`mint_generation`] calls landing in the same millisecond.
+#[cfg(test)]
 static GENERATION_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Mint a generation identifier, which satisfies [`CheckpointGeneration`]'s format by
@@ -716,6 +801,7 @@ static GENERATION_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::Ato
 /// a retry that follows a failed attempt reuses that attempt's generation rather than minting
 /// a new one, so it overwrites the same staged objects. Enforcing that is the caller's job
 /// (see the coordinator).
+#[cfg(test)]
 pub(super) fn mint_generation() -> CheckpointGeneration {
     let millis = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -728,6 +814,7 @@ pub(super) fn mint_generation() -> CheckpointGeneration {
 // --- Manifest schema ---
 
 #[derive(serde::Serialize)]
+#[cfg(test)]
 struct RepoManifestEntry {
     path: String,
     repo_name: String,
@@ -743,6 +830,7 @@ struct RepoManifestEntry {
 }
 
 #[derive(serde::Serialize)]
+#[cfg(test)]
 struct FileManifestEntry {
     path: String,
     snapshot_file: Option<String>,
@@ -753,6 +841,7 @@ struct FileManifestEntry {
 }
 
 #[derive(serde::Serialize)]
+#[cfg(test)]
 struct SnapshotManifest {
     version: u32,
     repos: Vec<RepoManifestEntry>,
@@ -762,6 +851,7 @@ struct SnapshotManifest {
 // --- Upload helpers ---
 
 /// Upload `body` to `target` through the shared retry helper, re-cloning `body` per attempt.
+#[cfg(test)]
 async fn upload_with_retry(
     http: &http_client::Client,
     target: &UploadTarget,
@@ -775,6 +865,7 @@ async fn upload_with_retry(
 
 /// Run the end-of-run snapshot upload pipeline. All outcomes are logged; this function never
 /// returns a value because production callers only care about completion.
+#[cfg(test)]
 pub(super) async fn upload_snapshot_from_declarations(
     client: Arc<dyn HarnessSupportClient>,
     task_id: &AmbientAgentTaskId,
@@ -783,9 +874,20 @@ pub(super) async fn upload_snapshot_from_declarations(
     let _ = upload_snapshot_from_declarations_file(&declarations_path, client).await;
 }
 
+/// Local-only builds retain the legacy entry point as a no-op so callers cannot start a cloud
+/// snapshot pipeline accidentally.
+#[cfg(not(test))]
+pub(super) async fn upload_snapshot_from_declarations(
+    _client: Arc<dyn HarnessSupportClient>,
+    _task_id: &AmbientAgentTaskId,
+) {
+    log::debug!("Snapshot upload is disabled in local-only mode");
+}
+
 /// Internal entry that reads from an explicit path and returns the structured outcome so tests
 /// can inspect per-entry statuses. Production callers go through
 /// [`upload_snapshot_from_declarations`] which discards the outcome.
+#[cfg(test)]
 async fn upload_snapshot_from_declarations_file(
     path: &Path,
     client: Arc<dyn HarnessSupportClient>,
@@ -823,6 +925,7 @@ async fn upload_snapshot_from_declarations_file(
 ///   it at an incomplete prefix. Manifest-upload failures are also routed through
 ///   `report_error!` so on-call alerting catches the silent regression.
 /// - `Err(_)` only for hard failures of `upload_local_handoff_snapshot` itself (auth, etc.).
+#[cfg(test)]
 pub(crate) async fn upload_snapshot_for_handoff(
     repo_paths: Vec<PathBuf>,
     orphan_file_paths: Vec<PathBuf>,
@@ -942,11 +1045,24 @@ pub(crate) async fn upload_snapshot_for_handoff(
     Ok(Some(initial_snapshot_token))
 }
 
+/// Local-only builds retain the handoff API without allocating a cloud snapshot token.
+#[cfg(not(test))]
+pub(crate) async fn upload_snapshot_for_handoff(
+    _repo_paths: Vec<PathBuf>,
+    _orphan_file_paths: Vec<PathBuf>,
+    _client: Arc<dyn AIClient>,
+    _http: &http_client::Client,
+) -> Result<Option<InitialSnapshotToken>> {
+    log::debug!("Handoff snapshot upload is disabled in local-only mode");
+    Ok(None)
+}
+
 /// Core upload pipeline.
 ///
 /// Gather/read/upload failures are captured in [`SnapshotOutcome::entries`] and never abort
 /// the pipeline. A failure to allocate presigned upload targets is the only case where the
 /// pipeline gives up and returns `None`.
+#[cfg(test)]
 async fn run_pipeline(
     declarations: Vec<DeclarationEntry>,
     client: Arc<dyn HarnessSupportClient>,
@@ -985,6 +1101,7 @@ async fn run_pipeline(
 /// execution's prefix may hold and only reclaims abandoned ones during a *successful* commit,
 /// so minting per retry would let a run of failures exhaust that budget and lock the
 /// execution out of checkpointing entirely.
+#[cfg(test)]
 pub(super) async fn run_checkpoint_from_declarations_file(
     path: &Path,
     client: Arc<dyn HarnessSupportClient>,
@@ -1008,8 +1125,21 @@ pub(super) async fn run_checkpoint_from_declarations_file(
     run_checkpoint_pipeline(client, generation, gathered).await
 }
 
+/// Local-only builds keep the checkpoint coordinator's result contract while skipping all
+/// declaration reads, gathering, uploads, and commits.
+#[cfg(not(test))]
+pub(super) async fn run_checkpoint_from_declarations_file(
+    _path: &Path,
+    _client: Arc<dyn HarnessSupportClient>,
+    _generation: Option<CheckpointGeneration>,
+) -> CheckpointResult {
+    log::debug!("Snapshot checkpoint is disabled in local-only mode");
+    CheckpointResult::Skipped
+}
+
 /// Upload and commit an already-gathered payload under `generation`. Split out so a caller
 /// re-running the exact same attempt can reuse both the payload and the generation.
+#[cfg(test)]
 async fn run_checkpoint_pipeline(
     client: Arc<dyn HarnessSupportClient>,
     generation: CheckpointGeneration,
@@ -1099,6 +1229,7 @@ async fn run_checkpoint_pipeline(
     }
 }
 
+#[cfg(test)]
 struct GatheredSnapshot {
     manifest_filename: String,
     upload_files: Vec<SnapshotUploadFile>,
@@ -1107,6 +1238,7 @@ struct GatheredSnapshot {
     pre_upload_entries: Vec<EntryResult>,
 }
 
+#[cfg(test)]
 async fn gather_snapshot_entries(declarations: Vec<DeclarationEntry>) -> GatheredSnapshot {
     let mut used_filenames = HashSet::new();
     let manifest_filename = unique_filename("snapshot_state.json", &mut used_filenames);
@@ -1155,6 +1287,7 @@ async fn gather_snapshot_entries(declarations: Vec<DeclarationEntry>) -> Gathere
     }
 }
 
+#[cfg(test)]
 async fn upload_gathered_snapshot(
     client: Arc<dyn HarnessSupportClient>,
     mode: &PipelineMode,
@@ -1233,6 +1366,7 @@ async fn upload_gathered_snapshot(
     .await
 }
 
+#[cfg(test)]
 async fn upload_prepared_snapshot_files(
     http: &http_client::Client,
     manifest_filename: String,
@@ -1309,6 +1443,7 @@ async fn upload_prepared_snapshot_files(
 }
 
 /// Message recorded for a blob dropped for exceeding [`MAX_SNAPSHOT_FILE_SIZE_BYTES`].
+#[cfg(test)]
 fn oversized_error(size_bytes: u64) -> String {
     format!(
         "exceeds the per-file snapshot limit of {MAX_SNAPSHOT_FILE_SIZE_BYTES} bytes ({size_bytes} bytes)"
@@ -1316,6 +1451,7 @@ fn oversized_error(size_bytes: u64) -> String {
 }
 
 /// Gather a repo entry: run `build_repo_patch` and append an upload blob + manifest stub.
+#[cfg(test)]
 async fn gather_repo(
     repo_path: &str,
     repo_index: usize,
@@ -1404,6 +1540,7 @@ async fn gather_repo(
 }
 
 /// Gather a file entry: read the file and append an upload blob + manifest stub.
+#[cfg(test)]
 async fn gather_file(
     file_path: &str,
     used_filenames: &mut HashSet<String>,
@@ -1483,6 +1620,7 @@ async fn gather_file(
 /// Upload a single prepared file through the retry helper.
 /// Produces an [`EntryResult`] labelled with the file's filename, or marked
 /// [`EntryStatus::NoTarget`] if the server did not return a target for it.
+#[cfg(test)]
 async fn upload_entry(
     http: &http_client::Client,
     file: &SnapshotUploadFile,
@@ -1522,6 +1660,7 @@ async fn upload_entry(
 
 /// Fold upload outcomes into the per-entry manifest stubs so the uploaded manifest reflects
 /// what actually landed in GCS.
+#[cfg(test)]
 fn fold_upload_results(
     repos: &mut [RepoManifestEntry],
     files: &mut [FileManifestEntry],
@@ -1590,6 +1729,7 @@ fn fold_upload_results(
 /// Reserves one slot for the `snapshot_state.json` manifest, so blobs share the remaining
 /// budget. For each dropped blob, rewrites the matching manifest entry to `skipped` with a
 /// cap-reason error and records a pre-upload [`EntryResult`] so the summary count is honest.
+#[cfg(test)]
 fn apply_per_run_cap(
     upload_files: &mut Vec<SnapshotUploadFile>,
     repos: &mut [RepoManifestEntry],
@@ -1619,6 +1759,7 @@ fn apply_per_run_cap(
 
 /// Rewrite the manifest entry matching `filename` (by `patch_file` or `snapshot_file`) to
 /// `skipped` with the given error message. Used when blobs are dropped to honor the per-run cap.
+#[cfg(test)]
 fn mark_capped_manifest_entry(
     repos: &mut [RepoManifestEntry],
     files: &mut [FileManifestEntry],
@@ -1644,6 +1785,7 @@ fn mark_capped_manifest_entry(
 
 /// Clone an [`UploadTarget`] and ensure its `Content-Type` header matches `mime_type`
 /// (preserving any casing the server used if the header is already present).
+#[cfg(test)]
 fn merge_content_type(target: &UploadTarget, mime_type: &str) -> UploadTarget {
     let mut headers = target.headers.clone();
     if !headers
@@ -1663,6 +1805,7 @@ fn merge_content_type(target: &UploadTarget, mime_type: &str) -> UploadTarget {
 /// Log the final outcome at INFO when everything uploaded, WARN otherwise. The log line
 /// includes per-entry statuses so operators can diagnose partial state without parsing any
 /// downstream logs.
+#[cfg(test)]
 fn log_snapshot_outcome(outcome: &SnapshotOutcome) {
     let summary = SnapshotSummary::from_entries(&outcome.entries, outcome.manifest_uploaded);
     let manifest_bit = if summary.manifest_uploaded {
@@ -1702,12 +1845,14 @@ fn log_snapshot_outcome(outcome: &SnapshotOutcome) {
 }
 
 // --- Git-diff and filename helpers ---
+#[cfg(test)]
 struct RepoMetadata {
     repo_name: String,
     branch: Option<String>,
     head_sha: Option<String>,
 }
 
+#[cfg(test)]
 async fn repo_metadata(repo_dir: &Path) -> RepoMetadata {
     RepoMetadata {
         repo_name: repo_dir
@@ -1720,6 +1865,7 @@ async fn repo_metadata(repo_dir: &Path) -> RepoMetadata {
     }
 }
 
+#[cfg(test)]
 async fn build_repo_patch(repo_dir: &Path) -> Result<Vec<u8>> {
     let mut patch = git_output_bytes(repo_dir, ["diff", "--binary", "HEAD"], &[0]).await?;
     let untracked_listing = git_output_bytes(
@@ -1755,6 +1901,7 @@ async fn build_repo_patch(repo_dir: &Path) -> Result<Vec<u8>> {
     Ok(patch)
 }
 
+#[cfg(test)]
 fn untracked_path_arg(raw_path: &[u8]) -> OsString {
     #[cfg(unix)]
     {
@@ -1766,6 +1913,7 @@ fn untracked_path_arg(raw_path: &[u8]) -> OsString {
     }
 }
 
+#[cfg(test)]
 async fn git_output_string(repo_dir: &Path, args: &[&str]) -> Option<String> {
     let output = git_output_bytes(repo_dir, args, &[0]).await.ok()?;
     let value = String::from_utf8(output).ok()?;
@@ -1773,11 +1921,14 @@ async fn git_output_string(repo_dir: &Path, args: &[&str]) -> Option<String> {
     if value.is_empty() { None } else { Some(value) }
 }
 
+#[cfg(test)]
 const FALLBACK_SNAPSHOT_FILENAME: &str = "snapshot_artifact";
+#[cfg(test)]
 const RESERVED_NAME_ESCAPE: &str = "snapshot-";
 
 /// Longest logical filename we will mint. The server rejects names over 255 bytes; the
 /// remainder is headroom for the `_<n>` de-duplication suffix [`unique_filename`] may append.
+#[cfg(test)]
 const MAX_SNAPSHOT_FILENAME_LEN: usize = 240;
 
 /// Reshape `value` into a logical snapshot filename the server will accept, falling back to
@@ -1789,6 +1940,7 @@ const MAX_SNAPSHOT_FILENAME_LEN: usize = 240;
 /// `-`, and — on the legacy path — nothing in the reserved `checkpoint_` namespace. Runs of
 /// `_` are squashed on top of that, which keeps [`unique_filename`]'s `_<n>` suffix legible
 /// and names conservative.
+#[cfg(test)]
 fn sanitize_name_component(value: &str, fallback: &str) -> String {
     let mut sanitized = String::with_capacity(value.len());
     for c in value.chars() {
@@ -1819,14 +1971,17 @@ fn sanitize_name_component(value: &str, fallback: &str) -> String {
 }
 
 /// Names owned by the checkpoint protocol, which the server refuses to sign legacy uploads for.
+#[cfg(test)]
 fn is_reserved_snapshot_name(name: &str) -> bool {
     name.starts_with("checkpoint_") || name == "latest-checkpoint.json"
 }
 
+#[cfg(test)]
 fn sanitize_filename_component(value: &str) -> String {
     sanitize_name_component(value, "repo")
 }
 
+#[cfg(test)]
 fn unique_filename(preferred: &str, used: &mut HashSet<String>) -> String {
     let preferred = Path::new(preferred)
         .file_name()
@@ -1868,6 +2023,7 @@ fn unique_filename(preferred: &str, used: &mut HashSet<String>) -> String {
 /// timeout composed on top, so no additional OS threads are spawned per git invocation and no
 /// polling loop is needed. `kill_on_drop` ensures the child is reaped if the timeout elapses and
 /// the future is dropped.
+#[cfg(test)]
 async fn git_output_bytes<I, S>(
     repo_dir: &Path,
     args: I,

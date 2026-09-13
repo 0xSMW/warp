@@ -5,6 +5,7 @@
 //! They take the list call as a closure so unit tests can drive the gate-and-
 //! fail-soft control flow with a fake `RunningService` substitute.
 
+#[cfg(test)]
 use std::collections::HashMap;
 use std::future::Future;
 
@@ -21,6 +22,7 @@ use warp_errors::report_error;
 use super::TemplatableMCPServerInfo;
 
 type ReqwestHttpTransport = rmcp::transport::StreamableHttpClientTransport<reqwest::Client>;
+#[cfg(test)]
 type ReqwestSseTransport = crate::sse_transport::SseClientTransport<reqwest::Client>;
 
 /// Convert an rmcp error to a user-friendly error message.
@@ -73,6 +75,7 @@ pub fn error_to_user_message(error: &rmcp::RmcpError) -> String {
 /// Builds a `HeaderMap` from a `HashMap<String, String>` of user-provided headers.
 ///
 /// Invalid header names or values are skipped.
+#[cfg(test)]
 fn build_header_map(headers: &HashMap<String, String>) -> reqwest::header::HeaderMap {
     headers.try_into().unwrap_or_default()
 }
@@ -83,11 +86,13 @@ fn build_header_map(headers: &HashMap<String, String>) -> reqwest::header::Heade
 ///
 /// `Authorization` is the standard, but MCP servers behind API gateways
 /// commonly take a bearer-equivalent in a bespoke key header instead.
+#[cfg(test)]
 const CREDENTIAL_HEADER_NAMES: [&str; 3] = ["authorization", "x-api-key", "api-key"];
 
 /// Reports whether the caller configured a header that carries its own
 /// credential, i.e. whether a `401` should be read as a rejection of that
 /// credential rather than as an invitation to start OAuth.
+#[cfg(test)]
 fn has_caller_supplied_credential(headers: &HashMap<String, String>) -> bool {
     headers.iter().any(|(name, value)| {
         !value.trim().is_empty()
@@ -107,6 +112,7 @@ fn has_caller_supplied_credential(headers: &HashMap<String, String>) -> bool {
 /// would also fire on a rejection whose quoted `error_description` happened to
 /// mention the term, routing that rejection back into OAuth and undoing the
 /// distinction this function exists to draw.
+#[cfg(test)]
 fn is_oauth_challenge(www_authenticate: &str) -> bool {
     challenge_parameter_names(www_authenticate)
         .iter()
@@ -120,6 +126,7 @@ fn is_oauth_challenge(www_authenticate: &str) -> bool {
 /// asked of it is whether a given parameter name was present, and anything it
 /// cannot make sense of yields no name, which fails safe toward treating the
 /// challenge as a plain rejection.
+#[cfg(test)]
 fn challenge_parameter_names(www_authenticate: &str) -> Vec<&str> {
     let mut names = Vec::new();
     let mut rest = www_authenticate;
@@ -167,6 +174,7 @@ fn challenge_parameter_names(www_authenticate: &str) -> Vec<&str> {
 
 /// Builds a reqwest client with custom headers for MCP HTTP/SSE connections.
 #[allow(clippy::result_large_err)]
+#[cfg(test)]
 pub fn build_client_with_headers(
     headers: &HashMap<String, String>,
 ) -> Result<reqwest::Client, rmcp::RmcpError> {
@@ -194,7 +202,12 @@ pub async fn spawn_server(
 ) -> Result<TemplatableMCPServerInfo, rmcp::RmcpError> {
     logger.log("[note] Attention! There may be sensitive information (such as API keys) in these logs. Make sure to redact any secrets before sharing with others.".to_string());
 
+    #[cfg(test)]
     let mut is_authenticated_transport = false;
+    #[cfg(not(test))]
+    let is_authenticated_transport = false;
+    #[cfg(not(test))]
+    let _ = &auth_context;
     let service = match transport_type {
         TransportType::CLIServer(cli_server) => {
             logger.log("[info] MCP: Using stdio transport".to_string());
@@ -300,6 +313,13 @@ pub async fn spawn_server(
             // Create the MCP client and connect to the server.
             Ok::<_, rmcp::RmcpError>(make_client_info().into_dyn().serve(transport).await?)
         }
+        #[cfg(not(test))]
+        TransportType::ServerSentEvents(_) => {
+            Err(rmcp::RmcpError::transport_creation::<ReqwestHttpTransport>(
+                "MCP URL/HTTP/SSE transports are disabled in production; use a local stdio transport instead.",
+            ))
+        }
+        #[cfg(test)]
         TransportType::ServerSentEvents(sse_server) => {
             let headers: HashMap<String, String> = sse_server
                 .headers
@@ -423,6 +443,7 @@ pub async fn spawn_server(
 }
 
 /// The transport to use for MCP.
+#[cfg(test)]
 enum Transport {
     /// The HTTP transport, with an optional authenticated client.
     Http(Option<rmcp::transport::auth::AuthClient<reqwest::Client>>),
@@ -436,6 +457,7 @@ enum Transport {
 /// server supports the HTTP transport (or needs to use the SSE transport), and if
 /// authentication is required.
 #[allow(clippy::result_large_err)]
+#[cfg(test)]
 async fn determine_transport(
     server_name: String,
     url: &str,
@@ -524,6 +546,7 @@ async fn determine_transport(
 }
 
 /// What the preflight InitializeRequest told us about the server.
+#[cfg(test)]
 struct PreflightResponse {
     status: reqwest::StatusCode,
     /// The `WWW-Authenticate` challenges the server sent. Retained because
@@ -535,6 +558,7 @@ struct PreflightResponse {
 /// Sends an InitializeRequest to the server and returns the parts of the
 /// response that transport selection depends on.
 #[allow(clippy::result_large_err)]
+#[cfg(test)]
 async fn send_initialize_request(
     url: &str,
     headers: &HashMap<String, String>,

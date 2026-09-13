@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use ai::document::DEFAULT_PLANNING_DOCUMENT_TITLE;
 use itertools::Itertools;
+#[cfg(test)]
 use prost::Message;
 use vec1::Vec1;
 use warp_core::channel::ChannelState;
@@ -37,6 +38,7 @@ use crate::ai::blocklist::{
 use crate::ai::document::ai_document_model::AIDocumentModel;
 use crate::ai::get_relevant_files::controller::GetRelevantFilesController;
 use crate::persistence::model::AgentConversationData;
+#[cfg(test)]
 use crate::server::server_api::ServerApiProvider;
 use crate::terminal::conversation_restoration::{
     command_block_indices_for_exchanges, prepare_conversation_block_restoration,
@@ -1132,48 +1134,54 @@ impl TerminalView {
             return;
         };
 
-        log::info!("Downloading conversation data from: {proto_url}");
+        #[cfg(test)]
+        {
+            log::info!("Downloading conversation data from: {proto_url}");
 
-        let client = ServerApiProvider::as_ref(ctx).get_http_client();
+            let client = ServerApiProvider::as_ref(ctx).get_http_client();
 
-        // Download the protobuf data
-        ctx.spawn(
-            async move {
-                let response = client
-                    .get(&proto_url)
-                    .header("Accept", "application/protobuf")
-                    .send()
-                    .await?;
+            // Download the protobuf data
+            ctx.spawn(
+                async move {
+                    let response = client
+                        .get(&proto_url)
+                        .header("Accept", "application/protobuf")
+                        .send()
+                        .await?;
 
-                if !response.status().is_success() {
-                    return Err(anyhow::anyhow!("HTTP {}", response.status()));
-                }
+                    if !response.status().is_success() {
+                        return Err(anyhow::anyhow!("HTTP {}", response.status()));
+                    }
 
-                let proto_bytes = response.bytes().await?;
-                log::debug!("Downloaded {} bytes from debug link", proto_bytes.len());
-                let task_list =
-                    api::ConversationData::decode(proto_bytes.as_ref()).map_err(|e| {
-                        anyhow::anyhow!(
-                            "Failed to decode protobuf (size: {} bytes): {}",
-                            proto_bytes.len(),
-                            e
-                        )
-                    })?;
+                    let proto_bytes = response.bytes().await?;
+                    log::debug!("Downloaded {} bytes from debug link", proto_bytes.len());
+                    let task_list =
+                        api::ConversationData::decode(proto_bytes.as_ref()).map_err(|e| {
+                            anyhow::anyhow!(
+                                "Failed to decode protobuf (size: {} bytes): {}",
+                                proto_bytes.len(),
+                                e
+                            )
+                        })?;
 
-                Ok(task_list)
-            },
-            |terminal_view, task_list_result, ctx| match task_list_result {
-                Ok(task_list) => {
-                    log::info!(
-                        "Successfully downloaded and parsed conversation data with {} tasks",
-                        task_list.tasks.len()
-                    );
-                    terminal_view.load_conversation_from_tasks(task_list, ctx);
-                }
-                Err(err) => {
-                    log::warn!("Failed to download conversation data from debug link: {err}");
-                }
-            },
-        );
+                    Ok(task_list)
+                },
+                |terminal_view, task_list_result, ctx| match task_list_result {
+                    Ok(task_list) => {
+                        log::info!(
+                            "Successfully downloaded and parsed conversation data with {} tasks",
+                            task_list.tasks.len()
+                        );
+                        terminal_view.load_conversation_from_tasks(task_list, ctx);
+                    }
+                    Err(err) => {
+                        log::warn!("Failed to download conversation data from debug link: {err}");
+                    }
+                },
+            );
+        }
+
+        #[cfg(not(test))]
+        drop(proto_url);
     }
 }

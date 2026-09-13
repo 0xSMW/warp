@@ -1,27 +1,36 @@
 use std::collections::HashMap;
 
 use futures::future::BoxFuture;
+#[cfg(test)]
 use oauth2::{RefreshToken, TokenResponse as _};
+use rmcp::transport::AuthError;
+#[cfg(test)]
+use rmcp::transport::AuthorizationSession;
+use rmcp::transport::auth::{AuthClient, StoredCredentials};
+#[cfg(test)]
 use rmcp::transport::auth::{
-    AuthClient, AuthorizationManager, CredentialStore, InMemoryCredentialStore, OAuthClientConfig,
-    OAuthState, StoredCredentials,
+    AuthorizationManager, CredentialStore, InMemoryCredentialStore, OAuthClientConfig, OAuthState,
 };
-use rmcp::transport::{AuthError, AuthorizationSession};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use url::Url;
 use uuid::Uuid;
+#[cfg(test)]
 use warp_core::channel::ChannelState;
 use warp_errors::report_error;
 use warpui_extras::secure_storage::AppContextExt as _;
+#[cfg(test)]
 mod loopback;
 
 pub const TEMPLATABLE_MCP_CREDENTIALS_KEY: &str = "TemplatableMcpCredentials";
 pub const FILE_BASED_MCP_CREDENTIALS_KEY: &str = "FileBasedMcpCredentials";
 
 /// The issuer URL for GitHub's OAuth provider.
+#[cfg(test)]
 const GITHUB_ISSUER: &str = "https://github.com/login/oauth";
 
+#[cfg(test)]
 static GITHUB_OAUTH_SCOPES: [&str; 7] = [
     "repo",
     "read:org",
@@ -64,17 +73,20 @@ pub enum OAuthCallbackMode {
     Loopback,
 }
 
+#[cfg(test)]
 enum OAuthCallbackReceiver {
     CustomScheme(async_channel::Receiver<CallbackResult>),
     Loopback(loopback::LoopbackOAuthReceiver),
 }
 
+#[cfg(test)]
 struct PreparedOAuthCallback {
     redirect_uri: String,
     receiver: OAuthCallbackReceiver,
     uses_loopback: bool,
 }
 
+#[cfg(test)]
 impl OAuthCallbackMode {
     async fn prepare(self) -> Result<PreparedOAuthCallback, AuthError> {
         match self {
@@ -98,6 +110,7 @@ impl OAuthCallbackMode {
     }
 }
 
+#[cfg(test)]
 impl OAuthCallbackReceiver {
     async fn receive(self, expected_state: &str) -> Result<CallbackResult, AuthError> {
         match self {
@@ -117,12 +130,14 @@ impl OAuthCallbackReceiver {
 /// tokens are only saved to the in-memory store by default. This wrapper
 /// ensures they also get written back to secure storage so they survive app
 /// restarts.
+#[cfg(test)]
 struct PersistingCredentialStore {
     inner: InMemoryCredentialStore,
     client_secret: Option<String>,
     persist_tx: async_channel::Sender<PersistedCredentials>,
 }
 
+#[cfg(test)]
 impl PersistingCredentialStore {
     /// Per RFC 6749 §6, the authorization server MAY issue a new refresh token on
     /// refresh, but is not required to. Many OAuth providers (e.g. Figma) only
@@ -158,6 +173,7 @@ impl PersistingCredentialStore {
     }
 }
 
+#[cfg(test)]
 #[async_trait::async_trait]
 impl CredentialStore for PersistingCredentialStore {
     async fn load(&self) -> Result<Option<StoredCredentials>, AuthError> {
@@ -196,6 +212,7 @@ impl CredentialStore for PersistingCredentialStore {
 /// Instead, the caller seeds the inner store with any existing credentials prior
 /// to installation (see [`install_persisting_credential_store`]). This store's
 /// sole role is to write token updates back to secure storage as they occur.
+#[cfg(test)]
 async fn install_persisting_credential_store(
     auth_manager: &mut AuthorizationManager,
     persisted_credentials: Option<PersistedCredentials>,
@@ -258,6 +275,21 @@ pub enum CallbackResult {
 ///
 /// Upon success, returns the client and a boolean indicating whether the user was required to
 /// re-authenticate (e.g. re-log in).
+///
+/// Production local-only builds return an error before binding a callback, loading credentials,
+/// or making any network request. The full implementation remains available to unit tests.
+#[cfg(not(test))]
+pub async fn make_authenticated_client(
+    _: &str,
+    _: reqwest::Client,
+    _: AuthContext,
+) -> Result<(AuthClient<reqwest::Client>, bool), AuthError> {
+    Err(AuthError::AuthorizationFailed(
+        "MCP OAuth is disabled in local-only builds".to_string(),
+    ))
+}
+
+#[cfg(test)]
 pub async fn make_authenticated_client(
     resource_url: &str,
     http_client: reqwest::Client,

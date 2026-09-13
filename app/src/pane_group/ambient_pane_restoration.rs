@@ -1,3 +1,5 @@
+// Commented out: cloud-backed ambient pane restoration.
+/*
 use session_sharing_protocol::common::SessionId;
 use uuid::Uuid;
 use warp_errors::report_error;
@@ -250,3 +252,4 @@ impl PaneGroup {
         });
     }
 }
+*/

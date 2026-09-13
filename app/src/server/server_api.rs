@@ -21,34 +21,46 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(test)]
 use ::http::header::CONTENT_LENGTH;
 use ai::AIClient;
-use anyhow::{Context, Result, anyhow};
+#[cfg(test)]
+use anyhow::Context;
+use anyhow::{Result, anyhow};
 use auth::AuthClient;
 use block::BlockClient;
 use channel_versions::ChannelVersions;
 use chrono::{DateTime, FixedOffset};
 use factory::FactoryClient;
 use instant::Instant;
-use managed_mcp::ManagedMcpClient;
 use managed_secrets::AppManagedSecretsClient;
 use object::ObjectClient;
+#[cfg(test)]
 use parking_lot::Mutex;
 use referral::ReferralsClient;
-use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+#[cfg(any(test, feature = "tui"))]
+use serde::Serialize;
 use team::TeamClient;
 #[cfg(feature = "tui")]
 use tui_onboarding::TuiOnboardingClient;
+#[cfg(test)]
 use url::Url;
 use warp_core::context_flag::ContextFlag;
 use warp_core::telemetry::TelemetryEvent;
-use warp_errors::{AnyhowErrorExt, ErrorExt, register_error, report_error};
+#[cfg(test)]
+use warp_errors::report_error;
+use warp_errors::{AnyhowErrorExt, ErrorExt, register_error};
+use warp_server_auth::credentials::AuthToken;
+#[cfg(test)]
 use warp_server_client::HttpStatusError;
-use warp_server_client::auth::{AuthClientImpl, AuthEvent, EXPERIMENT_ID_HEADER};
+#[cfg(test)]
+use warp_server_client::auth::EXPERIMENT_ID_HEADER;
+use warp_server_client::auth::{AuthClientImpl, AuthEvent};
+#[cfg(test)]
+use warp_server_client::base_client::TEAM_UID_HEADER;
 use warp_server_client::base_client::{
     AmbientHeaderPolicy, AuthenticatedGraphqlConfig, BaseClient, GraphqlRoutingConfig,
-    TEAM_UID_HEADER,
 };
 use warp_server_client::iap::{IapManager, IapState};
 use warp_server_client::network_logging::NetworkLogModel;
@@ -56,7 +68,10 @@ use warpui::r#async::BoxFuture;
 use warpui::{Entity, ModelContext, SingletonEntity};
 use workspace::WorkspaceClient;
 
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use super::experiments::{ServerExperiment, ServerExperiments};
+#[cfg(test)]
+use crate::ChannelState;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::get_relevant_files::api::{GetRelevantFiles, GetRelevantFilesResponse};
 use crate::ai::predict::generate_ai_input_suggestions::GenerateAIInputSuggestionsRequest;
@@ -69,9 +84,30 @@ use crate::auth::auth_state::AuthState;
 use crate::server::team_scope::RequestTeamScope;
 use crate::server::telemetry::TelemetryApi;
 use crate::settings::PrivacySettingsSnapshot;
-use crate::{ChannelState, settings_view};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+use crate::settings_view;
 
+#[cfg(test)]
 pub const FETCH_CHANNEL_VERSIONS_TIMEOUT: std::time::Duration = Duration::from_secs(60);
+#[cfg(not(test))]
+const LOCAL_ONLY_NETWORK_DISABLED: &str = "Cloud network requests are disabled in local-only mode";
+
+#[cfg(not(test))]
+fn local_only_error<T>() -> Result<T> {
+    Err(anyhow!(LOCAL_ONLY_NETWORK_DISABLED))
+}
+
+#[cfg(not(test))]
+fn local_only_ai_error<T>() -> Result<T, AIApiError> {
+    local_only_error().map_err(AIApiError::Other)
+}
+
+#[cfg(not(test))]
+fn local_only_transcribe_error<T>() -> Result<T, TranscribeError> {
+    local_only_error().map_err(TranscribeError::Other)
+}
+
+#[cfg(test)]
 #[derive(Serialize)]
 struct AgentTipShownAnalyticsRequest {
     tip: String,
@@ -89,9 +125,11 @@ const WARP_ERROR_CODE_HEADER: &str = "X-Warp-Error-Code";
 const WARP_ERROR_CODE_OUT_OF_CREDITS: &str = "OUT_OF_CREDITS";
 
 /// Error code indicating the user has reached their cloud agent concurrency limit.
+#[cfg(test)]
 const WARP_ERROR_CODE_AT_CAPACITY: &str = "AT_CLOUD_AGENT_CAPACITY";
 
 /// ResponseType received by Client
+#[cfg(any(test, feature = "tui"))]
 #[derive(thiserror::Error, Debug, Serialize, Deserialize)]
 #[error("{error}")]
 pub struct ClientError {
@@ -112,6 +150,7 @@ impl Deref for ServerApi {
 }
 
 /// Error when the user is at their cloud agent concurrency limit.
+#[cfg(any(test, feature = "tui"))]
 #[derive(thiserror::Error, Debug, Clone, Deserialize)]
 #[error("{error} (running agents: {running_agents})")]
 pub struct CloudAgentCapacityError {
@@ -119,6 +158,7 @@ pub struct CloudAgentCapacityError {
     pub running_agents: i32,
 }
 
+#[cfg(test)]
 #[derive(Deserialize, Debug)]
 struct TimeResponse {
     current_time: DateTime<FixedOffset>,
@@ -394,6 +434,7 @@ pub enum TranscribeError {
 }
 
 impl TranscribeError {
+    #[cfg(test)]
     fn from_json_error(err: reqwest::Error) -> Self {
         if err.is_decode() {
             #[cfg(not(target_family = "wasm"))]
@@ -440,10 +481,42 @@ pub struct ServerApi {
     base_client: Arc<BaseClient>,
     // TODO(jeff): Make `TelemetryApi` another type of client, and move it off `ServerApi`.
     telemetry_api: TelemetryApi,
+    #[cfg(test)]
     last_server_time: Arc<Mutex<Option<ServerTime>>>,
 }
 
 impl ServerApi {
+    fn new_http_client() -> http_client::Client {
+        #[cfg(all(not(test), not(target_family = "wasm")))]
+        {
+            let proxy = reqwest::Proxy::custom(|url| {
+                let is_local = match url.host_str() {
+                    Some("localhost") => true,
+                    Some(host) => host
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback()),
+                    None => false,
+                };
+                (!is_local).then_some("http://127.0.0.1:0")
+            });
+            return http_client::Client::from_client_builder(
+                reqwest::Client::builder().proxy(proxy),
+            )
+            .expect("local-only HTTP client should be constructible");
+        }
+
+        #[cfg(all(not(test), target_family = "wasm"))]
+        {
+            // Browser redirects cannot be restricted with the native proxy policy.
+            return http_client::Client::disabled();
+        }
+
+        #[cfg(test)]
+        {
+            http_client::Client::new()
+        }
+    }
+
     fn new(
         auth_state: Arc<AuthState>,
         event_sender: async_channel::Sender<AuthEvent>,
@@ -451,7 +524,7 @@ impl ServerApi {
         iap_state: Option<Arc<IapState>>,
         ctx: &mut ModelContext<ServerApiProvider>,
     ) -> Self {
-        let mut client = http_client::Client::new();
+        let mut client = Self::new_http_client();
         let iap_token_provider = iap_state.map(|state| {
             client.set_iap_token_provider(state.clone());
             state as Arc<dyn http_client::iap::IapTokenProvider>
@@ -500,6 +573,7 @@ impl ServerApi {
         Self {
             base_client,
             telemetry_api,
+            #[cfg(test)]
             last_server_time: Arc::new(Mutex::new(None)),
         }
     }
@@ -532,6 +606,86 @@ impl ServerApi {
         )
     }
 
+    /// Returns an access token for authenticated server requests.
+    pub async fn get_or_refresh_access_token(&self) -> Result<AuthToken> {
+        #[cfg(not(test))]
+        {
+            local_only_error()
+        }
+
+        #[cfg(test)]
+        {
+            self.base_client.get_or_refresh_access_token().await
+        }
+    }
+
+    /// Returns an ambient workload token when cloud transport is available.
+    pub async fn get_or_create_ambient_workload_token(&self) -> Result<Option<String>> {
+        #[cfg(not(test))]
+        {
+            Ok(None)
+        }
+
+        #[cfg(test)]
+        {
+            self.base_client
+                .get_or_create_ambient_workload_token()
+                .await
+        }
+    }
+
+    /// Resolves ambient request headers without acquiring network-backed credentials.
+    pub async fn ambient_headers(
+        &self,
+        policy: AmbientHeaderPolicy,
+    ) -> Result<Vec<(String, String)>> {
+        #[cfg(not(test))]
+        {
+            let _ = policy;
+            Ok(Vec::new())
+        }
+
+        #[cfg(test)]
+        {
+            self.base_client.ambient_headers(policy).await
+        }
+    }
+
+    /// Builds authenticated GraphQL request options without enabling cloud transport.
+    pub async fn graphql_request_options(
+        &self,
+        timeout: Option<Duration>,
+    ) -> Result<warp_graphql::client::RequestOptions> {
+        #[cfg(not(test))]
+        {
+            let _ = timeout;
+            local_only_error()
+        }
+
+        #[cfg(test)]
+        {
+            self.base_client.graphql_request_options(timeout).await
+        }
+    }
+
+    /// Returns whether the client may refresh an access token.
+    pub fn allowed_to_refresh_token(&self) -> bool {
+        #[cfg(not(test))]
+        {
+            false
+        }
+
+        #[cfg(test)]
+        {
+            self.base_client.allowed_to_refresh_token()
+        }
+    }
+
+    /// Returns whether an authentication rejection may trigger a refresh.
+    pub fn is_auth_refresh_allowed(&self) -> bool {
+        self.allowed_to_refresh_token()
+    }
+
     /// Sets the ambient agent task ID to be sent with all subsequent requests.
     pub fn set_ambient_agent_task_id(&self, task_id: Option<AmbientAgentTaskId>) {
         self.base_client
@@ -539,11 +693,13 @@ impl ServerApi {
     }
 
     /// Returns ambient agent headers to attach to requests.
+    #[cfg(test)]
     async fn ambient_agent_headers(&self) -> Result<Vec<(String, String)>> {
         self.ambient_headers(AmbientHeaderPolicy::inherit_all())
             .await
     }
 
+    #[cfg(test)]
     async fn ambient_agent_headers_for_task(
         &self,
         task_id: &AmbientAgentTaskId,
@@ -560,13 +716,23 @@ impl ServerApi {
     where
         QF: 'a,
     {
-        warp_server_client::graphql_helpers::send_graphql_request(
-            &self.base_client,
-            operation,
-            timeout,
-        )
+        #[cfg(not(test))]
+        {
+            let _ = (operation, timeout);
+            Box::pin(async { local_only_error() })
+        }
+
+        #[cfg(test)]
+        {
+            warp_server_client::graphql_helpers::send_graphql_request(
+                &self.base_client,
+                operation,
+                timeout,
+            )
+        }
     }
 
+    #[cfg(test)]
     fn send_graphql_request_for_team<'a, QF, O: warp_graphql::client::Operation<QF> + Send + 'a>(
         &'a self,
         operation: O,
@@ -575,23 +741,33 @@ impl ServerApi {
     where
         QF: 'a,
     {
-        match Self::team_uid_header_value(team_scope) {
-            Some(team_uid) => {
-                warp_server_client::graphql_helpers::send_team_scoped_graphql_request(
+        #[cfg(not(test))]
+        {
+            let _ = (operation, team_scope);
+            Box::pin(async { local_only_error() })
+        }
+
+        #[cfg(test)]
+        {
+            match Self::team_uid_header_value(team_scope) {
+                Some(team_uid) => {
+                    warp_server_client::graphql_helpers::send_team_scoped_graphql_request(
+                        &self.base_client,
+                        operation,
+                        None,
+                        team_uid,
+                    )
+                }
+                None => warp_server_client::graphql_helpers::send_graphql_request(
                     &self.base_client,
                     operation,
                     None,
-                    team_uid,
-                )
+                ),
             }
-            None => warp_server_client::graphql_helpers::send_graphql_request(
-                &self.base_client,
-                operation,
-                None,
-            ),
         }
     }
 
+    #[cfg(test)]
     fn team_uid_header_value(team_scope: RequestTeamScope) -> Option<String> {
         team_scope
             .team_uid()
@@ -607,6 +783,17 @@ impl ServerApi {
     /// The stream is served by warp-server-rtc (not the main warp-server pool),
     /// so the URL is built from `ChannelState::rtc_http_url()` rather than
     /// `server_root_url()`.
+    #[cfg(not(test))]
+    pub async fn stream_agent_events(
+        &self,
+        run_ids: &[String],
+        since_sequence: i64,
+    ) -> Result<http_client::EventSourceStream> {
+        let _ = (run_ids, since_sequence);
+        local_only_error()
+    }
+
+    #[cfg(test)]
     pub async fn stream_agent_events(
         &self,
         run_ids: &[String],
@@ -641,6 +828,18 @@ impl ServerApi {
     }
 
     /// Opens an SSE stream against the ancestor-scoped agent event endpoint.
+    #[cfg(not(test))]
+    pub async fn stream_agent_events_for_ancestor(
+        &self,
+        ancestor_run_id: &str,
+        include_self: bool,
+        since_sequence: i64,
+    ) -> Result<http_client::EventSourceStream> {
+        let _ = (ancestor_run_id, include_self, since_sequence);
+        local_only_error()
+    }
+
+    #[cfg(test)]
     pub async fn stream_agent_events_for_ancestor(
         &self,
         ancestor_run_id: &str,
@@ -679,6 +878,18 @@ impl ServerApi {
         Ok(self.wrap_eventsource_with_iap_detection(request.eventsource()))
     }
 
+    #[cfg(not(test))]
+    pub async fn stream_agent_events_for_task(
+        &self,
+        task_id: &AmbientAgentTaskId,
+        run_ids: &[String],
+        since_sequence: i64,
+    ) -> Result<http_client::EventSourceStream> {
+        let _ = (task_id, run_ids, since_sequence);
+        local_only_error()
+    }
+
+    #[cfg(test)]
     pub async fn stream_agent_events_for_task(
         &self,
         task_id: &AmbientAgentTaskId,
@@ -714,6 +925,7 @@ impl ServerApi {
     }
 
     /// Sends a POST request to a public API endpoint and returns the raw response on success.
+    #[cfg(test)]
     async fn post_public_api_response<B>(
         &self,
         path: &str,
@@ -726,6 +938,7 @@ impl ServerApi {
             .await
     }
 
+    #[cfg(test)]
     async fn post_public_api_response_for_team<B>(
         &self,
         path: &str,
@@ -767,6 +980,7 @@ impl ServerApi {
         }
     }
 
+    #[cfg(test)]
     async fn get_public_api_for_team<R>(
         &self,
         path: &str,
@@ -811,6 +1025,7 @@ impl ServerApi {
     /// (via [`anyhow::Error::context`]) so callers retrying through
     /// [`is_transient_http_error`](super::retry_strategies::is_transient_http_error) fail
     /// fast on a deterministic 4xx instead of defaulting to a transient retry.
+    #[cfg(test)]
     async fn error_from_response(response: http_client::Response) -> anyhow::Error {
         let status = response.status();
         let is_at_capacity = response
@@ -838,7 +1053,7 @@ impl ServerApi {
         {
             return anyhow::Error::new(status_error).context(capacity_error);
         }
-        if status == StatusCode::TOO_MANY_REQUESTS && is_out_of_credits {
+        if status == http::StatusCode::TOO_MANY_REQUESTS && is_out_of_credits {
             let user_display_message = serde_json::from_str::<OutOfCreditsResponse>(&response_text)
                 .ok()
                 .and_then(|r| r.user_display_message);
@@ -860,6 +1075,7 @@ impl ServerApi {
     /// # Arguments
     /// * `path` - Endpoint path relative to `/api/v1` (e.g., "agent/run")
     /// * `body` - Request body to serialize as JSON
+    #[cfg(test)]
     async fn post_public_api<B, R>(&self, path: &str, body: &B) -> Result<R>
     where
         B: Serialize,
@@ -873,6 +1089,7 @@ impl ServerApi {
             .with_context(|| format!("Failed to deserialize response from {url}"))
     }
 
+    #[cfg(test)]
     async fn post_public_api_for_team<B, R>(
         &self,
         path: &str,
@@ -894,6 +1111,7 @@ impl ServerApi {
     }
 
     /// Sends a PUT request to a public API endpoint and returns the raw response on success.
+    #[cfg(test)]
     async fn put_public_api_response<B>(
         &self,
         path: &str,
@@ -931,6 +1149,7 @@ impl ServerApi {
     }
 
     /// Sends a PUT request to a public API endpoint.
+    #[cfg(test)]
     async fn put_public_api<B, R>(&self, path: &str, body: &B) -> Result<R>
     where
         B: Serialize,
@@ -945,6 +1164,7 @@ impl ServerApi {
     }
 
     /// Sends a POST request to a public API endpoint that returns no response body.
+    #[cfg(test)]
     async fn post_public_api_unit<B>(&self, path: &str, body: &B) -> Result<()>
     where
         B: Serialize,
@@ -954,6 +1174,7 @@ impl ServerApi {
     }
 
     /// Sends a DELETE request to a public API endpoint that returns no response body.
+    #[cfg(test)]
     async fn delete_public_api_unit(&self, path: &str) -> Result<()> {
         let auth_token = self
             .get_or_refresh_access_token()
@@ -984,6 +1205,7 @@ impl ServerApi {
     }
 
     /// Sends a PATCH request to a public API endpoint that returns no response body.
+    #[cfg(test)]
     async fn patch_public_api_unit<B>(&self, path: &str, body: &B) -> Result<()>
     where
         B: Serialize,
@@ -1018,6 +1240,12 @@ impl ServerApi {
 
     /// Sends an authenticated empty POST request to /client/login, which signals to the server
     /// that the user is logged in.
+    #[cfg(not(test))]
+    pub async fn notify_login(&self) {
+        log::info!("Skipping cloud login notification in local-only mode");
+    }
+
+    #[cfg(test)]
     pub async fn notify_login(&self) {
         match self.get_or_refresh_access_token().await {
             Ok(auth_token) => {
@@ -1065,6 +1293,13 @@ impl ServerApi {
             .await
     }
 
+    #[cfg(not(test))]
+    pub async fn send_agent_tip_shown_analytics_event(&self, tip: String) -> Result<()> {
+        let _ = tip;
+        local_only_error()
+    }
+
+    #[cfg(test)]
     pub async fn send_agent_tip_shown_analytics_event(&self, tip: String) -> Result<()> {
         let auth_token = self
             .get_or_refresh_access_token()
@@ -1139,6 +1374,18 @@ impl ServerApi {
     }
 
     /// Hits the /ai/generate_input_suggestions endpoint to get the predicted next action, based on past context.
+    #[cfg(not(test))]
+    pub async fn generate_ai_input_suggestions(
+        &self,
+        request: &GenerateAIInputSuggestionsRequest,
+        team_scope: RequestTeamScope,
+    ) -> Result<generate_ai_input_suggestions::GenerateAIInputSuggestionsResponseV2, AIApiError>
+    {
+        let _ = (request, team_scope);
+        local_only_ai_error()
+    }
+
+    #[cfg(test)]
     pub async fn generate_ai_input_suggestions(
         &self,
         request: &GenerateAIInputSuggestionsRequest,
@@ -1169,6 +1416,17 @@ impl ServerApi {
         Ok(response)
     }
 
+    #[cfg(not(test))]
+    pub async fn get_relevant_files(
+        &self,
+        request: &GetRelevantFiles,
+        team_scope: RequestTeamScope,
+    ) -> Result<GetRelevantFilesResponse, AIApiError> {
+        let _ = (request, team_scope);
+        local_only_ai_error()
+    }
+
+    #[cfg(test)]
     pub async fn get_relevant_files(
         &self,
         request: &GetRelevantFiles,
@@ -1199,6 +1457,17 @@ impl ServerApi {
     }
 
     /// Hits the /ai/generate_am_query_suggestions endpoint to get the predicted next query.
+    #[cfg(not(test))]
+    pub async fn generate_am_query_suggestions(
+        &self,
+        request: &GenerateAMQuerySuggestionsRequest,
+        team_scope: RequestTeamScope,
+    ) -> Result<generate_am_query_suggestions::GenerateAMQuerySuggestionsResponse, AIApiError> {
+        let _ = (request, team_scope);
+        local_only_ai_error()
+    }
+
+    #[cfg(test)]
     pub async fn generate_am_query_suggestions(
         &self,
         request: &GenerateAMQuerySuggestionsRequest,
@@ -1238,6 +1507,17 @@ impl ServerApi {
         Ok(response)
     }
 
+    #[cfg(not(test))]
+    pub async fn predict_am_queries(
+        &self,
+        request: &PredictAMQueriesRequest,
+        team_scope: RequestTeamScope,
+    ) -> Result<PredictAMQueriesResponse, AIApiError> {
+        let _ = (request, team_scope);
+        local_only_ai_error()
+    }
+
+    #[cfg(test)]
     pub async fn predict_am_queries(
         &self,
         request: &PredictAMQueriesRequest,
@@ -1267,6 +1547,17 @@ impl ServerApi {
     }
 
     /// Hits the /ai/transcribe endpoint to get the transcription for the given audio.
+    #[cfg(not(test))]
+    pub async fn transcribe(
+        &self,
+        request: &TranscribeRequest,
+        team_scope: RequestTeamScope,
+    ) -> Result<TranscribeResponse, TranscribeError> {
+        let _ = (request, team_scope);
+        local_only_transcribe_error()
+    }
+
+    #[cfg(test)]
     pub async fn transcribe(
         &self,
         request: &TranscribeRequest,
@@ -1324,16 +1615,24 @@ impl ServerApi {
         }
     }
 
+    #[cfg(test)]
     fn set_server_time(&self, server_time: ServerTime) {
         let mut last_server_time = self.last_server_time.lock();
         *last_server_time = Some(server_time);
     }
 
+    #[cfg(test)]
     fn cached_server_time(&self) -> Option<ServerTime> {
         let last_server_time = self.last_server_time.lock();
         last_server_time.as_ref().cloned()
     }
 
+    #[cfg(not(test))]
+    pub async fn server_time(&self) -> Result<ServerTime> {
+        local_only_error()
+    }
+
+    #[cfg(test)]
     pub async fn server_time(&self) -> Result<ServerTime> {
         if let Some(cached) = self.cached_server_time() {
             return Ok(cached);
@@ -1353,7 +1652,7 @@ impl ServerApi {
         }
 
         match res.status() {
-            StatusCode::OK => {
+            http::StatusCode::OK => {
                 let time_response: TimeResponse = res.json().await?;
                 log::info!(
                     "Received current time from server: {:?}",
@@ -1380,6 +1679,17 @@ impl ServerApi {
     /// fails or if it not the first request of the calendar day, returns the result of a call to
     /// `/client_version'. The caller can specify whether or not changelog information should be
     /// included in the response based on whether or not it will be used.
+    #[cfg(not(test))]
+    pub async fn fetch_channel_versions(
+        &self,
+        include_changelogs: bool,
+        is_daily: bool,
+    ) -> Result<ChannelVersions> {
+        let _ = (include_changelogs, is_daily);
+        local_only_error()
+    }
+
+    #[cfg(test)]
     pub async fn fetch_channel_versions(
         &self,
         include_changelogs: bool,
@@ -1498,6 +1808,7 @@ impl ServerApiProvider {
     }
 
     /// Handles fetching server-side experiments by updating the appropriate app state.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn handle_experiments_fetched(
         &self,
         experiments: Vec<ServerExperiment>,
@@ -1559,16 +1870,12 @@ impl ServerApiProvider {
         self.server_api.clone()
     }
 
+    #[cfg(test)]
     pub fn get_integrations_client(&self) -> Arc<dyn integrations::IntegrationsClient> {
         self.server_api.clone()
     }
 
     pub fn get_managed_secrets_client(&self) -> Arc<AppManagedSecretsClient> {
-        self.server_api.clone()
-    }
-
-    #[cfg_attr(target_family = "wasm", expect(dead_code))]
-    pub fn get_managed_mcp_client(&self) -> Arc<dyn ManagedMcpClient> {
         self.server_api.clone()
     }
 
@@ -1582,7 +1889,7 @@ impl ServerApiProvider {
         self.server_api.owned_http_client()
     }
 
-    #[cfg_attr(target_family = "wasm", expect(dead_code))]
+    #[cfg(test)]
     pub fn get_harness_support_client(&self) -> Arc<dyn harness_support::HarnessSupportClient> {
         self.server_api.clone()
     }

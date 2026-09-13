@@ -15,11 +15,7 @@ use warpui::{
     AppContext, Element, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
 };
 
-use crate::WorkspaceAction;
-use crate::ai::blocklist::agent_view::{
-    AgentViewController, AgentViewControllerEvent, AgentViewEntryOrigin,
-    ENTER_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE, ENTER_CLOUD_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE,
-};
+use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewControllerEvent};
 use crate::appearance::Appearance;
 use crate::settings::{AISettings, AISettingsChangedEvent, InputModeSettings};
 use crate::terminal::event::BlockType;
@@ -30,9 +26,7 @@ use crate::terminal::settings::{TerminalSettings, TerminalSettingsChangedEvent};
 use crate::terminal::view::TerminalAction;
 use crate::terminal::{self};
 use crate::ui_components::blended_colors;
-use crate::util::bindings::keybinding_name_to_keystroke;
 use crate::workspace::tab_settings::{TabSettings, TabSettingsChangedEvent};
-use crate::workspace::view::TOGGLE_RIGHT_PANEL_BINDING_NAME;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TerminalViewZeroStateAction {
@@ -43,10 +37,7 @@ pub enum TerminalViewZeroStateAction {
 #[derive(Default)]
 struct StateHandles {
     dismiss_button: MouseStateHandle,
-    start_new_conversation: MouseStateHandle,
-    start_cloud_conversation: MouseStateHandle,
     open_history_menu: MouseStateHandle,
-    open_code_review: MouseStateHandle,
     nld_checkbox: MouseStateHandle,
 }
 
@@ -180,6 +171,8 @@ impl View for TerminalViewZeroStateBlock {
             );
 
         let mut items = vec![
+            // Commented out: Start Agent and Cloud Agent conversation shortcuts
+            /*
             render_standard_message(
                 Message::new(vec![MessageItem::clickable(
                     vec![
@@ -212,6 +205,7 @@ impl View for TerminalViewZeroStateBlock {
                 )]),
                 app,
             ),
+            */
             render_standard_message(
                 Message::new(vec![MessageItem::clickable(
                     vec![
@@ -230,6 +224,8 @@ impl View for TerminalViewZeroStateBlock {
             ),
         ];
 
+        // Commented out: Open code review shortcut
+        /*
         if *TabSettings::as_ref(app).show_code_review_button
             && let Some(keystroke) =
                 keybinding_name_to_keystroke(TOGGLE_RIGHT_PANEL_BINDING_NAME, app)
@@ -248,6 +244,7 @@ impl View for TerminalViewZeroStateBlock {
                 app,
             ));
         }
+        */
 
         if InputModeSettings::handle(app)
             .as_ref(app)

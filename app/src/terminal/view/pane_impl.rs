@@ -693,14 +693,6 @@ impl BackingView for TerminalView {
                         .into_item(),
                 );
             }
-        } else if FeatureFlag::CreatingSharedSessions.is_enabled()
-            && ContextFlag::CreateSharedSession.is_enabled()
-        {
-            items.push(
-                MenuItemFields::new("Share session")
-                    .with_on_select_action(TerminalAction::OpenShareSessionModal { source })
-                    .into_item(),
-            );
         }
 
         // Split-pane related items.

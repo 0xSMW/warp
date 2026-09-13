@@ -1,4 +1,6 @@
-use session_sharing_protocol::common::{Guest, PendingGuest, Role, SessionId, TeamAclData};
+#[cfg(any(test, feature = "integration_tests"))]
+use session_sharing_protocol::common::Role;
+use session_sharing_protocol::common::{Guest, PendingGuest, SessionId, TeamAclData};
 use warpui::{Entity, ModelContext, SingletonEntity};
 
 use crate::drive::sharing::SharingAccessLevel;
@@ -9,6 +11,9 @@ impl SessionPermissionsManager {
         Self {}
     }
 
+    // The shared-session cloud transport is disabled in production. Keep these permission-update
+    // handlers for the test and integration transports.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub(crate) fn updated_guests(
         &mut self,
         ctx: &mut ModelContext<Self>,
@@ -23,6 +28,7 @@ impl SessionPermissionsManager {
         });
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     pub(crate) fn updated_link_permissions(
         &mut self,
         session_id: SessionId,
@@ -38,6 +44,7 @@ impl SessionPermissionsManager {
 
     /// Sets the team ACL for the given session. For now, this assumes that
     /// sessions can have only one team ACL.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub(crate) fn updated_team_permissions(
         &mut self,
         session_id: SessionId,

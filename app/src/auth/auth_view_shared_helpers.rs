@@ -324,6 +324,7 @@ pub struct PrivacySettingsActions<A: Action + Clone> {
     pub toggle_telemetry: A,
     pub toggle_crash_reporting: A,
     pub toggle_cloud_conversation_storage: A,
+    #[cfg(test)]
     pub hide_overlay: A,
 }
 
@@ -334,6 +335,7 @@ pub struct PrivacySettingsActions<A: Action + Clone> {
 /// storage toggle) are shown. Callers should pass the effective AI-enabled state
 /// for their context (the in-memory onboarding selection during the login slide,
 /// or the stored setting elsewhere).
+#[cfg(test)]
 pub fn render_privacy_settings_overlay_body<A: Action + Clone + 'static>(
     appearance: &Appearance,
     app: &AppContext,

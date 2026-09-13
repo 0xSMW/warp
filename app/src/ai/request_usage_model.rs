@@ -271,10 +271,6 @@ impl AIRequestUsageModel {
         }
     }
 
-    pub fn last_update_time(&self) -> Option<Instant> {
-        self.last_update_time
-    }
-
     /// Refreshes the latest AI request usage and bonus grants from the server.
     ///
     /// The receiver resolves to the freshly fetched base request limit. It

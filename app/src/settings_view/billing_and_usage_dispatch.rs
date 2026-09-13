@@ -7,7 +7,7 @@ use ::settings::Setting;
 use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::Appearance;
 use warp_errors::{report_error, report_if_error};
-use warpui::elements::{ChildView, Container, Flex, MouseStateHandle, ParentElement};
+use warpui::elements::{ChildView, Container, Flex, MouseStateHandle, ParentElement, Text};
 use warpui::{
     AppContext, Element, Entity, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
 };
@@ -20,6 +20,7 @@ use super::settings_page::{
     SettingsWidget, render_dropdown_item,
 };
 use crate::auth::{AuthManager, AuthStateProvider};
+use crate::channel::{Channel, ChannelState};
 use crate::settings::{AISettings, AISettingsChangedEvent, UsageDisplayUnit};
 use crate::view_components::{Dropdown, DropdownItem};
 use crate::workspaces::user_workspaces::UserWorkspaces;
@@ -70,12 +71,12 @@ impl BillingAndUsageDispatchView {
         // Both children stay alive; only forward events from the active one
         // to avoid duplicate toasts.
         ctx.subscribe_to_view(&v1, |this, _, event, ctx| {
-            if !this.use_v2(ctx) {
+            if this.is_available() && !this.use_v2(ctx) {
                 ctx.emit(event.clone());
             }
         });
         ctx.subscribe_to_view(&v2, |this, _, event, ctx| {
-            if this.use_v2(ctx) {
+            if this.is_available() && this.use_v2(ctx) {
                 ctx.emit(event.clone());
             }
         });
@@ -118,6 +119,10 @@ impl BillingAndUsageDispatchView {
         Self::workspace_uses_v2(UserWorkspaces::as_ref(ctx).current_workspace())
     }
 
+    fn is_available(&self) -> bool {
+        ChannelState::channel() != Channel::Local
+    }
+
     fn workspace_uses_v2(workspace: Option<&Workspace>) -> bool {
         workspace.is_none_or(|workspace| {
             let bm = &workspace.billing_metadata;
@@ -130,6 +135,10 @@ impl BillingAndUsageDispatchView {
     }
 
     pub fn get_modal_content(&self, app: &AppContext) -> Option<Box<dyn Element>> {
+        if !self.is_available() {
+            return None;
+        }
+
         if self.use_v2(app) {
             self.v2.read(app, |view, _| view.get_modal_content())
         } else {
@@ -154,6 +163,10 @@ impl TypedActionView for BillingAndUsageDispatchView {
     type Action = BillingAndUsageDispatchAction;
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
+        if !self.is_available() {
+            return;
+        }
+
         match action {
             BillingAndUsageDispatchAction::SetUsageDisplayUnit(value) => {
                 AISettings::handle(ctx).update(ctx, |settings, ctx| {
@@ -171,6 +184,19 @@ impl View for BillingAndUsageDispatchView {
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
+        if !self.is_available() {
+            return Container::new(
+                Text::new(
+                    "Billing and usage is unavailable in local-only mode.",
+                    Appearance::as_ref(app).ui_font_family(),
+                    Appearance::as_ref(app).ui_font_size(),
+                )
+                .finish(),
+            )
+            .with_uniform_padding(16.)
+            .finish();
+        }
+
         self.page.render(self, app)
     }
 }
@@ -181,12 +207,17 @@ impl SettingsPageMeta for BillingAndUsageDispatchView {
     }
 
     fn should_render(&self, ctx: &AppContext) -> bool {
-        !AuthStateProvider::as_ref(ctx)
-            .get()
-            .is_anonymous_or_logged_out()
+        self.is_available()
+            && !AuthStateProvider::as_ref(ctx)
+                .get()
+                .is_anonymous_or_logged_out()
     }
 
     fn on_page_selected(&mut self, allow_steal_focus: bool, ctx: &mut ViewContext<Self>) {
+        if !self.is_available() {
+            return;
+        }
+
         if self.use_v2(ctx) {
             self.v2.update(ctx, |view, ctx| {
                 view.on_page_selected(allow_steal_focus, ctx)

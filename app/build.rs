@@ -24,6 +24,11 @@ fn main() -> Result<()> {
     }
 
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src");
+    println!(
+        "cargo:rustc-env=WARP_LOCAL_BUILD_VERSION=v0.{}.local_00",
+        chrono::Utc::now().format("%Y.%m.%d.%H.%M")
+    );
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS");
     println!("cargo:rerun-if-env-changed=CARGO_CFG_TARGET_FAMILY");
 

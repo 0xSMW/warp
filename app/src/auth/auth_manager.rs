@@ -1,53 +1,92 @@
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use std::future::Future;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use std::result::Result as StdResult;
 use std::sync::Arc;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+use anyhow::Result;
+use anyhow::anyhow;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use futures::future::Either;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use settings::Setting as _;
-#[cfg(target_family = "wasm")]
+#[cfg(all(
+    target_family = "wasm",
+    any(test, all(feature = "tui", feature = "test-util"))
+))]
 use url::Url;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use uuid::Uuid;
-use warp_core::channel::ChannelState;
-use warp_core::features::FeatureFlag;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+use warp_core::channel::{Channel, ChannelState};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use warp_errors::{report_error, report_if_error};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use warp_graphql::mutations::create_anonymous_user::{
     AnonymousUserType, CreateAnonymousUserResult,
 };
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use warp_server_auth::API_KEY_PREFIX;
 use warp_server_auth::user::persistence::PersistedUser;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+use warpui::UpdateModel;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use warpui::r#async::Timer;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use warpui::clipboard::ClipboardContent;
-use warpui::{Entity, ModelContext, SingletonEntity, UpdateModel};
+use warpui::{Entity, ModelContext, SingletonEntity};
 
+use super::AuthStateProvider;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+use super::UserUid;
 use super::auth_state::{AuthState, PersistAction};
 use super::auth_view_modal::{AuthRedirectPayload, AuthViewVariant};
-use super::credentials::{Credentials, FirebaseToken, LoginToken};
+use super::credentials::Credentials;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+use super::credentials::{FirebaseToken, LoginToken};
 use super::user::User;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use super::user_properties::UserProperties;
-use super::{AuthStateProvider, UserUid};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::ai::AIRequestUsageModel;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::ai::llms::LLMPreferences;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::ai::persisted_workspace::PersistedWorkspace;
-use crate::autoupdate::AutoupdateState;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::persistence::ModelEvent;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::server::cloud_objects::update_manager::UpdateManager;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::server::graphql::get_user_facing_error_message;
-use crate::server::server_api::auth::{
-    AnonymousUserCreationError, AuthClient, FetchUserResult, MintCustomTokenError,
-    UserAuthenticationError,
-};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+use crate::server::server_api::auth::{AnonymousUserCreationError, AuthClient, FetchUserResult};
+use crate::server::server_api::auth::{MintCustomTokenError, UserAuthenticationError};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::server::server_api::{ServerApi, ServerApiProvider};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::server::telemetry::AnonymousUserSignupEntrypoint;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::settings::PrivacySettings;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::settings::cloud_preferences_syncer::CloudPreferencesSyncer;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::settings::initializer::SettingsInitializer;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::terminal::general_settings::GeneralSettings;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::terminal::shared_session::manager::Manager as SharedSessionManager;
-#[cfg(target_family = "wasm")]
+#[cfg(all(
+    target_family = "wasm",
+    any(test, all(feature = "tui", feature = "test-util"))
+))]
 use crate::uri::browser_url_handler::{parse_current_url, update_browser_url};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::workspaces::team_tester::TeamTesterStatus;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::{
     GlobalResourceHandlesProvider, TelemetryEvent, persistence, send_telemetry_from_ctx,
     send_telemetry_sync_from_ctx,
@@ -56,33 +95,35 @@ use crate::{
 #[derive(Debug)]
 pub enum AuthManagerEvent {
     /// Successfully authenticated a user with no errors.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     AuthComplete,
     /// Failed to authenticate a user, due to a particular `UserAuthenticationError`.
     AuthFailed(UserAuthenticationError),
     /// Failed to create an anonymous user.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     CreateAnonymousUserFailed,
     /// The user chose to skip login entirely (no Firebase user created).
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     SkippedLogin,
     /// The user now needs to reauthenticate. If the user needs to reauth, an `AuthFailed`
     /// event might be triggered instead, but there are some code paths where we don't
     /// refresh the entire user, only their token, which is when this event might be emitted.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     NeedsReauth,
     /// The user is anonymous and has attempted to access a login-gated feature or link.
-    AttemptedLoginGatedFeature {
-        auth_view_variant: AuthViewVariant,
-    },
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    AttemptedLoginGatedFeature { auth_view_variant: AuthViewVariant },
     // The current user is anonymous and the client has received a browser intent to sign in with a different Warp account.
     // Holds an auth payload from the received browser intent.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     LoginOverrideDetected(AuthRedirectPayload),
     /// Failed to mint a new custom token for an anonymous user.
     MintCustomTokenFailed(MintCustomTokenError),
     /// Received a device authorization code as part of the device auth flow.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     ReceivedDeviceAuthorizationCode {
-        #[cfg_attr(target_family = "wasm", allow(unused))]
         verification_url: String,
-        #[cfg_attr(target_family = "wasm", allow(unused))]
         verification_url_complete: Option<String>,
-        #[cfg_attr(target_family = "wasm", allow(unused))]
         user_code: String,
     },
 }
@@ -90,9 +131,23 @@ pub enum AuthManagerEvent {
 pub type LoginGatedFeature = &'static str;
 
 type URLConstructorCallback = Box<dyn FnOnce(Option<&str>) -> String>;
+const LOCAL_AUTH_DISABLED_MESSAGE: &str = "Authentication is disabled in the local channel";
+
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 const DEVICE_CODE_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 const DEVICE_CODE_REQUEST_ATTEMPTS: usize = 2;
 
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+fn is_local_channel() -> bool {
+    ChannelState::channel() == Channel::Local
+}
+
+fn local_authentication_error() -> UserAuthenticationError {
+    UserAuthenticationError::Unexpected(anyhow!(LOCAL_AUTH_DISABLED_MESSAGE))
+}
+
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 async fn request_device_code_with_timeout<F, Fut>(
     mut request: F,
     timeout: Duration,
@@ -135,8 +190,11 @@ where
 /// If you need to access the state, use `AuthStateProvider`.
 pub struct AuthManager {
     auth_state: Arc<AuthState>,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     server_api: Arc<ServerApi>,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     auth_client: Arc<dyn AuthClient>,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     /// A generated state token that the web app must provide back to the client.
     pending_auth_state: Option<String>,
 }
@@ -144,6 +202,7 @@ pub struct AuthManager {
 impl AuthManager {
     /// Creates a new instance of the AuthManager. The auth state must already be initialized through
     /// [`AuthStateProvider`].
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn new(
         server_api: Arc<ServerApi>,
         auth_client: Arc<dyn AuthClient>,
@@ -156,6 +215,17 @@ impl AuthManager {
             server_api,
             auth_client,
             pending_auth_state: None,
+        }
+    }
+
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn new<S: ?Sized, A: ?Sized>(
+        _server_api: Arc<S>,
+        _auth_client: Arc<A>,
+        ctx: &mut ModelContext<Self>,
+    ) -> Self {
+        Self {
+            auth_state: AuthStateProvider::as_ref(ctx).get().clone(),
         }
     }
 
@@ -176,6 +246,24 @@ impl AuthManager {
         }
     }
 
+    fn reject_local_authentication(ctx: &mut ModelContext<Self>) {
+        log::info!("{LOCAL_AUTH_DISABLED_MESSAGE}");
+        ctx.emit(AuthManagerEvent::AuthFailed(local_authentication_error()));
+    }
+
+    fn reject_local_custom_token(ctx: &mut ModelContext<Self>) {
+        log::info!("{LOCAL_AUTH_DISABLED_MESSAGE}");
+        ctx.emit(AuthManagerEvent::MintCustomTokenFailed(
+            MintCustomTokenError::UserFacingError(LOCAL_AUTH_DISABLED_MESSAGE.to_owned()),
+        ));
+    }
+
+    fn local_only_url() -> String {
+        log::info!("{LOCAL_AUTH_DISABLED_MESSAGE}");
+        String::new()
+    }
+
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     /// Fetches and ultimately sets the user's auth state from an auth payload.
     /// Typically, this function is triggered when a user clicks the intent link from their browser
     /// back to Warp after login (or pastes the URL in the app).
@@ -185,6 +273,11 @@ impl AuthManager {
         enforce_state_validation: bool,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_channel() {
+            Self::reject_local_authentication(ctx);
+            return;
+        }
+
         let AuthRedirectPayload {
             refresh_token,
             user_uid,
@@ -247,11 +340,27 @@ impl AuthManager {
         );
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn initialize_user_from_auth_payload(
+        &mut self,
+        _auth_payload: AuthRedirectPayload,
+        _enforce_state_validation: bool,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        Self::reject_local_authentication(ctx);
+    }
+
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn resume_interrupted_auth_payload(
         &mut self,
         auth_payload: AuthRedirectPayload,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_channel() {
+            Self::reject_local_authentication(ctx);
+            return;
+        }
+
         let AuthRedirectPayload {
             refresh_token,
             user_uid: _,
@@ -274,8 +383,16 @@ impl AuthManager {
         );
     }
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(
+        target_family = "wasm",
+        any(test, all(feature = "tui", feature = "test-util"))
+    ))]
     pub fn initialize_user_from_session_cookie(&self, ctx: &mut ModelContext<Self>) {
+        if is_local_channel() {
+            Self::reject_local_authentication(ctx);
+            return;
+        }
+
         let auth_client = self.auth_client.clone();
         let _ = ctx.spawn(
             async move {
@@ -287,8 +404,22 @@ impl AuthManager {
         );
     }
 
+    #[cfg(all(
+        target_family = "wasm",
+        not(any(test, all(feature = "tui", feature = "test-util")))
+    ))]
+    pub fn initialize_user_from_session_cookie(&self, ctx: &mut ModelContext<Self>) {
+        Self::reject_local_authentication(ctx);
+    }
+
     /// Refreshes the user's auth state using their existing credentials.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn refresh_user(&self, ctx: &mut ModelContext<Self>) {
+        if is_local_channel() {
+            log::info!("Skipping user refresh in local channel");
+            return;
+        }
+
         let Some(credentials) = self.auth_state.credentials() else {
             log::warn!("Attempted to refresh user without credentials");
             return;
@@ -305,12 +436,24 @@ impl AuthManager {
             Self::on_user_fetched,
         );
     }
+
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn refresh_user(&self, _ctx: &mut ModelContext<Self>) {
+        log::info!("{LOCAL_AUTH_DISABLED_MESSAGE}");
+    }
+
     /// Validates a startup API key without exposing it through shared auth state.
     ///
     /// [`Self::on_user_fetched`] promotes the returned user and credentials only
     /// after the server accepts the key. A failed request leaves the client
     /// fully logged out.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn authenticate_api_key(&self, api_key: String, ctx: &mut ModelContext<Self>) {
+        if is_local_channel() {
+            Self::reject_local_authentication(ctx);
+            return;
+        }
+
         log::info!("Authenticating via pending API key");
         let api_key = if api_key.starts_with(API_KEY_PREFIX) {
             api_key
@@ -328,17 +471,22 @@ impl AuthManager {
         );
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn authenticate_api_key(&self, _api_key: String, ctx: &mut ModelContext<Self>) {
+        Self::reject_local_authentication(ctx);
+    }
+
     /// Authenticate asynchronously using the OAuth2 device authorization flow.
-    ///
-    /// This is only used by the Warp CLI if running on a device that does not have the Warp app installed.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn authorize_device(&self, ctx: &mut ModelContext<Self>) {
-        // Clear any stale user state so old credentials don't interfere
-        // with the fresh device auth flow.
+        if is_local_channel() {
+            Self::reject_local_authentication(ctx);
+            return;
+        }
+
         self.auth_state.set_credentials(None);
 
         let auth_client = self.auth_client.clone();
-        // Request a device code the user can enter in their browser.
         ctx.spawn(
             async move {
                 request_device_code_with_timeout(
@@ -352,15 +500,19 @@ impl AuthManager {
         );
     }
 
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn on_device_code_received(
         &mut self,
         result: Result<oauth2::StandardDeviceAuthorizationResponse, UserAuthenticationError>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_channel() {
+            log::info!("Ignoring device authorization result in local channel");
+            return;
+        }
+
         match result {
             Ok(details) => {
-                // Emit the device authorization details so that they can be shown to the user.
                 ctx.emit(AuthManagerEvent::ReceivedDeviceAuthorizationCode {
                     verification_url: details.verification_uri().to_string(),
                     verification_url_complete: details
@@ -372,12 +524,9 @@ impl AuthManager {
                 let auth_client = self.auth_client.clone();
                 ctx.spawn(
                     async move {
-                        // Wait for the user to approve the device authorization request.
                         let token = auth_client
                             .exchange_device_access_token(&details, Duration::from_secs(600))
                             .await?;
-
-                        // Exchange the custom access token for Firebase auth tokens and fetch the user.
                         auth_client
                             .fetch_user(LoginToken::Firebase(token), false)
                             .await
@@ -393,11 +542,17 @@ impl AuthManager {
     /// This does the heavy-lifting of setting up all components of the application that depend
     /// on a user's authenticated state, and emits events to subscribers that let them know
     /// an auth event has occurred.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn on_user_fetched(
         &mut self,
         fetch_user_result: StdResult<FetchUserResult, UserAuthenticationError>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_channel() {
+            log::info!("Ignoring user fetch result in local channel");
+            return;
+        }
+
         match fetch_user_result {
             Ok(fetch_user_result) => {
                 let FetchUserResult {
@@ -510,13 +665,6 @@ impl AuthManager {
                     privacy_settings.fetch_or_update_settings(ctx);
                 });
 
-                // Now that the user is logged in, do the daily version check.
-                if FeatureFlag::Autoupdate.is_enabled() {
-                    AutoupdateState::handle(ctx).update(ctx, |autoupdate_state, ctx| {
-                        autoupdate_state.maybe_daily_check_for_update(ctx);
-                    });
-                }
-
                 let server_api = self.server_api.clone();
                 let user_id = self.auth_state.user_id().unwrap_or_default();
                 let anonymous_id = self.auth_state.anonymous_id();
@@ -591,6 +739,7 @@ impl AuthManager {
     /// Sets the user and credentials in auth state and persists to secure storage.
     /// Persistence depends on the credential type - currently, we only persist
     /// state if authenticated via a Firebase token.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn complete_authentication(
         &self,
         user: User,
@@ -632,20 +781,30 @@ impl AuthManager {
         }
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    fn clear_pending_auth_state(&mut self) {
+        self.pending_auth_state = None;
+    }
+
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    fn clear_pending_auth_state(&mut self) {}
+
     /// Helper function for logging out the user.
     /// NOTE: You probably want to call auth::log_out instead; this only manages the auth state,
     /// it doesn't shut down any other user-dependent parts of the app.
     /// TODO(jeff): Can we move those pieces in here?
     pub(super) fn log_out(&mut self, ctx: &mut ModelContext<Self>) {
-        // Clear any dangling CSRF token from an auth flow that was started but never
-        // completed before this logout, so it can't be replayed against the next session
-        // in the same process.
-        self.pending_auth_state = None;
+        self.clear_pending_auth_state();
         self.set_and_persist(None, None, ctx);
     }
 
     /// Sets whether or not this user's Firebase credentials are invalid and thus needs to reauth.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn set_needs_reauth(&self, needs_reauth: bool, ctx: &mut ModelContext<Self>) {
+        if is_local_channel() {
+            return;
+        }
+
         let became_true = self.auth_state.set_needs_reauth(needs_reauth);
 
         if became_true {
@@ -654,11 +813,21 @@ impl AuthManager {
         }
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn set_needs_reauth(&self, _needs_reauth: bool, _ctx: &mut ModelContext<Self>) {}
+
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn create_anonymous_user(
         &self,
         referral_code: Option<String>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_channel() {
+            log::info!("{LOCAL_AUTH_DISABLED_MESSAGE}");
+            ctx.emit(AuthManagerEvent::CreateAnonymousUserFailed);
+            return;
+        }
+
         let anonymous_user_type = AnonymousUserType::NativeClientAnonymousUserFeatureGated;
 
         let auth_client = self.auth_client.clone();
@@ -672,11 +841,17 @@ impl AuthManager {
         );
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn on_create_anonymous_user(
         &mut self,
         response: Result<CreateAnonymousUserResult>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_channel() {
+            log::info!("Ignoring anonymous user creation result in local channel");
+            return;
+        }
+
         let custom_token = match response {
             Ok(response_data) => match response_data {
                 CreateAnonymousUserResult::CreateAnonymousUserOutput(output) => Ok(output.id_token),
@@ -716,12 +891,18 @@ impl AuthManager {
         }
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn attempt_login_gated_feature(
         &self,
         feature: LoginGatedFeature,
         auth_view_variant: AuthViewVariant,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_channel() {
+            log::info!("Skipping login-gated feature handling in local channel");
+            return;
+        }
+
         if self.auth_state.is_anonymous_or_logged_out() {
             send_telemetry_from_ctx!(
                 TelemetryEvent::AnonymousUserAttemptLoginGatedFeature { feature },
@@ -731,7 +912,22 @@ impl AuthManager {
         };
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn attempt_login_gated_feature(
+        &self,
+        _feature: LoginGatedFeature,
+        _auth_view_variant: AuthViewVariant,
+        _ctx: &mut ModelContext<Self>,
+    ) {
+    }
+
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn anonymous_user_hit_drive_object_limit(&self, ctx: &mut ModelContext<Self>) {
+        if is_local_channel() {
+            log::info!("Skipping cloud object limit handling in local channel");
+            return;
+        }
+
         if self.auth_state.is_anonymous_or_logged_out() {
             send_telemetry_from_ctx!(TelemetryEvent::AnonymousUserHitCloudObjectLimit, ctx);
             ctx.emit(AuthManagerEvent::AttemptedLoginGatedFeature {
@@ -740,11 +936,20 @@ impl AuthManager {
         };
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn anonymous_user_hit_drive_object_limit(&self, _ctx: &mut ModelContext<Self>) {}
+
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn initiate_anonymous_user_linking(
         &self,
         entrypoint: AnonymousUserSignupEntrypoint,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_channel() {
+            Self::reject_local_custom_token(ctx);
+            return;
+        }
+
         let auth_client = self.auth_client.clone();
         let _ = ctx.spawn(
             async move { auth_client.fetch_new_custom_token().await },
@@ -787,13 +992,24 @@ impl AuthManager {
         );
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn initiate_anonymous_user_linking<T>(&self, _entrypoint: T, ctx: &mut ModelContext<Self>) {
+        Self::reject_local_custom_token(ctx);
+    }
+
     // Opens a page in the web app and logs the user in using a customToken if they are an anonymous user.
     // Accepts a callback that constructs the URL using the customToken to open a page and log in an anonymous user.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn open_url_maybe_with_anonymous_token(
         &self,
         ctx: &mut ModelContext<Self>,
         construct_url: URLConstructorCallback,
     ) {
+        if is_local_channel() {
+            log::info!("Skipping cloud-authenticated URL open in local channel");
+            return;
+        }
+
         if !self.auth_state.is_user_anonymous().unwrap_or_default()
             || !self.auth_state.is_logged_in()
         {
@@ -823,7 +1039,22 @@ impl AuthManager {
         );
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn open_url_maybe_with_anonymous_token(
+        &self,
+        _ctx: &mut ModelContext<Self>,
+        _construct_url: URLConstructorCallback,
+    ) {
+        log::info!("{LOCAL_AUTH_DISABLED_MESSAGE}");
+    }
+
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn copy_anonymous_user_linking_url_to_clipboard(&self, ctx: &mut ModelContext<Self>) {
+        if is_local_channel() {
+            Self::reject_local_custom_token(ctx);
+            return;
+        }
+
         if !self.auth_state.is_user_anonymous().unwrap_or_default() {
             return;
         }
@@ -851,13 +1082,19 @@ impl AuthManager {
     }
 
     /// Generates a unique state parameter for the authentication flow.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn generate_auth_state(&mut self) -> String {
         let state = Uuid::new_v4().to_string();
         self.pending_auth_state = Some(state.clone());
         state
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn sign_up_url(&mut self) -> String {
+        if is_local_channel() {
+            return Self::local_only_url();
+        }
+
         let state = self.generate_auth_state();
         format!(
             // TODO: we should probably be able to remove the public_beta flag
@@ -868,7 +1105,17 @@ impl AuthManager {
         )
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn sign_up_url(&mut self) -> String {
+        Self::local_only_url()
+    }
+
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn sign_in_url(&mut self) -> String {
+        if is_local_channel() {
+            return Self::local_only_url();
+        }
+
         let state = self.generate_auth_state();
         format!(
             "{}/login/remote?scheme={}&state={}",
@@ -878,9 +1125,19 @@ impl AuthManager {
         )
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn sign_in_url(&mut self) -> String {
+        Self::local_only_url()
+    }
+
     /// The upgrade confirmation page will kick the user back to the app with a refresh token
     /// if we send a `state` query param to /upgrade
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn upgrade_url(&mut self) -> String {
+        if is_local_channel() {
+            return Self::local_only_url();
+        }
+
         let state = self.generate_auth_state();
         format!(
             "{}/upgrade?scheme={}&state={}",
@@ -890,7 +1147,17 @@ impl AuthManager {
         )
     }
 
+    #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+    pub fn upgrade_url(&mut self) -> String {
+        Self::local_only_url()
+    }
+
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn login_options_url(&mut self, custom_token: &str) -> String {
+        if is_local_channel() {
+            return Self::local_only_url();
+        }
+
         let state = self.generate_auth_state();
         format!(
             "{}/login_options/{}?state={}",
@@ -900,7 +1167,12 @@ impl AuthManager {
         )
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn link_sso_url(&mut self, email: &str) -> String {
+        if is_local_channel() {
+            return Self::local_only_url();
+        }
+
         let state = self.generate_auth_state();
         format!(
             "{}/link_sso?email={}&state={}",
@@ -910,9 +1182,18 @@ impl AuthManager {
         )
     }
 
+    #[cfg(all(
+        target_family = "wasm",
+        not(any(test, all(feature = "tui", feature = "test-util")))
+    ))]
+    pub fn link_sso_url(&mut self, _email: &str) -> String {
+        Self::local_only_url()
+    }
+
     /// Validates and consumes the pending auth state token. Returns `true` if the
     /// provided state matches; in that case the pending state is cleared so the
     /// CSRF token is single-use. A subsequent call with the same value will fail.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn consume_auth_state(&mut self, received_state: &str) -> bool {
         if self.pending_auth_state.as_deref() == Some(received_state) {
             self.pending_auth_state = None;
@@ -927,6 +1208,7 @@ impl AuthManager {
     /// "user clicks the browser's 'Take me to Warp' button twice" case: once
     /// they're fully logged in, a second redirect targeting the same user is
     /// redundant and should not produce a user-visible error.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn should_silently_ignore_stale_redirect(&self, incoming_user_uid: &Option<UserUid>) -> bool {
         if self.auth_state.is_anonymous_or_logged_out() {
             return false;
@@ -937,17 +1219,17 @@ impl AuthManager {
         }
     }
 
-    /// Sets the user as onboarded both on the server and locally.
-    /// This method:
-    /// 1. Updates the server by calling set_user_is_onboarded
-    /// 2. Updates the local auth state and persists the user data
+    /// Sets the user as onboarded locally and persists the auth state.
     pub fn set_user_onboarded(&self, ctx: &mut ModelContext<Self>) {
-        // Update server
-        let auth_client = self.auth_client.clone();
-        let _ = ctx.spawn(
-            async move { auth_client.set_user_is_onboarded().await },
-            |_, _, _| {},
-        );
+        #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+        if !is_local_channel() {
+            // Update server
+            let auth_client = self.auth_client.clone();
+            let _ = ctx.spawn(
+                async move { auth_client.set_user_is_onboarded().await },
+                |_, _, _| {},
+            );
+        }
 
         // Update local auth state and persist
         self.auth_state.set_is_onboarded(true);

@@ -4,9 +4,10 @@ mod mixer;
 mod search_item;
 pub(super) mod view;
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 use std::path::PathBuf;
 
+#[cfg(feature = "local_fs")]
 use ai::skills::SkillReference;
 pub use cloud_mode_v2_view::{CloudModeV2SlashCommandView, Section as CloudModeV2Section};
 pub use data_source::*;
@@ -16,11 +17,13 @@ pub use view::{CloseReason, InlineSlashCommandView, SlashCommandsEvent};
 use warp_cli::agent::Harness;
 use warp_core::features::FeatureFlag;
 use warp_core::send_telemetry_from_ctx;
-use warp_core::ui::appearance::Appearance;
+#[cfg(test)]
 use warp_core::ui::theme::AnsiColorIdentifier;
+#[cfg(test)]
 use warp_errors::report_error;
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 use warp_util::path::{CleanPathResult, LineAndColumnArg};
+#[cfg(test)]
 use warpui::clipboard::ClipboardContent;
 use warpui::{AppContext, SingletonEntity, ViewContext};
 
@@ -28,48 +31,62 @@ use crate::TelemetryEvent;
 use crate::ai::agent::conversation::AIConversationId;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::agent_conversations_model::AgentConversationsModel;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::agent_management::telemetry::AgentManagementTelemetryEvent;
-#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+#[cfg(all(test, feature = "local_fs", not(target_family = "wasm")))]
 use crate::ai::ambient_agents::telemetry::HandoffEntryPoint;
-use crate::ai::blocklist::agent_view::{
-    AgentViewEntryOrigin, DismissalStrategy, ENTER_OR_EXIT_CONFIRMATION_WINDOW, EphemeralMessage,
-};
-#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+#[cfg(test)]
+use crate::ai::blocklist::PendingAttachment;
+#[cfg(test)]
+use crate::ai::blocklist::SlashCommandRequest;
+#[cfg(test)]
+use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
+#[cfg(all(test, feature = "local_fs", not(target_family = "wasm")))]
 use crate::ai::blocklist::handoff::PendingCloudLaunch;
-use crate::ai::blocklist::{
-    BlocklistAIHistoryModel, InputTypeAutoDetectionSource, PendingAttachment, QueuedQuery,
-    QueuedQueryId, QueuedQueryModel, QueuedQueryOrigin, SlashCommandRequest,
-};
+use crate::ai::blocklist::{BlocklistAIHistoryModel, InputTypeAutoDetectionSource};
+#[cfg(test)]
+use crate::ai::blocklist::{QueuedQuery, QueuedQueryId, QueuedQueryModel, QueuedQueryOrigin};
+#[cfg(test)]
 use crate::ai::conversation_rename::rename_conversation;
 use crate::cloud_object::model::persistence::CloudModel;
+#[cfg(test)]
 use crate::code_review::telemetry_event::CodeReviewPaneEntrypoint;
+#[cfg(test)]
+use crate::search::slash_command_menu::static_commands::Availability;
+use crate::search::slash_command_menu::static_commands::SlashCommandKind;
 #[cfg(not(target_family = "wasm"))]
 use crate::search::slash_command_menu::static_commands::commands;
+#[cfg(test)]
 use crate::search::slash_command_menu::static_commands::commands::COMMAND_REGISTRY;
-use crate::search::slash_command_menu::static_commands::{Availability, SlashCommandKind};
 use crate::search::slash_command_menu::{SlashCommandId, StaticCommand};
 use crate::server::ids::SyncId;
 use crate::server::telemetry::{AgentModeAutoDetectionSettingOrigin, SlashCommandAcceptedDetails};
+#[cfg(test)]
 use crate::settings::AISettings;
+#[cfg(test)]
 use crate::tab::SelectedTabColor;
 use crate::terminal::input::decorations::InputBackgroundJobOptions;
 use crate::terminal::input::inline_menu::{InlineMenuAction, InlineMenuType};
-use crate::terminal::input::message_bar::Message;
+#[cfg(test)]
 use crate::terminal::input::models::InlineModelSelectorTab;
 use crate::terminal::input::slash_command_model::{
     SlashCommandEntryState, UpdatedSlashCommandModel,
 };
-use crate::terminal::input::{
-    CompletionsTrigger, Event, Input, InputAction, InputSuggestionsMode, UserQueryMenuAction,
-};
-#[cfg(feature = "local_fs")]
+use crate::terminal::input::{CompletionsTrigger, Input, InputSuggestionsMode};
+#[cfg(test)]
+use crate::terminal::input::{Event, InputAction, UserQueryMenuAction};
+#[cfg(all(test, feature = "local_fs"))]
 use crate::terminal::model::session::Session;
-use crate::terminal::view::{AIQueryRouting, TerminalAction, resolve_ai_query_routing};
+#[cfg(all(test, feature = "local_fs"))]
+use crate::terminal::view::TerminalAction;
+#[cfg(test)]
+use crate::terminal::view::{AIQueryRouting, resolve_ai_query_routing};
+#[cfg(test)]
 use crate::ui_components::color_dot;
+#[cfg(test)]
 use crate::view_components::DismissibleToast;
 use crate::workflows::command_parser::compute_workflow_display_data;
+#[cfg(test)]
 use crate::workflows::{WorkflowSelectionSource, WorkflowSource, WorkflowType};
+#[cfg(test)]
 use crate::workspace::{ForkedConversationDestination, ToastStack, WorkspaceAction};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,23 +198,16 @@ pub fn saved_prompt_text_for_id(id: &SyncId, ctx: &AppContext) -> Option<String>
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SlashCommandTrigger {
-    Input { cmd_or_ctrl_enter: bool },
+    Input,
     Keybinding,
 }
 
 impl SlashCommandTrigger {
-    fn cmd_or_ctrl_enter() -> Self {
-        Self::Input {
-            cmd_or_ctrl_enter: true,
-        }
-    }
-
     pub fn input() -> Self {
-        Self::Input {
-            cmd_or_ctrl_enter: false,
-        }
+        Self::Input
     }
 
+    #[cfg(test)]
     pub(super) fn keybinding() -> Self {
         Self::Keybinding
     }
@@ -205,28 +215,16 @@ impl SlashCommandTrigger {
     pub fn is_keybinding(&self) -> bool {
         matches!(self, Self::Keybinding)
     }
-
-    fn is_cmd_or_ctrl_enter(&self) -> bool {
-        matches!(
-            self,
-            Self::Input {
-                cmd_or_ctrl_enter: true
-            }
-        )
-    }
 }
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 fn open_file_command_path(
     session: &Session,
     current_dir: &str,
     raw_arg: &str,
 ) -> (PathBuf, Option<LineAndColumnArg>) {
     let parsed_path = CleanPathResult::with_line_and_column_number(raw_arg.trim());
-    // The argument may contain shell-escaped characters (e.g. `\ ` for spaces) from auto-suggest.
-    // Unescape them so the path matches the actual filesystem entry.
     let unescaped_path = session.shell_family().unescape(&parsed_path.path);
-    // Expand `~` to the user's home directory.
     let expanded_path = shellexpand::tilde(&unescaped_path);
 
     let shell_path = session
@@ -244,6 +242,7 @@ fn open_file_command_path(
 }
 
 impl Input {
+    #[cfg(test)]
     fn is_slash_command_available(&self, command: &StaticCommand, ctx: &AppContext) -> bool {
         let slash_command_data_source = if self.is_cloud_mode_input_v2_composing(ctx) {
             let Some(data_source) = self.cloud_mode_composer_slash_command_data_source.as_ref()
@@ -256,9 +255,11 @@ impl Input {
         };
         slash_command_data_source
             .as_ref(ctx)
-            .command_is_active(command, ctx)
+            .active_commands()
+            .any(|(_, active_command)| active_command.name == command.name)
     }
 
+    #[cfg(test)]
     pub(super) fn select_slash_command(
         &mut self,
         command: &StaticCommand,
@@ -387,6 +388,7 @@ impl Input {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn handle_slash_commands_menu_event(
         &mut self,
         event: &SlashCommandsEvent,
@@ -422,20 +424,11 @@ impl Input {
                     ctx,
                 );
             }
-            SlashCommandsEvent::SelectedStaticCommand {
-                id,
-                cmd_or_ctrl_enter,
-            } => {
+            SlashCommandsEvent::SelectedStaticCommand { id, .. } => {
                 let Some(command) = COMMAND_REGISTRY.get_command(id) else {
                     return;
                 };
-                self.select_slash_command(
-                    command,
-                    SlashCommandTrigger::Input {
-                        cmd_or_ctrl_enter: *cmd_or_ctrl_enter,
-                    },
-                    ctx,
-                );
+                self.select_slash_command(command, SlashCommandTrigger::input(), ctx);
             }
             SlashCommandsEvent::SelectedSkill { name, reference: _ } => {
                 // Insert /{skill-name} into the buffer
@@ -454,6 +447,7 @@ impl Input {
     /// the agent was busy.
     ///
     /// Returns `true` if execution was 'handled' (whether or not it resulted in success or failure).
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn execute_slash_command(
         &mut self,
@@ -494,6 +488,7 @@ impl Input {
                 ctx.dispatch_typed_action(&TerminalAction::OpenAddRulePane);
             }
             SlashCommandKind::Agent | SlashCommandKind::New => {
+                #[cfg(test)]
                 // Without this, a fast `/agent` right after an ambient tombstone renders (before
                 // its async task fetch resolves) would fall through to `EnterAgentView` below and
                 // start a local conversation instead of the retained cloud one.
@@ -504,6 +499,7 @@ impl Input {
                     return true;
                 }
 
+                #[cfg(test)]
                 // REMOTE-2661: a retained setup-failure session has no local conversation to
                 // start into, so route it through the same authenticated follow-up path plain
                 // input already uses for this pane, rather than `EnterAgentView` below.
@@ -519,6 +515,7 @@ impl Input {
                         _ => None,
                     }
                 };
+                #[cfg(test)]
                 if let Some(task_id) = retained_setup_failure_debug_task_id {
                     let prompt = argument
                         .map(|argument| argument.trim().to_owned())
@@ -542,20 +539,11 @@ impl Input {
                     .as_ref(ctx)
                     .can_start_new_conversation()
                 {
-                    self.ephemeral_message_model.update(ctx, |model, ctx| {
-                        let appearance = Appearance::handle(ctx).as_ref(ctx);
-                        let message = Message::from_text(
-                            "cannot start new conversation while terminal command is running",
-                        )
-                        .with_text_color(appearance.theme().ansi_fg_red());
-                        model.show_ephemeral_message(
-                            EphemeralMessage::new(
-                                message,
-                                DismissalStrategy::Timer(ENTER_OR_EXIT_CONFIRMATION_WINDOW),
-                            ),
-                            ctx,
-                        );
-                    });
+                    show_error_toast(
+                        "cannot start new conversation while terminal command is running"
+                            .to_owned(),
+                        ctx,
+                    );
                     return true;
                 }
                 // Keybindings can be triggered reflexively while users are already in an active
@@ -612,11 +600,6 @@ impl Input {
                         model.set_mode(InputSuggestionsMode::Closed, ctx);
                     });
                     self.clear_buffer_and_reset_undo_stack(ctx);
-                    if let Some(view) = self.cloud_mode_v2_history_menu_view.clone() {
-                        view.update(ctx, |v, ctx| {
-                            v.arm_initial_buffer_sync(ctx);
-                        });
-                    }
                     ctx.dispatch_typed_action_deferred(InputAction::OpenInlineHistoryMenu);
                     return true;
                 } else if FeatureFlag::AgentView.is_enabled() {
@@ -1132,8 +1115,7 @@ impl Input {
                     return true;
                 };
 
-                let destination =
-                    ForkedConversationDestination::for_fork_trigger(trigger.is_cmd_or_ctrl_enter());
+                let destination = ForkedConversationDestination::SplitPane;
 
                 // Move any pending attachments out of the source input so they travel with the
                 // initial prompt into the forked pane and no longer linger on the original input.
@@ -1178,13 +1160,7 @@ impl Input {
                     return true;
                 }
 
-                let destination =
-                    ForkedConversationDestination::for_fork_trigger(trigger.is_cmd_or_ctrl_enter());
-
-                send_telemetry_from_ctx!(
-                    AgentManagementTelemetryEvent::SlashCommandContinueLocally,
-                    ctx
-                );
+                let destination = ForkedConversationDestination::SplitPane;
 
                 // Move any pending attachments out of the source input so they travel with the
                 // initial prompt into the continued local pane and no longer linger on the
@@ -1217,8 +1193,7 @@ impl Input {
                     return true;
                 };
 
-                let destination =
-                    ForkedConversationDestination::for_fork_trigger(trigger.is_cmd_or_ctrl_enter());
+                let destination = ForkedConversationDestination::SplitPane;
 
                 ctx.dispatch_typed_action(&WorkspaceAction::ForkAIConversation {
                     conversation_id,
@@ -1230,6 +1205,7 @@ impl Input {
                     destination,
                 });
             }
+            #[cfg(test)]
             SlashCommandKind::CompactAnd => {
                 let conversation_id = if is_queued_prompt {
                     let Some(conversation_id) = queued_conversation_id else {
@@ -1270,6 +1246,11 @@ impl Input {
                     };
                     ctx.dispatch_typed_action(&summarize);
                 }
+            }
+            #[cfg(not(test))]
+            SlashCommandKind::CompactAnd => {
+                let _ = (queued_conversation_id, queued_query_id);
+                return false;
             }
             SlashCommandKind::Queue => {
                 let Some(conversation_id) = self
@@ -1390,14 +1371,15 @@ impl Input {
         true
     }
 
-    /// Handles cmd+enter (Mac) / ctrl+enter (Linux/Windows) for slash commands.
+    /// Handles the alternate modifier gesture for slash commands.
     ///
     /// Returns `true` if the keypress was handled.
+    #[cfg(test)]
     pub(super) fn maybe_handle_cmd_or_ctrl_shift_enter_for_slash_command(
         &mut self,
         ctx: &mut ViewContext<Self>,
     ) -> bool {
-        // If slash command menu is open, accept the selected item with cmd_or_ctrl_enter=true.
+        // If slash command menu is open, accept the selected item.
         if matches!(
             self.suggestions_mode_model.as_ref(ctx).mode(),
             InputSuggestionsMode::SlashCommands
@@ -1416,7 +1398,7 @@ impl Input {
             return true;
         }
 
-        // If no menu but slash command detected in buffer, execute with cmd_or_ctrl_enter=true
+        // If no menu but slash command detected in the buffer, execute it.
         match self.slash_command_model.as_ref(ctx).state() {
             SlashCommandEntryState::SlashCommand(detected_command) => {
                 let command = detected_command.command.clone();
@@ -1427,7 +1409,7 @@ impl Input {
                 self.execute_slash_command(
                     &command,
                     argument.as_ref(),
-                    SlashCommandTrigger::cmd_or_ctrl_enter(),
+                    SlashCommandTrigger::input(),
                     /*is_queued_prompt*/ false,
                     None,
                     None,
@@ -1448,6 +1430,7 @@ impl Input {
         }
     }
 
+    #[cfg(test)]
     fn apply_v2_slash_section_filter(
         &mut self,
         section: CloudModeV2Section,
@@ -1494,6 +1477,7 @@ impl Input {
     ///
     /// Returns `true` if the enter keypress was 'handled', else upstream enter keypress handling
     /// logic should continue.
+    #[cfg(test)]
     pub(super) fn maybe_handle_enter_for_slash_command(
         &mut self,
         ctx: &mut ViewContext<Self>,
@@ -1551,6 +1535,7 @@ impl Input {
     /// contains a non-empty prompt. Forked conversations drop attachments when there is no
     /// initial prompt to send, so draining them unconditionally would silently discard them;
     /// leaving them staged in the source input instead loses nothing.
+    #[cfg(test)]
     fn maybe_take_attachments_for_initial_prompt(
         &mut self,
         argument: Option<&String>,
@@ -1565,6 +1550,7 @@ impl Input {
     }
 
     /// Sends a queued `/compact-and` summary and stores its follow-up on the original conversation.
+    #[cfg(test)]
     pub(super) fn execute_queued_compact_and(
         &mut self,
         conversation_id: AIConversationId,

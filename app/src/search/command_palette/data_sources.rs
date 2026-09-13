@@ -6,8 +6,8 @@ use warp_core::features::FeatureFlag;
 use warpui::keymap::BindingId;
 use warpui::{AppContext, Entity, ModelContext, ModelHandle, SingletonEntity, WindowId};
 
-use super::{conversations, warp_drive};
-use crate::drive::settings::WarpDriveSettings;
+#[cfg(test)]
+use super::warp_drive;
 use crate::search::QueryFilter;
 use crate::search::action::CommandBindingDataSource;
 use crate::search::binding_source::BindingSource;
@@ -19,16 +19,13 @@ use crate::search::data_source::QueryResult;
 use crate::search::files::model::FileSearchModel;
 use crate::search::mixer::AddAsyncSourceOptions;
 use crate::session_management::SessionSource;
-use crate::settings::AISettings;
 
 /// Store of all of the [`crate::search::DataSource`]s for the command palette.
 pub struct DataSourceStore {
     actions_data_source: ModelHandle<CommandBindingDataSource>,
     sessions_data_source: ModelHandle<navigation::DataSource>,
-    warp_drive_data_source: ModelHandle<warp_drive::DataSource>,
     launch_config_data_source: ModelHandle<launch_config::DataSource>,
     new_session_data_source: Option<ModelHandle<NewSessionDataSource>>,
-    all_conversation_data_source: ModelHandle<conversations::DataSource>,
     repo_data_source: ModelHandle<RepoDataSource>,
     tabs_data_source: Option<ModelHandle<tabs::DataSource>>,
 }
@@ -46,8 +43,8 @@ impl DataSourceStore {
         let sessions_data_source =
             ctx.add_model(|_| navigation::DataSource::new(active_session_handle));
 
-        let warp_drive_data_source =
-            ctx.add_model(|ctx| warp_drive::DataSource::new(window_id, ctx));
+        // `window_id` remains part of this constructor's API while Warp Drive is disabled.
+        let _ = window_id;
 
         let launch_config_data_source = ctx.add_model(launch_config::DataSource::new);
 
@@ -55,18 +52,13 @@ impl DataSourceStore {
             && cfg!(feature = "local_tty"))
         .then_some(ctx.add_model(|ctx| NewSessionDataSource::new(binding_source, ctx)));
 
-        let all_conversation_data_source: ModelHandle<conversations::DataSource> =
-            ctx.add_model(|_| conversations::DataSource::new());
-
         let repo_data_source = ctx.add_model(|_| RepoDataSource::new());
 
         Self {
             actions_data_source,
             sessions_data_source,
-            warp_drive_data_source,
             launch_config_data_source,
             new_session_data_source,
-            all_conversation_data_source,
             repo_data_source,
             tabs_data_source: None,
         }
@@ -94,21 +86,21 @@ impl DataSourceStore {
                 HashSet::from([QueryFilter::Sessions]),
             );
 
-            if WarpDriveSettings::is_warp_drive_enabled(ctx) {
-                let mut warp_drive_filters = HashSet::from([
-                    QueryFilter::Notebooks,
-                    QueryFilter::Plans,
-                    QueryFilter::Drive,
-                    QueryFilter::Workflows,
-                ]);
-
-                warp_drive_filters.insert(QueryFilter::EnvironmentVariables);
-
-                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-                    warp_drive_filters.insert(QueryFilter::AgentModeWorkflows);
-                }
-                mixer.add_sync_source(self.warp_drive_data_source.clone(), warp_drive_filters);
-            }
+            // if WarpDriveSettings::is_warp_drive_enabled(ctx) {
+            //     let mut warp_drive_filters = HashSet::from([
+            //         QueryFilter::Notebooks,
+            //         QueryFilter::Plans,
+            //         QueryFilter::Drive,
+            //         QueryFilter::Workflows,
+            //     ]);
+            //
+            //     warp_drive_filters.insert(QueryFilter::EnvironmentVariables);
+            //
+            //     if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+            //         warp_drive_filters.insert(QueryFilter::AgentModeWorkflows);
+            //     }
+            //     mixer.add_sync_source(self.warp_drive_data_source.clone(), warp_drive_filters);
+            // }
 
             mixer.add_sync_source(
                 self.actions_data_source.clone(),
@@ -144,12 +136,12 @@ impl DataSourceStore {
             }
 
             // Add conversation search if AI is enabled
-            if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-                mixer.add_sync_source(
-                    self.all_conversation_data_source.clone(),
-                    HashSet::from([QueryFilter::Conversations]),
-                );
-            }
+            // if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+            //     mixer.add_sync_source(
+            //         self.all_conversation_data_source.clone(),
+            //         HashSet::from([QueryFilter::Conversations]),
+            //     );
+            // }
 
             mixer.add_sync_source(
                 self.repo_data_source.clone(),
@@ -211,18 +203,10 @@ impl DataSourceStore {
                 .actions_data_source
                 .as_ref(app)
                 .query_result(*binding_id),
-            ItemSummary::Workflow { id } => self
-                .warp_drive_data_source
-                .as_ref(app)
-                .query_result(id, app),
-            ItemSummary::EnvVarCollection { id } => self
-                .warp_drive_data_source
-                .as_ref(app)
-                .query_result(id, app),
-            ItemSummary::Notebook { id } => self
-                .warp_drive_data_source
-                .as_ref(app)
-                .query_result(id, app),
+            // Warp Drive data sources are disabled in production.
+            ItemSummary::Workflow { .. }
+            | ItemSummary::EnvVarCollection { .. }
+            | ItemSummary::Notebook { .. } => None,
             ItemSummary::Session { pane_view_locator } => self
                 .sessions_data_source
                 .as_ref(app)
@@ -285,7 +269,8 @@ impl DataSourceStore {
                 // For now, return None as projects aren't expected in the regular command palette.
                 None
             }
-            ItemSummary::Conversation { id } => conversations::DataSource::query_result(id, app),
+            // Conversation data sources are disabled in production.
+            ItemSummary::Conversation { .. } => None,
 
             ItemSummary::NewConversation => {
                 // The new conversation item should not show up in the recent command list,

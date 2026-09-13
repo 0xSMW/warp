@@ -1,3 +1,8 @@
+/// Local-only compatibility helpers for agent environment setup.
+///
+/// Cloud workload-token, forge credential, Azure CLI authentication, refresh,
+/// injection, and telemetry code remains below as a disabled block.
+/*
 /// Git credentials management for cloud agent sandboxes.
 ///
 /// This module handles:
@@ -926,3 +931,36 @@ pub(crate) async fn refresh_loop(task_id: String, ai_client: Arc<dyn AIClient>) 
 #[cfg(test)]
 #[path = "git_credentials_tests.rs"]
 mod tests;
+*/
+use std::path::Path;
+
+use command::blocking::Command as BlockingCommand;
+
+fn read_global_git_config(key: &str) -> Option<String> {
+    let output = BlockingCommand::new("git")
+        .args(["config", "--global", "--get", key])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
+pub(crate) fn global_git_identity() -> Option<(String, String)> {
+    Some((
+        read_global_git_config("user.name")?,
+        read_global_git_config("user.email")?,
+    ))
+}
+
+/// Preserve the local environment setup call while disabling cloud-derived
+/// per-forge identity injection.
+pub(crate) fn configure_repository_git_identity_if_unset(
+    repository_dir: &Path,
+    host: &str,
+    baseline: Option<(String, String)>,
+) {
+    let _ = (repository_dir, host, baseline);
+}

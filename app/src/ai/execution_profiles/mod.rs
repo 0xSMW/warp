@@ -36,10 +36,10 @@ pub mod profiles;
 pub use config::{ExecutionProfileId, ExecutionProfilesConfig};
 
 /// Result of resolving the cloud agent computer use setting.
-/// Contains both the effective value and whether it's forced by organization policy.
 pub struct CloudAgentComputerUseState {
     /// Whether computer use is enabled for cloud agents.
     pub enabled: bool,
+    #[cfg(test)]
     /// Whether this value is forced by organization settings (true = user cannot change it).
     pub is_forced_by_org: bool,
 }
@@ -62,6 +62,7 @@ pub fn resolve_cloud_agent_computer_use_state(
     if !FeatureFlag::AgentModeComputerUse.is_enabled() {
         return CloudAgentComputerUseState {
             enabled: false,
+            #[cfg(test)]
             is_forced_by_org: false,
         };
     }
@@ -74,10 +75,12 @@ pub fn resolve_cloud_agent_computer_use_state(
     match autonomy_setting {
         Some(ComputerUsePermission::Never) => CloudAgentComputerUseState {
             enabled: false,
+            #[cfg(test)]
             is_forced_by_org: true,
         },
         Some(ComputerUsePermission::AlwaysAllow) => CloudAgentComputerUseState {
             enabled: true,
+            #[cfg(test)]
             is_forced_by_org: true,
         },
         // TODO(QUALITY-297): Currently this case should never be hit because the
@@ -86,10 +89,12 @@ pub fn resolve_cloud_agent_computer_use_state(
         // treating this conservatively and marking computer use as disabled.
         Some(ComputerUsePermission::AlwaysAsk) => CloudAgentComputerUseState {
             enabled: false,
+            #[cfg(test)]
             is_forced_by_org: true,
         },
         Some(ComputerUsePermission::Unknown) | None => CloudAgentComputerUseState {
             enabled: user_preference,
+            #[cfg(test)]
             is_forced_by_org: false,
         },
     }

@@ -30,10 +30,13 @@ pub(crate) use providers::{
 pub(crate) use remote_child::should_disable_snapshot;
 #[cfg_attr(not(feature = "tui"), allow(unused_imports))]
 pub use remote_child::{
-    CloudAgentStartupAuthFlow, CloudAgentStartupBlocker, CloudAgentStartupFailure,
-    CloudAgentStartupIssue, CloudAgentStartupPresentation, PrepareRemoteChildLaunchError,
-    PreparedRemoteChildLaunch, RemoteChildLaunchConfig, classify_cloud_agent_startup_error,
-    oz_run_url, prepare_remote_child_launch,
+    CloudAgentStartupAuthFlow, CloudAgentStartupPresentation, PrepareRemoteChildLaunchError,
+    PreparedRemoteChildLaunch, RemoteChildLaunchConfig, prepare_remote_child_launch,
+};
+#[cfg(any(test, feature = "tui"))]
+pub use remote_child::{
+    CloudAgentStartupBlocker, CloudAgentStartupFailure, CloudAgentStartupIssue,
+    classify_cloud_agent_startup_error, oz_run_url,
 };
 pub(crate) use snapshots::AUTH_SECRET_INHERIT_LABEL;
 #[cfg_attr(not(feature = "tui"), allow(unused_imports))]

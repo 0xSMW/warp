@@ -97,17 +97,22 @@ impl DataSource {
         searcher: Box<dyn WarpDriveSearcher>,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
-        ctx.subscribe_to_model(&CloudModel::handle(ctx), Self::handle_cloud_object_updated);
-        ctx.subscribe_to_model(
-            &UserWorkspaces::handle(ctx),
-            Self::handle_user_workspaces_updated,
-        );
+        // Keep the cloud-backed index maintenance available to tests, but inert in production.
+        if cfg!(test) {
+            ctx.subscribe_to_model(&CloudModel::handle(ctx), Self::handle_cloud_object_updated);
+            ctx.subscribe_to_model(
+                &UserWorkspaces::handle(ctx),
+                Self::handle_user_workspaces_updated,
+            );
+        }
 
         let mut data_source = DataSource {
             searcher,
             scope: WindowScope::new(window_id, ctx),
         };
-        data_source.rebuild_index(ctx);
+        if cfg!(test) {
+            data_source.rebuild_index(ctx);
+        }
         data_source
     }
 

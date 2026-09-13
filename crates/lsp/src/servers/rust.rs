@@ -4,11 +4,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::CommandBuilder;
-#[cfg(feature = "local_fs")]
+#[cfg(all(feature = "local_fs", test))]
 use crate::install::{AssetKind, fetch_latest_metadata_from_github, install_from_github};
 use crate::language_server_candidate::{LanguageServerCandidate, LanguageServerMetadata};
 
-#[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
+#[allow(dead_code)]
 pub struct RustAnalyzerCandidate {
     client: Arc<http_client::Client>,
 }
@@ -17,7 +17,7 @@ pub struct RustAnalyzerCandidate {
 ///
 /// Asset names follow the pattern: rust-analyzer-{arch}-{vendor}-{os}.{ext}
 /// e.g. rust-analyzer-aarch64-apple-darwin.gz, rust-analyzer-x86_64-unknown-linux-gnu.gz
-#[cfg(feature = "local_fs")]
+#[cfg(all(feature = "local_fs", test))]
 fn asset_name() -> &'static str {
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
@@ -58,6 +58,9 @@ fn asset_name() -> &'static str {
 
 #[cfg(feature = "local_fs")]
 const SERVER_NAME: &str = "rust-analyzer";
+
+#[cfg(all(feature = "local_fs", not(test)))]
+const LOCAL_ONLY_INSTALL_ERROR: &str = "Automatic rust-analyzer installation is disabled in local-only mode; install rust-analyzer locally and make it available on PATH or in Warp's data directory";
 
 impl RustAnalyzerCandidate {
     pub fn new(client: Arc<http_client::Client>) -> Self {
@@ -132,6 +135,7 @@ impl LanguageServerCandidate for RustAnalyzerCandidate {
             .unwrap_or(false)
     }
 
+    #[cfg(test)]
     async fn install(
         &self,
         metadata: LanguageServerMetadata,
@@ -151,6 +155,16 @@ impl LanguageServerCandidate for RustAnalyzerCandidate {
         Ok(())
     }
 
+    #[cfg(not(test))]
+    async fn install(
+        &self,
+        _metadata: LanguageServerMetadata,
+        _executor: &CommandBuilder,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!(LOCAL_ONLY_INSTALL_ERROR)
+    }
+
+    #[cfg(test)]
     async fn fetch_latest_server_metadata(&self) -> anyhow::Result<LanguageServerMetadata> {
         anyhow::ensure!(
             !cfg!(target_os = "freebsd"),
@@ -164,6 +178,11 @@ impl LanguageServerCandidate for RustAnalyzerCandidate {
             Some(asset_name()),
         )
         .await
+    }
+
+    #[cfg(not(test))]
+    async fn fetch_latest_server_metadata(&self) -> anyhow::Result<LanguageServerMetadata> {
+        anyhow::bail!(LOCAL_ONLY_INSTALL_ERROR)
     }
 }
 

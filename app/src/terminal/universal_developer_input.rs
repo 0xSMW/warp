@@ -7,7 +7,6 @@ use std::sync::Arc;
 use pathfinder_color::ColorU;
 #[cfg(not(target_family = "wasm"))]
 use settings::Setting as _;
-use warp_core::features::FeatureFlag;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::color::contrast::{
     MinimumAllowedContrast, foreground_color_with_minimum_contrast,
@@ -810,7 +809,7 @@ impl View for UniversalDeveloperInputButtonBar {
         let is_voice_input_enabled = AISettings::as_ref(app).is_voice_input_enabled(app);
 
         // Helper function to create a 1px vertical divider
-        let create_divider = || {
+        let _create_divider = || {
             Container::new(
                 warpui::elements::ConstrainedBox::new(
                     Rect::new().with_background(theme.surface_3()).finish(),
@@ -824,45 +823,51 @@ impl View for UniversalDeveloperInputButtonBar {
             .finish()
         };
 
-        let build_buttons = |model_selector_element: Box<dyn warpui::Element>| {
+        let build_buttons = |_model_selector_element: Box<dyn warpui::Element>| {
             // Create a horizontal layout with buttons arranged in a row
             let mut buttons = Flex::row()
                 .with_main_axis_size(MainAxisSize::Max)
                 .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_main_axis_alignment(MainAxisAlignment::Start)
-                .with_child(
-                    Container::new(ChildView::new(&self.segmented_control).finish())
-                        .with_padding_right(4.0)
-                        .finish(),
-                );
-            buttons = buttons.with_child(create_divider());
+                .with_main_axis_alignment(MainAxisAlignment::Start);
 
-            buttons = buttons.with_child(ChildView::new(&self.slash_command_button).finish());
+            // Commented out: Segmented control (Terminal vs Agent mode)
+            // buttons = buttons.with_child(
+            //     Container::new(ChildView::new(&self.segmented_control).finish())
+            //         .with_padding_right(4.0)
+            //         .finish(),
+            // );
+            // buttons = buttons.with_child(create_divider());
 
-            #[cfg(feature = "voice_input")]
-            if is_voice_input_enabled {
-                buttons = buttons.with_child(ChildView::new(&self.mic_button).finish());
-            }
+            // Commented out: Slash commands button
+            // buttons = buttons.with_child(ChildView::new(&self.slash_command_button).finish());
 
-            buttons = buttons.with_child(ChildView::new(&self.at_button).finish());
+            // Commented out: Voice input button
+            // #[cfg(feature = "voice_input")]
+            // if is_voice_input_enabled {
+            //     buttons = buttons.with_child(ChildView::new(&self.mic_button).finish());
+            // }
 
-            // Viewers cannot attach files in shared sessions at this point.
-            if !self
-                .terminal_model
-                .lock()
-                .shared_session_status()
-                .is_viewer()
-            {
-                buttons = buttons.with_child(ChildView::new(&self.file_button).finish());
-            }
+            // Commented out: @ AI context button
+            // buttons = buttons.with_child(ChildView::new(&self.at_button).finish());
 
-            let show_model_selector = FeatureFlag::ProfilesDesignRevamp.is_enabled()
-                || *SessionSettings::as_ref(app).show_model_selectors_in_prompt;
-            if show_model_selector {
-                buttons = buttons
-                    .with_child(create_divider())
-                    .with_child(model_selector_element);
-            }
+            // Commented out: Attach file button
+            // if !self
+            //     .terminal_model
+            //     .lock()
+            //     .shared_session_status()
+            //     .is_viewer()
+            // {
+            //     buttons = buttons.with_child(ChildView::new(&self.file_button).finish());
+            // }
+
+            // Commented out: Model selector dropdown
+            // let show_model_selector = FeatureFlag::ProfilesDesignRevamp.is_enabled()
+            //     || *SessionSettings::as_ref(app).show_model_selectors_in_prompt;
+            // if show_model_selector {
+            //     buttons = buttons
+            //         .with_child(create_divider())
+            //         .with_child(_model_selector_element);
+            // }
 
             if !self.prompt_alert.as_ref(app).is_no_alert() {
                 buttons = buttons.with_child(

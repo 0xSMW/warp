@@ -12,6 +12,7 @@ cfg_if::cfg_if! {
 
 use crate::language_server_candidate::LanguageServerMetadata;
 
+#[cfg(test)]
 const GITHUB_API_URL: &str = "https://api.github.com";
 
 #[derive(Deserialize, Debug)]
@@ -50,33 +51,42 @@ async fn fetch_latest_release_from_github(
     repo_owner: &str,
     repo_name: &str,
 ) -> Result<GithubRelease> {
-    let url = format!(
-        "{}/repos/{}/{}/releases/latest",
-        GITHUB_API_URL, repo_owner, repo_name
-    );
-
-    let response = client
-        .get(&url)
-        // GitHub API recommends specifying these parameters in the header.
-        // See: https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api#user-agent
-        .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "warp-terminal")
-        .send()
-        .await
-        .context("Failed to fetch latest release from GitHub")?;
-
-    if !response.status().is_success() {
-        anyhow::bail!(
-            "GitHub API returned status {}: {}",
-            response.status(),
-            response.text().await.unwrap_or_default()
-        );
+    #[cfg(not(test))]
+    {
+        let _ = (client, repo_owner, repo_name);
+        anyhow::bail!("GitHub release metadata is unavailable in local-only builds");
     }
 
-    response
-        .json()
-        .await
-        .context("Failed to parse GitHub release response")
+    #[cfg(test)]
+    {
+        let url = format!(
+            "{}/repos/{}/{}/releases/latest",
+            GITHUB_API_URL, repo_owner, repo_name
+        );
+
+        let response = client
+            .get(&url)
+            // GitHub API recommends specifying these parameters in the header.
+            // See: https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api#user-agent
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "warp-terminal")
+            .send()
+            .await
+            .context("Failed to fetch latest release from GitHub")?;
+
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "GitHub API returned status {}: {}",
+                response.status(),
+                response.text().await.unwrap_or_default()
+            );
+        }
+
+        response
+            .json()
+            .await
+            .context("Failed to parse GitHub release response")
+    }
 }
 
 /// Fetches the latest release metadata from a GitHub repository.
@@ -150,6 +160,43 @@ pub enum AssetKind {
 }
 
 #[cfg(feature = "local_fs")]
+async fn download_binary(
+    client: &http_client::Client,
+    url: &str,
+    server_name: &str,
+) -> Result<Vec<u8>> {
+    #[cfg(not(test))]
+    {
+        let _ = (client, url, server_name);
+        anyhow::bail!("Language-server binary downloads are unavailable in local-only builds");
+    }
+
+    #[cfg(test)]
+    {
+        log::info!("Downloading {server_name} from {url}");
+        let response = client
+            .get(url)
+            .send()
+            .await
+            .with_context(|| format!("Failed to download from {url}"))?;
+
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "Download failed with status {}: {}",
+                response.status(),
+                response.text().await.unwrap_or_default()
+            );
+        }
+
+        response
+            .bytes()
+            .await
+            .context("Failed to read response body")
+            .map(|bytes| bytes.to_vec())
+    }
+}
+
+#[cfg(feature = "local_fs")]
 impl AssetKind {
     /// Determines the asset kind from a file name based on its extension.
     pub fn from_filename(filename: &str) -> Option<Self> {
@@ -195,6 +242,7 @@ pub async fn install_from_github(
         .url
         .as_ref()
         .context("No download URL provided in metadata")?;
+    let bytes = download_binary(client, url, server_name).await?;
 
     // Create the destination directory: {data_dir}/{server_name}/{version}
     // If it already exists, remove it first to ensure a clean installation
@@ -221,27 +269,6 @@ pub async fn install_from_github(
     } else {
         server_name.to_string()
     };
-
-    // Download the file
-    log::info!("Downloading {server_name} from {url}");
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .with_context(|| format!("Failed to download from {url}"))?;
-
-    if !response.status().is_success() {
-        anyhow::bail!(
-            "Download failed with status {}: {}",
-            response.status(),
-            response.text().await.unwrap_or_default()
-        );
-    }
-
-    let bytes = response
-        .bytes()
-        .await
-        .context("Failed to read response body")?;
 
     // Verify checksum if provided
     if let Some(expected_digest) = &metadata.digest {

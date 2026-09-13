@@ -1,54 +1,51 @@
-#[cfg(not(target_family = "wasm"))]
-use std::collections::HashMap;
-
-use instant::{Duration, Instant};
-use log::debug;
-use url::Url;
-use warp_core::send_telemetry_from_ctx;
 use warp_editor::editor::NavigationKey;
-use warp_graphql::queries::user_github_info::UserGithubInfoResult;
+#[cfg(test)]
+use warpui::WeakViewHandle;
 use warpui::elements::{
-    Border, ChildAnchor, ChildView, Clipped, ClippedScrollStateHandle, ClippedScrollable,
-    ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Dismiss, Element, Empty, Expanded,
-    Fill, Flex, Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning,
-    ParentAnchor, ParentElement, ParentOffsetBounds, PositionedElementAnchor,
-    PositionedElementOffsetBounds, Radius, SavePosition, ScrollTarget, ScrollToPositionMode,
-    ScrollbarWidth, SizeConstraintCondition, SizeConstraintSwitch, Stack, Text,
+    Border, ChildView, Clipped, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment,
+    Element, Empty, Expanded, Flex, MainAxisAlignment, MainAxisSize, MouseStateHandle,
+    ParentElement, Radius, SizeConstraintCondition, SizeConstraintSwitch, Text,
+};
+#[cfg(test)]
+use warpui::elements::{
+    ChildAnchor, ClippedScrollStateHandle, ClippedScrollable, Dismiss, Fill, Hoverable,
+    OffsetPositioning, ParentAnchor, ParentOffsetBounds, PositionedElementAnchor,
+    PositionedElementOffsetBounds, SavePosition, ScrollTarget, ScrollToPositionMode,
+    ScrollbarWidth, Stack,
 };
 use warpui::fonts::{Properties, Weight};
+#[cfg(test)]
 use warpui::geometry::vector::vec2f;
 use warpui::keymap::FixedBinding;
+#[cfg(test)]
 use warpui::platform::Cursor;
 use warpui::prelude::Coords;
 use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::{
     AppContext, Entity, FocusContext, SingletonEntity, TypedActionView, View, ViewContext,
-    ViewHandle, WeakViewHandle,
+    ViewHandle,
 };
 
 use super::editor_text_colors;
 use super::settings_page::{InputListItem, render_input_list};
-use crate::ChannelState;
-use crate::ai::ambient_agents::github_auth_notifier::{GitHubAuthEvent, GitHubAuthNotifier};
-use crate::ai::ambient_agents::github_auth_url::{self, AuthSource, GithubAuthRedirectTarget};
-use crate::ai::ambient_agents::telemetry::CloudAgentTelemetryEvent;
+#[cfg(test)]
+use crate::ai::ambient_agents::github_auth_url;
+use crate::ai::ambient_agents::github_auth_url::{AuthSource, GithubAuthRedirectTarget};
 use crate::ai::cloud_environments::{AmbientAgentEnvironment, GithubRepo};
 use crate::appearance::Appearance;
 use crate::editor::{
     EditorOptions, EditorView, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextOptions,
 };
-use crate::root_view::CreateEnvironmentArg;
 use crate::server::ids::SyncId;
-use crate::server::server_api::ServerApiProvider;
 use crate::ui_components::buttons::icon_button;
 use crate::ui_components::icons::Icon;
 use crate::view_components::action_button::{
     ActionButton, DangerSecondaryTheme, PrimaryTheme, SecondaryTheme,
 };
-use crate::view_components::{
-    SubmittableTextInput, SubmittableTextInputEvent, WarningBoxButtonConfig, WarningBoxConfig,
-    render_warning_box,
-};
+use crate::view_components::{SubmittableTextInput, SubmittableTextInputEvent};
+#[cfg(test)]
+use crate::view_components::{WarningBoxButtonConfig, WarningBoxConfig, render_warning_box};
+#[cfg(test)]
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 const SUBMIT_BUTTON_FOCUSED: &str = "SubmitButtonFocused";
@@ -72,9 +69,7 @@ pub fn init(app: &mut AppContext) {
             UpdateEnvironmentFormAction::FocusSetupCommandsInput,
             id!(UpdateEnvironmentForm::ui_name()) & id!(SUBMIT_BUTTON_FOCUSED),
         ),
-        // Escape behaves like:
-        // - close dropdown when open
-        // - back/cancel when dropdown is closed
+        // Escape closes the legacy test dropdown when present, otherwise it cancels.
         FixedBinding::new(
             "escape",
             UpdateEnvironmentFormAction::Escape,
@@ -160,6 +155,7 @@ pub enum EnvironmentFormMode {
 pub enum UpdateEnvironmentFormEvent {
     Created {
         environment: AmbientAgentEnvironment,
+        // Kept for event compatibility; production submissions always emit false.
         share_with_team: bool,
     },
     Updated {
@@ -181,53 +177,47 @@ pub enum UpdateEnvironmentFormAction {
     Escape,
     FocusSetupCommandsInput,
 
+    #[cfg(test)]
     ToggleShareWithTeam,
 
     AddRepo,
     RemoveRepo(usize),
+    #[cfg(test)]
     ToggleReposDropdown,
+    #[cfg(test)]
     CloseReposDropdown,
+    #[cfg(test)]
     ToggleRepoSelection(usize),
 
     RemoveSetupCommand(usize),
 
+    #[cfg(test)]
     SuggestImage,
+    #[cfg(test)]
     LaunchAgentForSelectedRepos,
+    #[cfg(test)]
     RetryFetchGithubRepos,
+    #[cfg(test)]
     StartGithubAuth,
     OpenUrl(String),
 }
 
-/// State for the GitHub repos dropdown.
+/// State for the legacy GitHub repos dropdown used by unit tests.
+#[cfg(test)]
 #[derive(Clone, Default)]
 pub struct GithubReposDropdownState {
     pub available_repos: Vec<GithubRepo>,
     pub is_loading: bool,
     pub is_expanded: bool,
     pub auth_url: Option<String>,
-    pub auth_fetched_at: Option<Instant>,
     pub load_error_message: Option<String>,
     pub selected_index: Option<usize>,
-    app_install_link: Option<String>,
     repo_row_mouse_states: Vec<MouseStateHandle>,
     scroll_state: ClippedScrollStateHandle,
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 #[derive(Clone, Debug)]
-enum CachedSuggestImageResult {
-    Success {
-        image: String,
-        needs_custom_image: bool,
-        reason: String,
-    },
-    AuthRequired {
-        auth_url: String,
-    },
-}
-
-#[derive(Clone, Debug)]
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 enum SuggestImageState {
     Idle,
     Loading {
@@ -251,6 +241,7 @@ enum SuggestImageState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EnvironmentFormCopy {
     name_placeholder: &'static str,
+    #[cfg(test)]
     repos_placeholder_authed: &'static str,
     repos_placeholder_unauthed: &'static str,
     docker_image_label: &'static str,
@@ -265,6 +256,7 @@ impl EnvironmentFormCopy {
     pub fn orchestration_modal() -> Self {
         Self {
             name_placeholder: "e.g., dev-env",
+            #[cfg(test)]
             repos_placeholder_authed: "Browse GitHub repos...",
             repos_placeholder_unauthed: REPOS_PLACEHOLDER_UNAUTHED,
             docker_image_label: "Docker image",
@@ -281,6 +273,7 @@ impl Default for EnvironmentFormCopy {
     fn default() -> Self {
         Self {
             name_placeholder: "Environment name",
+            #[cfg(test)]
             repos_placeholder_authed: REPOS_PLACEHOLDER_AUTHED,
             repos_placeholder_unauthed: REPOS_PLACEHOLDER_UNAUTHED,
             docker_image_label: "Docker image reference",
@@ -293,10 +286,12 @@ impl Default for EnvironmentFormCopy {
     }
 }
 pub struct UpdateEnvironmentForm {
+    #[cfg(test)]
     self_handle: WeakViewHandle<Self>,
     mode: EnvironmentFormMode,
     form_state: EnvironmentFormValues,
     repos_input: String,
+    #[cfg(test)]
     github_auth_redirect_target: GithubAuthRedirectTarget,
     copy: EnvironmentFormCopy,
     field_max_width: f32,
@@ -320,35 +315,45 @@ pub struct UpdateEnvironmentForm {
     cancel_button: ViewHandle<ActionButton>,
     back_button_mouse_state: MouseStateHandle,
 
-    // Share-with-team checkbox (Create mode only, when user is on a team)
+    // Share-with-team checkbox is retained only for test coverage of the legacy cloud flow.
+    #[cfg(test)]
     share_with_team: bool,
+    #[cfg(test)]
     share_with_team_checkbox_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     share_with_team_label_mouse_state: MouseStateHandle,
 
-    // GitHub repos dropdown
+    // GitHub repos dropdown is retained only for test coverage of the legacy cloud flow.
+    #[cfg(test)]
     github_dropdown_state: GithubReposDropdownState,
+    #[cfg(test)]
     dropdown_input_mouse_state: MouseStateHandle,
 
     // Repo management
     remove_repo_mouse_states: Vec<MouseStateHandle>,
+    #[cfg(test)]
     add_repo_button_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     auth_button_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     retry_fetch_github_repos_mouse_state: MouseStateHandle,
-    #[cfg(not(target_family = "wasm"))]
-    configure_access_link_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     refresh_repos_button_mouse_state: MouseStateHandle,
 
     // Suggest image state
+    #[cfg(test)]
     suggest_image_state: SuggestImageState,
-    #[cfg(not(target_family = "wasm"))]
-    suggest_image_cache: HashMap<String, CachedSuggestImageResult>,
+    #[cfg(test)]
     suggest_image_last_attempt_key: Option<String>,
-    suggest_image_request_seq: u64,
+    #[cfg(test)]
     suggest_image_button_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     suggest_image_auth_button_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     suggest_image_launch_agent_button_mouse_state: MouseStateHandle,
     image_link_button_mouse_state: MouseStateHandle,
 
+    #[cfg(test)]
     /// On the edit page, we keep the suggest-image button disabled until repos have been modified
     /// at least once during the current edit session. Once enabled, it stays enabled even if the
     /// user reverts the repo selection.
@@ -358,12 +363,14 @@ pub struct UpdateEnvironmentForm {
     /// When false, skips the header and renders the submit button at the bottom-right of the form.
     show_header: bool,
     show_footer_cancel_button: bool,
+    #[cfg(test)]
     show_share_with_team_controls: bool,
 
     /// When true, pressing Escape in any editor will emit a Cancelled event.
     /// This should only be enabled for contexts where the form is used as a modal (e.g., first-time setup).
     should_handle_escape_from_editor: bool,
 
+    #[cfg(test)]
     /// Indicates where the GitHub authorization flow was initiated from.
     /// Affects the redirect URL used after auth completes.
     auth_source: AuthSource,
@@ -371,22 +378,25 @@ pub struct UpdateEnvironmentForm {
 
 const DESCRIPTION_MAX_CHARS: usize = 240;
 const DESCRIPTION_PLACEHOLDER: &str = "e.g., this environment is for all front end focused agents";
+#[cfg(test)]
 const REPOS_PLACEHOLDER_AUTHED: &str = "Enter repos (owner/repo format)";
 const REPOS_PLACEHOLDER_UNAUTHED: &str = "Paste repo URL(s)";
 const FORM_FIELD_SPACING: f32 = 20.;
 const FORM_LABEL_SPACING: f32 = 6.;
 const FORM_INPUT_HEIGHT: f32 = 36.;
 const FORM_INPUT_HORIZONTAL_PADDING: f32 = 10.;
-const AUTH_URL_REFRESH_THRESHOLD: Duration = Duration::from_secs(10 * 60);
 const FORM_DESCRIPTION_HEIGHT: f32 = 72.;
 const FORM_DESCRIPTION_VERTICAL_PADDING: f32 = 6.;
 const CARD_BORDER_WIDTH: f32 = 1.;
 const REPO_CHIP_MAX_WIDTH: f32 = 200.;
-const DROPDOWN_MAX_WIDTH: f32 = 800.;
+const FORM_FIELD_MAX_WIDTH: f32 = 800.;
+#[cfg(test)]
 const DROPDOWN_MAX_HEIGHT: f32 = 300.;
+#[cfg(test)]
 const REPOS_DROPDOWN_ANCHOR: &str = "repos_dropdown_anchor";
 const HEADER_VERTICAL_LAYOUT_THRESHOLD: f32 = 520.;
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 enum RepoDropdownSelectionDirection {
     Up,
@@ -395,7 +405,7 @@ enum RepoDropdownSelectionDirection {
 
 impl UpdateEnvironmentForm {
     pub fn new(init_args: EnvironmentFormInitArgs, ctx: &mut ViewContext<Self>) -> Self {
-        Self::new_impl(init_args, true, ctx)
+        Self::new_impl(init_args, ctx)
     }
 
     #[cfg(test)]
@@ -403,14 +413,10 @@ impl UpdateEnvironmentForm {
         init_args: EnvironmentFormInitArgs,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
-        Self::new_impl(init_args, false, ctx)
+        Self::new_impl(init_args, ctx)
     }
 
-    fn new_impl(
-        init_args: EnvironmentFormInitArgs,
-        fetch_github_repos_on_init: bool,
-        ctx: &mut ViewContext<Self>,
-    ) -> Self {
+    fn new_impl(init_args: EnvironmentFormInitArgs, ctx: &mut ViewContext<Self>) -> Self {
         ctx.subscribe_to_model(&Appearance::handle(ctx), |form, _, _, ctx| {
             form.update_editor_text_colors(ctx);
         });
@@ -421,7 +427,7 @@ impl UpdateEnvironmentForm {
         let docker_image_editor =
             Self::create_single_line_editor(copy.docker_image_placeholder, ctx);
         let repos_input_editor =
-            Self::create_single_line_editor(copy.repos_placeholder_authed, ctx);
+            Self::create_single_line_editor(copy.repos_placeholder_unauthed, ctx);
 
         let setup_commands_input = ctx.add_typed_action_view(|ctx| {
             let mut input = SubmittableTextInput::new(ctx);
@@ -548,6 +554,7 @@ impl UpdateEnvironmentForm {
             crate::editor::Event::Edited(origin) => {
                 me.repos_input = me.repos_input_editor.as_ref(ctx).buffer_text(ctx);
 
+                #[cfg(test)]
                 if origin.is_user() {
                     let was_expanded = me.github_dropdown_state.is_expanded;
                     me.github_dropdown_state.is_expanded = true;
@@ -556,10 +563,13 @@ impl UpdateEnvironmentForm {
                     }
                 }
 
+                #[cfg(test)]
                 if me.github_dropdown_state.is_expanded {
                     me.ensure_repo_dropdown_selection();
                     me.scroll_repo_dropdown_selection_into_view();
                 }
+                #[cfg(not(test))]
+                let _ = origin;
                 ctx.notify();
             }
             crate::editor::Event::Blurred => {
@@ -578,17 +588,17 @@ impl UpdateEnvironmentForm {
                     if last_index < me.remove_repo_mouse_states.len() {
                         me.remove_repo_mouse_states.pop();
                     }
-                    if me.is_edit_mode() {
-                        me.edit_repos_modified = true;
-                    }
+                    me.record_repo_change();
                     ctx.notify();
                 }
             }
+            #[cfg(test)]
             crate::editor::Event::Navigate(NavigationKey::Down) => {
                 if me.github_dropdown_state.is_expanded {
                     me.move_repo_dropdown_selection(RepoDropdownSelectionDirection::Down, ctx);
                 }
             }
+            #[cfg(test)]
             crate::editor::Event::Navigate(NavigationKey::Up) => {
                 if me.github_dropdown_state.is_expanded {
                     me.move_repo_dropdown_selection(RepoDropdownSelectionDirection::Up, ctx);
@@ -613,21 +623,16 @@ impl UpdateEnvironmentForm {
             }
         };
 
-        // Subscribe to GitHubAuthNotifier to refetch repos when auth completes
-        ctx.subscribe_to_model(&GitHubAuthNotifier::handle(ctx), |me, _, event, ctx| {
-            if matches!(event, GitHubAuthEvent::AuthCompleted) {
-                me.fetch_github_repos(ctx);
-            }
-        });
-
         let mut form = Self {
+            #[cfg(test)]
             self_handle: ctx.handle(),
             mode,
             form_state: EnvironmentFormValues::default(),
             repos_input: String::new(),
+            #[cfg(test)]
             github_auth_redirect_target: GithubAuthRedirectTarget::SettingsEnvironments,
             copy,
-            field_max_width: DROPDOWN_MAX_WIDTH,
+            field_max_width: FORM_FIELD_MAX_WIDTH,
             field_spacing: FORM_FIELD_SPACING,
             description_height: FORM_DESCRIPTION_HEIGHT,
             show_repo_helper_text: true,
@@ -641,32 +646,44 @@ impl UpdateEnvironmentForm {
             delete_button,
             cancel_button,
             back_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             share_with_team: false,
+            #[cfg(test)]
             share_with_team_checkbox_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             share_with_team_label_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             github_dropdown_state: GithubReposDropdownState::default(),
+            #[cfg(test)]
             dropdown_input_mouse_state: MouseStateHandle::default(),
             remove_repo_mouse_states: Vec::new(),
+            #[cfg(test)]
             add_repo_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             auth_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             retry_fetch_github_repos_mouse_state: MouseStateHandle::default(),
-            #[cfg(not(target_family = "wasm"))]
-            configure_access_link_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             refresh_repos_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             suggest_image_state: SuggestImageState::Idle,
-            #[cfg(not(target_family = "wasm"))]
-            suggest_image_cache: HashMap::new(),
+            #[cfg(test)]
             suggest_image_last_attempt_key: None,
-            suggest_image_request_seq: 0,
+            #[cfg(test)]
             suggest_image_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             suggest_image_auth_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             suggest_image_launch_agent_button_mouse_state: MouseStateHandle::default(),
             image_link_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             edit_repos_modified: false,
             show_header: true,
             show_footer_cancel_button: false,
+            #[cfg(test)]
             show_share_with_team_controls: true,
             should_handle_escape_from_editor: false,
+            #[cfg(test)]
             auth_source: AuthSource::default(),
         };
 
@@ -674,21 +691,23 @@ impl UpdateEnvironmentForm {
         form.apply_mode(&init_args, ctx);
         form.update_button_state(ctx);
 
-        if fetch_github_repos_on_init {
-            // Fetch GitHub repos for dropdown
-            form.fetch_github_repos(ctx);
-        }
         form.update_editor_text_colors(ctx);
 
         form
     }
 
+    #[cfg(test)]
     pub fn github_dropdown_state(&self) -> &GithubReposDropdownState {
         &self.github_dropdown_state
     }
 
     pub fn set_github_auth_redirect_target(&mut self, target: GithubAuthRedirectTarget) {
-        self.github_auth_redirect_target = target;
+        #[cfg(test)]
+        {
+            self.github_auth_redirect_target = target;
+        }
+        #[cfg(not(test))]
+        let _ = target;
     }
 
     pub fn set_copy(&mut self, copy: EnvironmentFormCopy, ctx: &mut ViewContext<Self>) {
@@ -703,7 +722,7 @@ impl UpdateEnvironmentForm {
             editor.set_placeholder_text(copy.docker_image_placeholder, ctx);
         });
         self.repos_input_editor.update(ctx, |editor, ctx| {
-            editor.set_placeholder_text(copy.repos_placeholder_authed, ctx);
+            editor.set_placeholder_text(copy.repos_placeholder_unauthed, ctx);
         });
         self.setup_commands_input.update(ctx, |input, ctx| {
             input.set_placeholder_text(copy.setup_commands_placeholder, ctx);
@@ -736,19 +755,34 @@ impl UpdateEnvironmentForm {
         ctx.notify();
     }
 
+    #[cfg(test)]
     pub fn set_show_share_with_team_controls(&mut self, show: bool, ctx: &mut ViewContext<Self>) {
         self.show_share_with_team_controls = show;
         ctx.notify();
     }
+
+    #[cfg(not(test))]
+    pub fn set_show_share_with_team_controls(&mut self, _: bool, ctx: &mut ViewContext<Self>) {
+        ctx.notify();
+    }
+
     pub fn configure_for_orchestration_modal(&mut self, ctx: &mut ViewContext<Self>) {
         self.set_copy(EnvironmentFormCopy::orchestration_modal(), ctx);
         self.show_footer_cancel_button = true;
-        self.show_share_with_team_controls = false;
+        self.reset_orchestration_legacy_state();
         self.field_spacing = 10.;
         self.description_height = 52.;
         self.show_repo_helper_text = false;
         ctx.notify();
     }
+
+    #[cfg(test)]
+    fn reset_orchestration_legacy_state(&mut self) {
+        self.show_share_with_team_controls = false;
+    }
+
+    #[cfg(not(test))]
+    fn reset_orchestration_legacy_state(&mut self) {}
 
     #[cfg(test)]
     pub(crate) fn uses_orchestration_modal_configuration_for_test(&self) -> bool {
@@ -769,6 +803,7 @@ impl UpdateEnvironmentForm {
         self.github_auth_redirect_target
     }
 
+    #[cfg(test)]
     fn try_close_repos_dropdown(&mut self, ctx: &mut ViewContext<Self>) -> bool {
         if !self.github_dropdown_state.is_expanded {
             return false;
@@ -780,10 +815,12 @@ impl UpdateEnvironmentForm {
         true
     }
 
+    #[cfg(test)]
     fn repo_dropdown_row_position_id(index: usize) -> String {
         format!("repos_dropdown_row_{index}")
     }
 
+    #[cfg(test)]
     fn scroll_repo_dropdown_selection_into_view(&mut self) {
         if !self.github_dropdown_state.is_expanded {
             return;
@@ -827,11 +864,14 @@ impl UpdateEnvironmentForm {
         self.should_handle_escape_from_editor = should_handle;
     }
 
-    /// Sets the auth source, which affects the redirect URL used after GitHub auth completes.
-    /// When set to `CloudSetup`, the redirect URL will include a source parameter that tells
-    /// the URI handler to skip opening the settings page.
+    /// Retains the legacy auth-source setter for callers that still configure this form.
     pub fn set_auth_source(&mut self, source: AuthSource) {
-        self.auth_source = source;
+        #[cfg(test)]
+        {
+            self.auth_source = source;
+        }
+        #[cfg(not(test))]
+        let _ = source;
     }
 
     /// Focus the Name editor (the first field in the form).
@@ -856,7 +896,6 @@ impl UpdateEnvironmentForm {
             EnvironmentFormInitArgs::Create => {
                 // Clear form
                 self.form_state = EnvironmentFormValues::default();
-                self.share_with_team = UserWorkspaces::as_ref(ctx).team_for_view(ctx).is_some();
                 self.name_editor.update(ctx, |editor, ctx| {
                     editor.clear_buffer_and_reset_undo_stack(ctx);
                 });
@@ -884,8 +923,6 @@ impl UpdateEnvironmentForm {
                 env_id: _,
                 initial_values,
             } => {
-                self.share_with_team = false;
-
                 // Populate form with initial values
                 self.form_state = initial_values.as_ref().clone();
                 self.name_editor.update(ctx, |editor, ctx| {
@@ -924,19 +961,32 @@ impl UpdateEnvironmentForm {
         }
 
         self.update_submit_button_label(ctx);
+        self.reset_legacy_state_for_mode(init_args, ctx);
+    }
 
-        // Reset suggest image state for this session.
-        //
-        // Note: We intentionally do not set `suggest_image_last_attempt_key` here.
-        // That field tracks the last *attempted* suggest-image key, and is used to enforce
-        // “repos must change to retry”. Edit-mode gating is handled via `edit_repos_modified`.
+    #[cfg(test)]
+    fn reset_legacy_state_for_mode(
+        &mut self,
+        init_args: &EnvironmentFormInitArgs,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        self.share_with_team = match init_args {
+            EnvironmentFormInitArgs::Create => {
+                UserWorkspaces::as_ref(ctx).team_for_view(ctx).is_some()
+            }
+            EnvironmentFormInitArgs::Edit { .. } => false,
+        };
         self.suggest_image_state = SuggestImageState::Idle;
         self.suggest_image_last_attempt_key = None;
-        self.suggest_image_request_seq = 0;
-
-        // Track that repos haven't been modified yet in this edit session.
-        // The suggest button will be disabled until the user modifies repos.
         self.edit_repos_modified = false;
+    }
+
+    #[cfg(not(test))]
+    fn reset_legacy_state_for_mode(
+        &mut self,
+        _: &EnvironmentFormInitArgs,
+        _: &mut ViewContext<Self>,
+    ) {
     }
 
     fn update_button_state(&mut self, ctx: &mut ViewContext<Self>) {
@@ -946,23 +996,29 @@ impl UpdateEnvironmentForm {
         });
     }
 
+    #[cfg(test)]
     fn is_edit_mode(&self) -> bool {
         matches!(self.mode, EnvironmentFormMode::Edit { .. })
     }
 
+    #[cfg(test)]
+    fn record_repo_change(&mut self) {
+        if self.is_edit_mode() {
+            self.edit_repos_modified = true;
+        }
+    }
+
+    #[cfg(not(test))]
+    fn record_repo_change(&mut self) {}
+
     fn update_repos_input_placeholder(&mut self, ctx: &mut ViewContext<Self>) {
-        let placeholder = if self.github_dropdown_state.auth_url.is_some()
-            || self.github_dropdown_state.load_error_message.is_some()
-        {
-            self.copy.repos_placeholder_unauthed
-        } else {
-            self.copy.repos_placeholder_authed
-        };
+        let placeholder = self.copy.repos_placeholder_unauthed;
         self.repos_input_editor.update(ctx, |editor, ctx| {
             editor.set_placeholder_text(placeholder, ctx);
         });
     }
 
+    #[cfg(test)]
     fn selected_repos_as_remote_repo_args(&self) -> Vec<String> {
         self.form_state
             .selected_repos
@@ -1120,6 +1176,7 @@ impl UpdateEnvironmentForm {
         }
     }
 
+    #[cfg(test)]
     fn filtered_repo_indices(&self) -> Vec<usize> {
         // Return indices of available repos that match the current input filter.
         let search_text = self.repos_input.to_lowercase();
@@ -1139,6 +1196,7 @@ impl UpdateEnvironmentForm {
             .collect()
     }
 
+    #[cfg(test)]
     fn ensure_repo_dropdown_selection(&mut self) {
         // Ensure the dropdown selection points at a visible (filtered) repo.
         let filtered_indices = self.filtered_repo_indices();
@@ -1157,6 +1215,7 @@ impl UpdateEnvironmentForm {
         }
     }
 
+    #[cfg(test)]
     fn move_repo_dropdown_selection(
         &mut self,
         direction: RepoDropdownSelectionDirection,
@@ -1206,6 +1265,7 @@ impl UpdateEnvironmentForm {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn toggle_repo_selection_at_index(&mut self, index: usize, ctx: &mut ViewContext<Self>) {
         // Toggle the repo chip for the given available repo index.
         let Some(available_repo) = self.github_dropdown_state.available_repos.get(index) else {
@@ -1238,161 +1298,17 @@ impl UpdateEnvironmentForm {
         ctx.notify();
     }
 
-    pub fn start_github_auth(&mut self, ctx: &mut ViewContext<Self>) {
-        if self.github_dropdown_state.is_loading {
-            return;
-        }
-        if self.should_refresh_auth_url() {
-            if let Some(elapsed) = self
-                .github_dropdown_state
-                .auth_fetched_at
-                .map(|fetched_at| fetched_at.elapsed())
-            {
-                debug!(
-                    "Refreshing GitHub auth URL after {:.0}s (threshold {:.0}s)",
-                    elapsed.as_secs_f64(),
-                    AUTH_URL_REFRESH_THRESHOLD.as_secs_f64()
-                );
-            } else {
-                debug!("Refreshing GitHub auth URL (no previous fetch timestamp)");
-            }
-            self.fetch_github_repos_for_auth(ctx);
-        } else {
-            self.open_github_auth_url_or_fallback(ctx);
-        }
-    }
-
-    fn should_refresh_auth_url(&self) -> bool {
-        match self.github_dropdown_state.auth_fetched_at {
-            Some(fetched_at) => fetched_at.elapsed() >= AUTH_URL_REFRESH_THRESHOLD,
-            // No timestamp means the age is unknown — treat as stale to be safe.
-            None => self.github_dropdown_state.auth_url.is_some(),
-        }
-    }
-
-    fn open_github_auth_url_or_fallback(&self, ctx: &mut ViewContext<Self>) {
-        let url = self
-            .github_dropdown_state
-            .auth_url
-            .as_deref()
-            .map(|auth_url| self.auth_url_with_next(auth_url))
-            .unwrap_or_else(|| self.github_connect_fallback_url());
-        ctx.open_url(&url);
-    }
-
-    fn github_connect_fallback_url(&self) -> String {
-        let base_url = format!("{}/oauth/connect/github", ChannelState::server_root_url());
-        self.auth_url_with_next(&base_url)
-    }
-
-    fn extract_tx_id(auth_url: &str) -> Option<String> {
-        let parsed = Url::parse(auth_url).ok()?;
-        parsed
-            .query_pairs()
-            .find_map(|(key, value)| (key == "txId").then(|| value.to_string()))
-    }
-
-    fn fetch_github_repos_for_auth(&mut self, ctx: &mut ViewContext<Self>) {
-        self.fetch_github_repos_internal(ctx, true);
-    }
-
-    /// Fetch GitHub repos for the dropdown.
+    /// GitHub repository fetching is disabled; repositories remain manually entered.
     pub fn fetch_github_repos(&mut self, ctx: &mut ViewContext<Self>) {
-        self.fetch_github_repos_internal(ctx, false);
+        let _ = ctx;
     }
 
-    fn fetch_github_repos_internal(
-        &mut self,
-        ctx: &mut ViewContext<Self>,
-        open_auth_after_fetch: bool,
-    ) {
-        self.github_dropdown_state.is_loading = true;
-        self.github_dropdown_state.load_error_message = None;
-        self.github_dropdown_state.auth_url = None;
-        self.github_dropdown_state.auth_fetched_at = None;
-        ctx.notify();
-
-        let integrations_client = ServerApiProvider::handle(ctx)
-            .as_ref(ctx)
-            .get_integrations_client();
-
-        ctx.spawn(
-            async move { integrations_client.get_user_github_info().await },
-            move |me, result, ctx| {
-                me.github_dropdown_state.is_loading = false;
-                let mut should_open_auth = open_auth_after_fetch;
-
-                match result {
-                    Ok(UserGithubInfoResult::GithubConnectedOutput(info)) => {
-                        me.github_dropdown_state.available_repos = info
-                            .installed_repos
-                            .into_iter()
-                            .map(|r| GithubRepo::new(r.owner, r.repo))
-                            .collect();
-                        me.github_dropdown_state.repo_row_mouse_states = me
-                            .github_dropdown_state
-                            .available_repos
-                            .iter()
-                            .map(|_| MouseStateHandle::default())
-                            .collect();
-                        me.github_dropdown_state.scroll_state = ClippedScrollStateHandle::default();
-                        me.github_dropdown_state.selected_index = None;
-                        me.ensure_repo_dropdown_selection();
-                        me.scroll_repo_dropdown_selection_into_view();
-                        // Store appInstallLink even when authenticated - it's used for "Configure access" link
-                        me.github_dropdown_state.app_install_link = Some(info.app_install_link);
-                        me.github_dropdown_state.auth_url = None;
-                        me.github_dropdown_state.auth_fetched_at = None;
-                        should_open_auth = false;
-                        me.update_repos_input_placeholder(ctx);
-                    }
-                    Ok(UserGithubInfoResult::GithubAuthRequiredOutput(auth_info)) => {
-                        me.github_dropdown_state.auth_url = Some(auth_info.auth_url);
-                        me.github_dropdown_state.auth_fetched_at = Some(Instant::now());
-                        me.github_dropdown_state.app_install_link =
-                            Some(auth_info.app_install_link);
-                        if open_auth_after_fetch
-                            && let Some(auth_url) = me.github_dropdown_state.auth_url.as_deref()
-                        {
-                            if let Some(tx_id) = Self::extract_tx_id(auth_url) {
-                                debug!("Refetched GitHub auth URL with tx_id={tx_id}");
-                            } else {
-                                debug!("Refetched GitHub auth URL (tx_id missing)");
-                            }
-                        }
-                        me.update_repos_input_placeholder(ctx);
-                    }
-                    Ok(UserGithubInfoResult::Unknown) => {
-                        me.github_dropdown_state.load_error_message = Some(
-                            "Couldn't load GitHub repos. You can paste repo URL(s), or retry."
-                                .to_string(),
-                        );
-                        me.update_repos_input_placeholder(ctx);
-                    }
-                    Err(e) => {
-                        debug!("Failed to load GitHub repos: {e}");
-                        me.github_dropdown_state.load_error_message = Some(
-                            "Couldn't load GitHub repos. You can paste repo URL(s), or retry."
-                                .to_string(),
-                        );
-                        me.update_repos_input_placeholder(ctx);
-                    }
-                }
-
-                if should_open_auth {
-                    if let Some(auth_url) = me.github_dropdown_state.auth_url.as_deref() {
-                        let auth_url = me.auth_url_with_next(auth_url);
-                        ctx.open_url(&auth_url);
-                    } else if me.github_dropdown_state.available_repos.is_empty() {
-                        let fallback_url = me.github_connect_fallback_url();
-                        ctx.open_url(&fallback_url);
-                    }
-                }
-                ctx.notify();
-            },
-        );
+    /// GitHub OAuth is disabled; the form accepts manually entered repositories only.
+    pub fn start_github_auth(&mut self, ctx: &mut ViewContext<Self>) {
+        let _ = ctx;
     }
 
+    #[cfg(test)]
     /// Generate a cache key from selected repos for suggest image.
     fn selected_repos_key(&self) -> Option<String> {
         if self.form_state.selected_repos.is_empty() {
@@ -1415,205 +1331,12 @@ impl UpdateEnvironmentForm {
         Some(repos.join("\n"))
     }
 
-    #[cfg(not(target_family = "wasm"))]
-    fn apply_cached_suggest_image_result(
-        &mut self,
-        key: &str,
-        cached: CachedSuggestImageResult,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match cached {
-            CachedSuggestImageResult::Success {
-                image,
-                needs_custom_image,
-                reason,
-            } => {
-                self.apply_suggest_image_success(
-                    key.to_string(),
-                    image,
-                    needs_custom_image,
-                    reason,
-                    ctx,
-                );
-            }
-            CachedSuggestImageResult::AuthRequired { auth_url } => {
-                self.suggest_image_state = SuggestImageState::AuthRequired {
-                    key: key.to_string(),
-                    auth_url,
-                };
-            }
-        }
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn apply_suggest_image_success(
-        &mut self,
-        key: String,
-        image: String,
-        needs_custom_image: bool,
-        reason: String,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        // Cache for later
-        self.suggest_image_cache.insert(
-            key.clone(),
-            CachedSuggestImageResult::Success {
-                image: image.clone(),
-                needs_custom_image,
-                reason: reason.clone(),
-            },
-        );
-
-        // Only update the input if the request key still matches the current repo selection
-        if self.selected_repos_key().as_deref() == Some(&key) {
-            self.form_state.docker_image = image.clone();
-            self.docker_image_editor.update(ctx, |editor, ctx| {
-                editor.set_buffer_text(&image, ctx);
-            });
-            self.update_button_state(ctx);
-        }
-
-        self.suggest_image_state = SuggestImageState::Success {
-            key,
-            needs_custom_image,
-            reason,
-        };
-
-        send_telemetry_from_ctx!(
-            CloudAgentTelemetryEvent::ImageSuggested {
-                image,
-                needs_custom_image,
-            },
-            ctx
-        );
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn suggest_image(&mut self, ctx: &mut ViewContext<Self>) {
-        let Some(key) = self.selected_repos_key() else {
-            return;
-        };
-
-        // Don't start a new request if we're already loading for this key
-        let is_generating = matches!(&self.suggest_image_state, SuggestImageState::Loading { key: loading_key } if loading_key == &key);
-        if is_generating {
-            return;
-        }
-
-        if self.suggest_image_last_attempt_key.as_deref() == Some(&key) {
-            return;
-        }
-
-        // Record the attempt immediately to enforce the "repos must change to retry" rule
-        self.suggest_image_last_attempt_key = Some(key.clone());
-
-        // If we have a cached result, apply it immediately
-        if let Some(cached) = self.suggest_image_cache.get(&key).cloned() {
-            self.apply_cached_suggest_image_result(&key, cached, ctx);
-            ctx.notify();
-            return;
-        }
-
-        self.suggest_image_request_seq = self.suggest_image_request_seq.saturating_add(1);
-        let request_seq = self.suggest_image_request_seq;
-        self.suggest_image_state = SuggestImageState::Loading { key: key.clone() };
-        ctx.notify();
-
-        let repos = self
-            .form_state
-            .selected_repos
-            .iter()
-            .map(|r| (r.owner.clone(), r.repo.clone()))
-            .collect::<Vec<_>>();
-
-        let integrations_client = ServerApiProvider::handle(ctx)
-            .as_ref(ctx)
-            .get_integrations_client();
-
-        ctx.spawn(
-            async move { integrations_client.suggest_cloud_environment_image(repos).await },
-            move |me, result, ctx| {
-                if me.suggest_image_request_seq != request_seq {
-                    return;
-                }
-
-                match result {
-                    Ok(result) => match result {
-                        warp_graphql::queries::suggest_cloud_environment_image::SuggestCloudEnvironmentImageResult::SuggestCloudEnvironmentImageOutput(output) => {
-                            let image = output.image;
-                            let needs_custom_image = output.needs_custom_image;
-                            let reason = output.reason;
-                            me.apply_suggest_image_success(
-                                key.clone(),
-                                image,
-                                needs_custom_image,
-                                reason,
-                                ctx,
-                            );
-                        }
-                        warp_graphql::queries::suggest_cloud_environment_image::SuggestCloudEnvironmentImageResult::SuggestCloudEnvironmentImageAuthRequiredOutput(output) => {
-                            me.suggest_image_cache.insert(
-                                key.clone(),
-                                CachedSuggestImageResult::AuthRequired {
-                                    auth_url: output.auth_url.clone(),
-                                },
-                            );
-                            me.suggest_image_state = SuggestImageState::AuthRequired {
-                                key: key.clone(),
-                                auth_url: output.auth_url,
-                            };
-                        }
-                        warp_graphql::queries::suggest_cloud_environment_image::SuggestCloudEnvironmentImageResult::UserFacingError(_) => {
-                            let error_message = "Failed to suggest a Docker image".to_string();
-                            send_telemetry_from_ctx!(
-                                CloudAgentTelemetryEvent::ImageSuggestionFailed {
-                                    error: error_message.clone(),
-                                },
-                                ctx
-                            );
-                            me.suggest_image_state = SuggestImageState::Error {
-                                key: key.clone(),
-                                message: error_message,
-                            };
-                        }
-                        warp_graphql::queries::suggest_cloud_environment_image::SuggestCloudEnvironmentImageResult::Unknown => {
-                            let error_message = "Unknown response from suggestCloudEnvironmentImage".to_string();
-                            send_telemetry_from_ctx!(
-                                CloudAgentTelemetryEvent::ImageSuggestionFailed {
-                                    error: error_message.clone(),
-                                },
-                                ctx
-                            );
-                            me.suggest_image_state = SuggestImageState::Error {
-                                key: key.clone(),
-                                message: error_message,
-                            };
-                        }
-                    },
-                    Err(e) => {
-                        let error_message = format!("Failed to suggest a Docker image: {}", e);
-                        send_telemetry_from_ctx!(
-                            CloudAgentTelemetryEvent::ImageSuggestionFailed {
-                                error: error_message.clone(),
-                            },
-                            ctx
-                        );
-                        me.suggest_image_state = SuggestImageState::Error {
-                            key: key.clone(),
-                            message: error_message,
-                        };
-                    }
-                }
-                ctx.notify();
-            },
-        );
-    }
-
-    #[cfg(target_family = "wasm")]
+    #[cfg(test)]
     fn suggest_image(&mut self, _ctx: &mut ViewContext<Self>) {
-        // Not supported on WASM
+        // Cloud image suggestions are disabled in production and are not exercised by tests.
     }
 
+    #[cfg(test)]
     fn should_show_share_with_team_checkbox(&self, app: &AppContext) -> bool {
         self.show_share_with_team_controls
             && matches!(self.mode, EnvironmentFormMode::Create)
@@ -1632,7 +1355,9 @@ impl UpdateEnvironmentForm {
             .with_main_axis_size(MainAxisSize::Min)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_spacing(12.);
+        let _ = (appearance, app);
 
+        #[cfg(test)]
         if self.should_show_share_with_team_checkbox(app) {
             let theme = appearance.theme();
             let font_family = appearance.ui_font_family();
@@ -1681,12 +1406,12 @@ impl UpdateEnvironmentForm {
                     .finish(),
             );
         }
-
         row.add_child(ChildView::new(button_handle).finish());
 
         row.finish()
     }
 
+    #[cfg(test)]
     fn render_share_with_team_warning(
         &self,
         appearance: &Appearance,
@@ -1988,6 +1713,58 @@ impl UpdateEnvironmentForm {
         field.finish()
     }
 
+    #[cfg(not(test))]
+    fn render_repos_field(&self, appearance: &Appearance) -> Box<dyn Element> {
+        let theme = appearance.theme();
+
+        let mut field = Flex::column()
+            .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+            .with_spacing(FORM_LABEL_SPACING);
+
+        field.add_child(self.render_repos_field_label(appearance));
+
+        if !self.form_state.selected_repos.is_empty() {
+            field.add_child(self.render_selected_repo_chips(appearance));
+        }
+
+        let editor = Clipped::new(ChildView::new(&self.repos_input_editor).finish()).finish();
+        let input_container = Container::new(
+            ConstrainedBox::new(
+                Flex::column()
+                    .with_main_axis_size(MainAxisSize::Max)
+                    .with_main_axis_alignment(MainAxisAlignment::Center)
+                    .with_child(
+                        Clipped::new(
+                            Container::new(editor)
+                                .with_horizontal_padding(FORM_INPUT_HORIZONTAL_PADDING)
+                                .finish(),
+                        )
+                        .finish(),
+                    )
+                    .finish(),
+            )
+            .with_height(FORM_INPUT_HEIGHT)
+            .finish(),
+        )
+        .with_corner_radius(CornerRadius::with_all(Radius::Pixels(6.)))
+        .with_border(Border::all(CARD_BORDER_WIDTH).with_border_fill(theme.outline()))
+        .with_background(theme.surface_2())
+        .finish();
+
+        field.add_child(
+            ConstrainedBox::new(input_container)
+                .with_max_width(self.field_max_width)
+                .finish(),
+        );
+
+        if self.show_repo_helper_text {
+            field.add_child(self.render_repo_helper_text_row(appearance));
+        }
+
+        field.finish()
+    }
+
+    #[cfg(test)]
     fn render_repos_field(&self, appearance: &Appearance) -> Box<dyn Element> {
         // Route to appropriate rendering based on dropdown state
         if self.github_dropdown_state.is_loading {
@@ -2013,6 +1790,7 @@ impl UpdateEnvironmentForm {
         .finish()
     }
 
+    #[cfg(test)]
     fn render_repos_field_loading(&self, appearance: &Appearance) -> Box<dyn Element> {
         let theme = appearance.theme();
 
@@ -2058,6 +1836,7 @@ impl UpdateEnvironmentForm {
         field.finish()
     }
 
+    #[cfg(test)]
     fn render_repos_field_unauthed(&self, appearance: &Appearance) -> Box<dyn Element> {
         let theme = appearance.theme();
 
@@ -2164,6 +1943,7 @@ impl UpdateEnvironmentForm {
         field.finish()
     }
 
+    #[cfg(test)]
     fn render_repos_field_error(&self, appearance: &Appearance) -> Box<dyn Element> {
         let theme = appearance.theme();
 
@@ -2289,6 +2069,7 @@ impl UpdateEnvironmentForm {
         field.finish()
     }
 
+    #[cfg(test)]
     fn render_repos_field_authed(&self, appearance: &Appearance) -> Box<dyn Element> {
         let theme = appearance.theme();
 
@@ -2479,75 +2260,13 @@ impl UpdateEnvironmentForm {
 
     fn render_repo_helper_text_row(&self, appearance: &Appearance) -> Box<dyn Element> {
         let theme = appearance.theme();
-        let helper = Text::new(
-            "Type owner/repo and press Enter to add, or select from dropdown.",
+        Text::new(
+            "Type owner/repo and press Enter to add.",
             appearance.ui_font_family(),
             appearance.ui_font_size() * 0.85,
         )
         .with_color(theme.nonactive_ui_text_color().into())
-        .finish();
-
-        // Configure access link is only available on non-WASM platforms
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let Some(app_install_link) = &self.github_dropdown_state.app_install_link else {
-                return helper;
-            };
-
-            // "Missing a repo? Configure access on GitHub" text with link
-            let install_link = app_install_link.clone();
-
-            // Build as a row with plain text + link
-            let mut text_row = Flex::row()
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_spacing(4.);
-
-            text_row.add_child(helper);
-            // Plain text part
-            text_row.add_child(
-                Text::new(
-                    "Missing a repo?",
-                    appearance.ui_font_family(),
-                    appearance.ui_font_size() * 0.85,
-                )
-                .with_color(theme.nonactive_ui_text_color().into())
-                .finish(),
-            );
-
-            // Link part
-            let link = Hoverable::new(
-                self.configure_access_link_mouse_state.clone(),
-                move |state| {
-                    let color = if state.is_mouse_over_element() {
-                        theme.accent().with_opacity(180)
-                    } else {
-                        theme.accent()
-                    };
-                    Text::new(
-                        "Configure access on GitHub",
-                        appearance.ui_font_family(),
-                        appearance.ui_font_size() * 0.85,
-                    )
-                    .with_color(color.into())
-                    .finish()
-                },
-            )
-            .with_cursor(Cursor::PointingHand)
-            .on_click(move |ctx, _, _| {
-                let url = install_link.clone();
-                ctx.dispatch_typed_action(UpdateEnvironmentFormAction::OpenUrl(url));
-            })
-            .finish();
-
-            text_row.add_child(link);
-
-            text_row.finish()
-        }
-
-        #[cfg(target_family = "wasm")]
-        {
-            helper
-        }
+        .finish()
     }
 
     /// Split `haystack` into a sequence of fragments tagged as (text, is_match) for occurrences of `needle`.
@@ -2558,6 +2277,7 @@ impl UpdateEnvironmentForm {
     /// Note on case-insensitive matching:
     /// We do ASCII-only case-insensitive matching so that the match indices from the searched string are safe
     /// to apply to the original `haystack` (ASCII lowercasing preserves byte lengths and indices).
+    #[cfg(test)]
     fn split_non_overlapping_substring_matches<'a>(
         haystack: &'a str,
         needle: &'a str,
@@ -2602,6 +2322,7 @@ impl UpdateEnvironmentForm {
     /// current query (`self.repos_input`).
     ///
     /// For performance and simplicity, we avoid regexes and only bold literal substring matches.
+    #[cfg(test)]
     fn render_repo_dropdown_label(
         &self,
         repo_label: &str,
@@ -2664,6 +2385,7 @@ impl UpdateEnvironmentForm {
         row.finish()
     }
 
+    #[cfg(test)]
     fn render_repos_dropdown(&self, appearance: &Appearance) -> Box<dyn Element> {
         let theme = appearance.theme();
 
@@ -2847,6 +2569,7 @@ impl UpdateEnvironmentForm {
         chips_row.finish()
     }
 
+    #[cfg(test)]
     fn auth_url_with_next(&self, base_auth_url: &str) -> String {
         match (self.github_auth_redirect_target, self.auth_source) {
             (GithubAuthRedirectTarget::SettingsEnvironments, AuthSource::Settings) => {
@@ -3004,8 +2727,7 @@ impl UpdateEnvironmentForm {
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_spacing(FORM_LABEL_SPACING);
 
-        // Label (without suggest button). The docker image is optional, so no
-        // required marker is shown.
+        // The docker image is optional, so no required marker is shown.
         field.add_child(Self::render_form_label(
             self.copy.docker_image_label,
             false,
@@ -3036,7 +2758,7 @@ impl UpdateEnvironmentForm {
         .with_background(theme.surface_2())
         .finish();
 
-        // Row with editor, optional Docker Hub link button, and suggest button.
+        // Row with the editor and optional Docker Hub link button.
         let mut row = Flex::row()
             .with_main_axis_size(MainAxisSize::Max)
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
@@ -3049,6 +2771,7 @@ impl UpdateEnvironmentForm {
             row.add_child(link_button);
         }
 
+        #[cfg(test)]
         row.add_child(self.render_docker_image_suggest_button(appearance));
 
         let row = row.finish();
@@ -3060,6 +2783,7 @@ impl UpdateEnvironmentForm {
         );
 
         // Suggest image callout (if applicable) - shown below the input
+        #[cfg(test)]
         if let Some(callout) = self.render_suggest_image_callout(appearance) {
             field.add_child(callout);
         }
@@ -3067,6 +2791,7 @@ impl UpdateEnvironmentForm {
         field.finish()
     }
 
+    #[cfg(test)]
     fn can_suggest_image_for_current_repos(&self) -> bool {
         if self.form_state.selected_repos.is_empty() {
             return false;
@@ -3097,6 +2822,7 @@ impl UpdateEnvironmentForm {
         true
     }
 
+    #[cfg(test)]
     fn render_docker_image_suggest_button(&self, appearance: &Appearance) -> Box<dyn Element> {
         let theme = appearance.theme();
 
@@ -3205,6 +2931,7 @@ impl UpdateEnvironmentForm {
             .finish()
     }
 
+    #[cfg(test)]
     fn render_suggest_image_callout(&self, appearance: &Appearance) -> Option<Box<dyn Element>> {
         let current_key = self.selected_repos_key();
 
@@ -3255,6 +2982,7 @@ impl UpdateEnvironmentForm {
         }
     }
 
+    #[cfg(test)]
     fn render_suggest_image_callout_with_action(
         &self,
         reason: &str,
@@ -3299,19 +3027,12 @@ impl TypedActionView for UpdateEnvironmentForm {
                 let environment = self.form_state.to_ambient_agent_environment();
                 match &self.mode {
                     EnvironmentFormMode::Create => {
-                        send_telemetry_from_ctx!(CloudAgentTelemetryEvent::EnvironmentCreated, ctx);
                         ctx.emit(UpdateEnvironmentFormEvent::Created {
                             environment,
-                            share_with_team: self.share_with_team,
+                            share_with_team: false,
                         });
                     }
                     EnvironmentFormMode::Edit { env_id } => {
-                        send_telemetry_from_ctx!(
-                            CloudAgentTelemetryEvent::EnvironmentUpdated {
-                                environment_id: env_id.into_server(),
-                            },
-                            ctx
-                        );
                         ctx.emit(UpdateEnvironmentFormEvent::Updated {
                             env_id: *env_id,
                             environment,
@@ -3321,18 +3042,13 @@ impl TypedActionView for UpdateEnvironmentForm {
             }
             UpdateEnvironmentFormAction::Delete => {
                 if let EnvironmentFormMode::Edit { env_id } = &self.mode {
-                    send_telemetry_from_ctx!(
-                        CloudAgentTelemetryEvent::EnvironmentDeleted {
-                            environment_id: env_id.into_server(),
-                        },
-                        ctx
-                    );
                     ctx.emit(UpdateEnvironmentFormEvent::DeleteRequested { env_id: *env_id });
                 }
             }
             UpdateEnvironmentFormAction::Cancel => {
                 ctx.emit(UpdateEnvironmentFormEvent::Cancelled);
             }
+            #[cfg(test)]
             UpdateEnvironmentFormAction::ToggleShareWithTeam => {
                 if matches!(self.mode, EnvironmentFormMode::Create)
                     && UserWorkspaces::as_ref(ctx).team_for_view(ctx).is_some()
@@ -3342,9 +3058,12 @@ impl TypedActionView for UpdateEnvironmentForm {
                 }
             }
             UpdateEnvironmentFormAction::Escape => {
+                #[cfg(test)]
                 if !self.try_close_repos_dropdown(ctx) {
                     ctx.emit(UpdateEnvironmentFormEvent::Cancelled);
                 }
+                #[cfg(not(test))]
+                ctx.emit(UpdateEnvironmentFormEvent::Cancelled);
             }
             UpdateEnvironmentFormAction::FocusSetupCommandsInput => {
                 ctx.focus(&self.setup_commands_input);
@@ -3357,6 +3076,7 @@ impl TypedActionView for UpdateEnvironmentForm {
                     repo_input
                 };
                 let parsed_repos = Self::parse_repo_inputs(&repo_input);
+                #[cfg(test)]
                 let has_custom_repo = parsed_repos.iter().any(|(owner, repo)| {
                     !self
                         .github_dropdown_state
@@ -3365,6 +3085,7 @@ impl TypedActionView for UpdateEnvironmentForm {
                         .any(|available| available.owner == *owner && available.repo == *repo)
                 });
 
+                #[cfg(test)]
                 if self.github_dropdown_state.is_expanded
                     && let Some(selected_index) = self.github_dropdown_state.selected_index
                     && (parsed_repos.is_empty() || !has_custom_repo)
@@ -3392,10 +3113,8 @@ impl TypedActionView for UpdateEnvironmentForm {
                     }
                 }
 
-                // Mark repos as modified in Edit mode to enable suggest button
-                if self.is_edit_mode() {
-                    self.edit_repos_modified = true;
-                }
+                // Mark repos as modified in Edit mode to enable suggest button.
+                self.record_repo_change();
 
                 // Clear the input
                 self.clear_repos_input(ctx);
@@ -3406,13 +3125,12 @@ impl TypedActionView for UpdateEnvironmentForm {
                     self.form_state.selected_repos.remove(*index);
                     self.remove_repo_mouse_states.remove(*index);
 
-                    // Mark repos as modified in Edit mode to enable suggest button
-                    if self.is_edit_mode() {
-                        self.edit_repos_modified = true;
-                    }
+                    // Mark repos as modified in Edit mode to enable suggest button.
+                    self.record_repo_change();
                     ctx.notify();
                 }
             }
+            #[cfg(test)]
             UpdateEnvironmentFormAction::ToggleReposDropdown => {
                 self.github_dropdown_state.is_expanded = !self.github_dropdown_state.is_expanded;
                 ctx.focus(&self.repos_input_editor);
@@ -3427,11 +3145,13 @@ impl TypedActionView for UpdateEnvironmentForm {
 
                 ctx.notify();
             }
+            #[cfg(test)]
             UpdateEnvironmentFormAction::CloseReposDropdown => {
                 self.github_dropdown_state.is_expanded = false;
                 self.github_dropdown_state.selected_index = None;
                 ctx.notify();
             }
+            #[cfg(test)]
             UpdateEnvironmentFormAction::ToggleRepoSelection(index) => {
                 self.toggle_repo_selection_at_index(*index, ctx);
             }
@@ -3444,49 +3164,22 @@ impl TypedActionView for UpdateEnvironmentForm {
                 }
                 ctx.notify();
             }
+            #[cfg(test)]
             UpdateEnvironmentFormAction::SuggestImage => {
                 self.suggest_image(ctx);
             }
+            #[cfg(test)]
             UpdateEnvironmentFormAction::LaunchAgentForSelectedRepos => {
-                send_telemetry_from_ctx!(
-                    CloudAgentTelemetryEvent::LaunchedAgentFromEnvironmentForm,
-                    ctx
-                );
-
-                let repos = self.selected_repos_as_remote_repo_args();
-                if repos.is_empty() {
-                    return;
-                }
-
-                let arg = CreateEnvironmentArg { repos };
-
-                let window_id = ctx.window_id();
-                let primary_window_and_view = ctx
-                    .root_view_id(window_id)
-                    .map(|view_id| (window_id, view_id));
-
-                if let Some((primary_window_id, root_view_id)) = primary_window_and_view {
-                    ctx.dispatch_action(
-                        primary_window_id,
-                        &[root_view_id],
-                        "root_view:create_environment_in_existing_window_and_run",
-                        &arg,
-                        log::Level::Info,
-                    );
-                } else {
-                    ctx.dispatch_global_action("root_view:create_environment_and_run", arg);
-                }
-
-                ctx.notify();
+                // Cloud launch actions are intentionally disabled in production. Test-only
+                // dispatches remain inert so legacy action coverage can compile.
+                let _ = ctx;
             }
+            #[cfg(test)]
             UpdateEnvironmentFormAction::RetryFetchGithubRepos => {
                 self.fetch_github_repos(ctx);
             }
+            #[cfg(test)]
             UpdateEnvironmentFormAction::StartGithubAuth => {
-                send_telemetry_from_ctx!(
-                    CloudAgentTelemetryEvent::GitHubAuthFromEnvironmentForm,
-                    ctx
-                );
                 self.start_github_auth(ctx);
             }
             UpdateEnvironmentFormAction::OpenUrl(url) => {
@@ -3529,6 +3222,7 @@ impl View for UpdateEnvironmentForm {
         if self.show_header {
             page.add_child(self.render_header(appearance, app));
         }
+        #[cfg(test)]
         if let Some(warning) = self.render_share_with_team_warning(appearance, app) {
             page.add_child(warning);
         }

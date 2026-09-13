@@ -89,6 +89,7 @@ impl WebHandoffView {
 
     fn handle_auth_manager_event(&mut self, event: &AuthManagerEvent, ctx: &mut ViewContext<Self>) {
         match event {
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AuthManagerEvent::AuthComplete => {
                 log::debug!("Initialized user from host application");
             }

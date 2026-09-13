@@ -390,20 +390,22 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
             }
         }
         CustomAction::AddWindow => Keystroke::parse(cmd_or_ctrl_shift("n")).ok(),
-        CustomAction::ToggleWarpDrive => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("cmd-\\").ok()
-            } else {
-                Keystroke::parse("ctrl-shift-|").ok()
-            }
-        }
+        // Commented out default keybinding: ToggleWarpDrive (cmd-\)
+        // CustomAction::ToggleWarpDrive => {
+        //     if OperatingSystem::get().is_mac() {
+        //         Keystroke::parse("cmd-\\").ok()
+        //     } else {
+        //         Keystroke::parse("ctrl-shift-|").ok()
+        //     }
+        // }
         CustomAction::CloseWindow => mac_only_keystroke("cmd-shift-W"),
         CustomAction::CloseCurrentSession => Keystroke::parse(cmd_or_ctrl_shift("w")).ok(),
         CustomAction::ViewChangelog => Keystroke::parse(cmd_or_ctrl_shift("alt-o")).ok(),
-        CustomAction::NewAgentModePane => Keystroke::parse("ctrl-space").ok(),
-        CustomAction::AttachSelectionAsAgentModeContext => {
-            Keystroke::parse("ctrl-shift-space").ok()
-        }
+        // Commented out default keybinding: NewAgentModePane (ctrl-space), AttachSelectionAsAgentModeContext (ctrl-shift-space)
+        // CustomAction::NewAgentModePane => Keystroke::parse("ctrl-space").ok(),
+        // CustomAction::AttachSelectionAsAgentModeContext => {
+        //     Keystroke::parse("ctrl-shift-space").ok()
+        // }
         CustomAction::ToggleProjectExplorer => {
             if OperatingSystem::get().is_mac() {
                 Keystroke::parse("ctrl-1").ok()
@@ -426,14 +428,19 @@ pub fn custom_tag_to_keystroke(custom: CustomTag) -> Option<Keystroke> {
                 Keystroke::parse("alt-3").ok()
             }
         }
-        CustomAction::ToggleConversationListView => {
-            if OperatingSystem::get().is_mac() {
-                Keystroke::parse("ctrl-2").ok()
-            } else {
-                Keystroke::parse("alt-2").ok()
-            }
-        }
-        CustomAction::NewTerminalTab
+        // Commented out default keybinding: ToggleConversationListView (ctrl-2)
+        // CustomAction::ToggleConversationListView => {
+        //     if OperatingSystem::get().is_mac() {
+        //         Keystroke::parse("ctrl-2").ok()
+        //     } else {
+        //         Keystroke::parse("alt-2").ok()
+        //     }
+        // }
+        CustomAction::ToggleWarpDrive
+        | CustomAction::NewAgentModePane
+        | CustomAction::AttachSelectionAsAgentModeContext
+        | CustomAction::ToggleConversationListView
+        | CustomAction::NewTerminalTab
         | CustomAction::NewFile
         | CustomAction::ShowAboutWarp
         | CustomAction::SplitPaneLeft

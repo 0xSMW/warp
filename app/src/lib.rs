@@ -206,7 +206,7 @@ use ::settings::{Setting, ToggleableSetting};
 use anyhow::Context;
 use anyhow::{Result, anyhow};
 use appearance::{Appearance, AppearanceManager};
-use channel::ChannelState;
+use channel::{Channel, ChannelState};
 use interval_timer::IntervalTimer;
 use itertools::Itertools;
 #[cfg(feature = "integration_tests")]
@@ -306,7 +306,7 @@ pub use crate::server::telemetry::{
 use crate::server::telemetry::{AppStartupInfo, CloseTarget, PaletteSource, TelemetryCollector};
 use crate::session_management::{RunningSessionSummary, SessionNavigationData};
 use crate::settings::cloud_preferences_syncer::{
-    CloudPreferencesSyncerEvent, initialize_cloud_preferences_syncer,
+    CloudPreferencesSyncer, CloudPreferencesSyncerEvent, initialize_cloud_preferences_syncer,
 };
 use crate::settings::manager::SettingsManager;
 use crate::settings::{AISettings, AccessibilitySettings, ScrollSettings, SelectionSettings};
@@ -341,9 +341,17 @@ use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 pub static ASSETS: warp_assets::Assets = warp_assets::Assets;
 const TUI_SECURE_STORAGE_SERVICE_SUFFIX: &str = ".tui";
 
+fn is_local_mode() -> bool {
+    matches!(ChannelState::channel(), Channel::Local)
+}
+
 fn determine_agent_source(
     launch_mode: &LaunchMode,
 ) -> Option<crate::ai::ambient_agents::AgentSource> {
+    if is_local_mode() {
+        return None;
+    }
+
     match launch_mode {
         LaunchMode::CommandLine { .. } => {
             if std::env::var("GITHUB_ACTIONS").ok().as_deref() == Some("true") {
@@ -598,6 +606,10 @@ impl LaunchMode {
 
     /// Returns `true` if this process can build and sync codebase indices.
     fn supports_indexing(&self) -> bool {
+        if is_local_mode() {
+            return false;
+        }
+
         match self {
             LaunchMode::CommandLine { command, .. } => {
                 matches!(command, CliCommand::Agent(AgentCommand::Run { .. }))
@@ -619,6 +631,10 @@ impl LaunchMode {
     /// Whether or not to start a crash recovery process (on platforms that support it).
     #[cfg(enable_crash_recovery)]
     pub(crate) fn crash_recovery_enabled(&self) -> bool {
+        if is_local_mode() {
+            return false;
+        }
+
         match self {
             LaunchMode::App { .. } => true,
             LaunchMode::CommandLine { .. }
@@ -632,6 +648,10 @@ impl LaunchMode {
     /// Whether Sentry / crash reporting should be initialized.
     #[cfg_attr(not(feature = "crash_reporting"), allow(dead_code))]
     pub(crate) fn needs_crash_reporting(&self) -> bool {
+        if is_local_mode() {
+            return false;
+        }
+
         match self {
             LaunchMode::App { .. }
             | LaunchMode::CommandLine { .. }
@@ -644,6 +664,10 @@ impl LaunchMode {
 
     /// Whether profiling and tracing should be initialized.
     pub(crate) fn needs_profiling(&self) -> bool {
+        if is_local_mode() {
+            return false;
+        }
+
         match self {
             LaunchMode::App { .. }
             | LaunchMode::CommandLine { .. }
@@ -856,6 +880,11 @@ fn run_worker_command(worker: &warp_cli::WorkerCommand) -> Result<()> {
         warp_cli::WorkerCommand::PluginHost { .. } => crate::run_plugin_host(),
         #[cfg(feature = "local_tty")]
         warp_cli::WorkerCommand::MinidumpServer { socket_name } => {
+            if is_local_mode() {
+                return Err(anyhow!(
+                    "Crash reporting workers are unavailable in local mode"
+                ));
+            }
             cfg_if::cfg_if! {
                 if #[cfg(all(linux_or_windows, feature = "crash_reporting"))] {
                     crate::crash_reporting::run_minidump_server(socket_name)
@@ -871,13 +900,19 @@ fn run_worker_command(worker: &warp_cli::WorkerCommand) -> Result<()> {
             // It only needs logging to stderr since stdout is the protocol
             // channel. No crash reporting, no initialize_app.
             let launch_mode = LaunchMode::RemoteServerProxy;
-            let mut tracing_initialization = tracing::init()?;
+            let tracing_initialization = if is_local_mode() {
+                None
+            } else {
+                Some(tracing::init()?)
+            };
             warp_logging::init(warp_logging::LogConfig {
                 frontend: launch_mode.log_frontend(),
                 log_destination: launch_mode.log_destination(),
                 ..Default::default()
             })?;
-            tracing_initialization.log_initialization_warning();
+            if let Some(mut initialization) = tracing_initialization {
+                initialization.log_initialization_warning();
+            }
             crate::remote_server::run_proxy(args.identity_key.clone())
         }
         #[cfg(not(target_family = "wasm"))]
@@ -979,6 +1014,7 @@ pub type TuiMountFn = Box<dyn FnOnce(&mut warpui::AppContext)>;
 /// Runs the app (or CLI / daemon). TUI entry points run after `initialize_app`
 /// in place of the GUI/CLI `launch()` path.
 fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
+    let local_mode = is_local_mode();
     let mut timer = IntervalTimer::new();
 
     // ── Early initialization (pre-AppBuilder) ──────────────────────
@@ -995,6 +1031,11 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     // The `run` function already initializes feature flags, but ensure they're initialized here
     // for other entrypoints.
     features::init_feature_flags();
+
+    if local_mode {
+        FeatureFlag::Autoupdate.set_enabled(false);
+        FeatureFlag::Changelog.set_enabled(false);
+    }
 
     #[cfg(feature = "crash_reporting")]
     if launch_mode.needs_crash_reporting() {
@@ -1181,23 +1222,29 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
         terminal::local_tty::spawner::PtySpawner::new().context("Failed to create pty spawner")?;
 
     // The TUI front-end skips the GUI lifecycle callbacks, which reach for
-    // windows and GUI-only state, but still flushes telemetry and reporting on
-    // termination.
+    // windows and GUI-only state. Non-local TUI launches still flush telemetry
+    // and reporting on termination.
     let callbacks = if matches!(launch_mode, LaunchMode::Tui { .. }) {
         let mut tracing_initialization = tracing_initialization.take();
         warpui::platform::AppCallbacks {
             on_will_terminate: Some(Box::new(move |ctx| {
-                TelemetryCollector::handle(ctx).update(ctx, |telemetry_collector, ctx| {
-                    telemetry_collector.flush_telemetry_events_for_shutdown(ctx);
-                });
+                if !local_mode {
+                    TelemetryCollector::handle(ctx).update(ctx, |telemetry_collector, ctx| {
+                        telemetry_collector.flush_telemetry_events_for_shutdown(ctx);
+                    });
+                }
 
-                profiling::teardown();
+                if !local_mode {
+                    profiling::teardown();
+                }
                 if let Some(initialization) = tracing_initialization.as_mut() {
                     initialization.shutdown();
                 }
 
                 #[cfg(feature = "crash_reporting")]
-                crash_reporting::uninit_sentry();
+                if !local_mode {
+                    crash_reporting::uninit_sentry();
+                }
             })),
             ..Default::default()
         }
@@ -1313,7 +1360,9 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
             )
         });
         #[cfg(feature = "crash_reporting")]
-        crate::crash_reporting::set_client_type_tag(launch_mode.execution_mode().client_id());
+        if !local_mode {
+            crate::crash_reporting::set_client_type_tag(launch_mode.execution_mode().client_id());
+        }
 
         // Add the terminal server singleton to the application.
         #[cfg(feature = "local_tty")]
@@ -1465,6 +1514,7 @@ pub(crate) fn initialize_app(
     // WARNING: Errors that happen here before crash_reporting::init will not be collected in
     // Sentry. Only the dependencies of crash_reporting should be initialized here. Avoid adding
     // any other stuff here, as failures will be silent. Push them to pre_sentry_errors instead.
+    let local_mode = is_local_mode();
     let data_domain = ChannelState::data_domain();
     let secure_storage_service_name = launch_mode.secure_storage_service_name(&data_domain);
 
@@ -1507,12 +1557,16 @@ pub(crate) fn initialize_app(
         ctx.set_zoom_factor(WindowSettings::as_ref(ctx).zoom_level.as_zoom_factor());
     }
 
-    let (auth_state, pending_api_key) = match launch_mode.auth_initialization() {
-        AuthInitialization::Persisted => (AuthState::initialize(ctx), None),
-        AuthInitialization::PendingApiKey(api_key) => (
-            AuthState::initialize_for_credential_validation(ctx),
-            Some(api_key),
-        ),
+    let (auth_state, pending_api_key) = if local_mode {
+        (AuthState::initialize_for_credential_validation(ctx), None)
+    } else {
+        match launch_mode.auth_initialization() {
+            AuthInitialization::Persisted => (AuthState::initialize(ctx), None),
+            AuthInitialization::PendingApiKey(api_key) => (
+                AuthState::initialize_for_credential_validation(ctx),
+                Some(api_key),
+            ),
+        }
     };
     let auth_state = Arc::new(auth_state);
     timer.mark_interval_end("AUTH_MANAGER_SET_USER");
@@ -1528,7 +1582,11 @@ pub(crate) fn initialize_app(
     // is handed to both `ServerApi` (for sync reads on the request path) and
     // `IapManager` (which owns refresh logic on the main thread).
     #[cfg(not(target_family = "wasm"))]
-    let iap_state = ChannelState::iap_config().map(|cfg| Arc::new(IapState::new(&cfg)));
+    let iap_state = if local_mode {
+        None
+    } else {
+        ChannelState::iap_config().map(|cfg| Arc::new(IapState::new(&cfg)))
+    };
     #[cfg(target_family = "wasm")]
     let iap_state: Option<Arc<IapState>> = None;
 
@@ -1543,25 +1601,31 @@ pub(crate) fn initialize_app(
     // treated as absent everywhere: it identifies no task and must not enable the
     // runner-context IAP WIF mint below.
     #[cfg(not(target_family = "wasm"))]
-    let ambient_agent_task_id: Option<AmbientAgentTaskId> = std::env::var(warp_cli::OZ_RUN_ID_ENV)
-        .ok()
-        .and_then(|run_id| match run_id.parse() {
-            Ok(task_id) => Some(task_id),
-            Err(err) => {
-                log::warn!("Ignoring invalid {}: {err}", warp_cli::OZ_RUN_ID_ENV);
-                None
-            }
-        });
+    let ambient_agent_task_id: Option<AmbientAgentTaskId> = if local_mode {
+        None
+    } else {
+        std::env::var(warp_cli::OZ_RUN_ID_ENV)
+            .ok()
+            .and_then(|run_id| match run_id.parse() {
+                Ok(task_id) => Some(task_id),
+                Err(err) => {
+                    log::warn!("Ignoring invalid {}: {err}", warp_cli::OZ_RUN_ID_ENV);
+                    None
+                }
+            })
+    };
     #[cfg(not(target_family = "wasm"))]
     server_api.set_ambient_agent_task_id(ambient_agent_task_id);
     let ai_client = server_api_provider.as_ref(ctx).get_ai_client();
     #[cfg(not(target_family = "wasm"))]
     // Refresh starts only after the authenticated server client exists; tracing initialization
     // remains responsible for deciding whether this process opted in to cloud-agent export.
-    tracing::start_auth_refresh(
-        server_api_provider.as_ref(ctx).get_managed_secrets_client(),
-        ctx,
-    );
+    if !local_mode {
+        tracing::start_auth_refresh(
+            server_api_provider.as_ref(ctx).get_managed_secrets_client(),
+            ctx,
+        );
+    }
 
     ctx.add_singleton_model(|_ctx| AuthStateProvider::new(auth_state.clone()));
 
@@ -1741,15 +1805,17 @@ pub(crate) fn initialize_app(
         #[cfg_attr(target_family = "wasm", allow(unused_mut))]
         let mut manager = ::ai::api_keys::ApiKeyManager::new(ctx);
         #[cfg(not(target_family = "wasm"))]
-        if matches!(launch_mode, LaunchMode::Tui { .. }) {
+        if !local_mode && matches!(launch_mode, LaunchMode::Tui { .. }) {
             manager.subscribe_to_tui_api_key_changes(ctx);
         }
         #[cfg(not(target_family = "wasm"))]
-        manager.subscribe_to_settings_changes(ctx);
+        if !local_mode {
+            manager.subscribe_to_settings_changes(ctx);
+        }
         // Gemini Enterprise (GEAP) credential refresh triggers: workspace
         // settings saves / team changes and the member's enablement toggle.
         #[cfg(not(target_family = "wasm"))]
-        if FeatureFlag::GeminiEnterprise.is_enabled() {
+        if !local_mode && FeatureFlag::GeminiEnterprise.is_enabled() {
             manager.subscribe_to_geap_settings_changes(ctx);
         }
         // The Grok subscription refresher (`ai::grok_subscription`) has no
@@ -1758,7 +1824,7 @@ pub(crate) fn initialize_app(
         // restored from secure storage; TeamsChanged keeps the policy aligned
         // as team data loads or the workspace changes.
         #[cfg(not(target_family = "wasm"))]
-        if FeatureFlag::SuperGrok.is_enabled() {
+        if !local_mode && FeatureFlag::SuperGrok.is_enabled() {
             use crate::workspaces::user_workspaces::UserWorkspacesEvent;
             ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |manager, _, event, ctx| {
                 if matches!(event, UserWorkspacesEvent::TeamsChanged) {
@@ -1772,45 +1838,49 @@ pub(crate) fn initialize_app(
         manager
     });
 
-    ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |_, event, ctx| {
-        if matches!(
-            event,
-            UserWorkspacesEvent::CurrentWorkspaceChanged
-                | UserWorkspacesEvent::AiOveragesUpdated
-                | UserWorkspacesEvent::PurchaseAddonCreditsSuccess
-        ) {
-            AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
-                usage_model.request_availability_refresh(ctx);
-            });
-        }
-    });
-    ctx.subscribe_to_model(
-        &::ai::api_keys::ApiKeyManager::handle(ctx),
-        |_, event, ctx| {
-            let ::ai::api_keys::ApiKeyManagerEvent::KeysUpdated = event;
-            AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
-                usage_model.request_availability_refresh(ctx);
-            });
-        },
-    );
+    if !local_mode {
+        ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |_, event, ctx| {
+            if matches!(
+                event,
+                UserWorkspacesEvent::CurrentWorkspaceChanged
+                    | UserWorkspacesEvent::AiOveragesUpdated
+                    | UserWorkspacesEvent::PurchaseAddonCreditsSuccess
+            ) {
+                AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
+                    usage_model.request_availability_refresh(ctx);
+                });
+            }
+        });
+        ctx.subscribe_to_model(
+            &::ai::api_keys::ApiKeyManager::handle(ctx),
+            |_, event, ctx| {
+                let ::ai::api_keys::ApiKeyManagerEvent::KeysUpdated = event;
+                AIRequestUsageModel::handle(ctx).update(ctx, |usage_model, ctx| {
+                    usage_model.request_availability_refresh(ctx);
+                });
+            },
+        );
+    }
 
     ctx.add_singleton_model(AntivirusInfo::new);
 
     cfg_if::cfg_if! {
         if #[cfg(feature = "crash_reporting")] {
-            let is_crash_reporting_enabled = crash_reporting::init(ctx);
+            let is_crash_reporting_enabled = !local_mode && crash_reporting::init(ctx);
         } else {
             let is_crash_reporting_enabled = false;
         }
     }
     // Send buffered pre-init errors to Sentry now that the client is ready.
     #[cfg(feature = "crash_reporting")]
-    for err in _pre_sentry_errors {
-        sentry::integrations::anyhow::capture_anyhow(&err);
+    if !local_mode {
+        for err in _pre_sentry_errors {
+            sentry::integrations::anyhow::capture_anyhow(&err);
+        }
     }
     timer.mark_interval_end("INIT_CRASH_REPORTING");
 
-    if let LaunchMode::App { .. } = launch_mode {
+    if !local_mode && let LaunchMode::App { .. } = launch_mode {
         autoupdate::check_and_report_update_errors(ctx);
     }
 
@@ -1828,7 +1898,8 @@ pub(crate) fn initialize_app(
     // not mutate that bundle. The bundled CLI runs the GUI executable from
     // inside `Warp.app`, so without this it would rewrite a bundle it does not
     // own. See APP-2946.
-    if FeatureFlag::Autoupdate.is_enabled()
+    if !local_mode
+        && FeatureFlag::Autoupdate.is_enabled()
         && AppExecutionMode::as_ref(ctx).can_autoupdate()
         && let Err(e) = autoupdate::remove_old_executable()
     {
@@ -1878,10 +1949,12 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_ctx| SyncedInputState::new());
 
     ctx.add_singleton_model(remote_server::manager::RemoteServerManager::new);
-    #[cfg(not(target_family = "wasm"))]
-    ctx.add_singleton_model(remote_server::codebase_index_model::RemoteCodebaseIndexModel::new);
-    #[cfg(not(target_family = "wasm"))]
-    remote_server::wire_auth_token_rotation(ctx);
+    if !local_mode {
+        #[cfg(not(target_family = "wasm"))]
+        ctx.add_singleton_model(remote_server::codebase_index_model::RemoteCodebaseIndexModel::new);
+        #[cfg(not(target_family = "wasm"))]
+        remote_server::wire_auth_token_rotation(ctx);
+    }
 
     log::info!(
         "Starting warp with channel state {} and version {:?}",
@@ -1898,7 +1971,11 @@ pub(crate) fn initialize_app(
 
     // Rewrite recognized Warp web URLs (sessions, Drive, settings, home) into local
     // intent URLs when possible so they open directly in the desktop app.
-    ctx.set_before_open_url(|url_str, _ctx| {
+    ctx.set_before_open_url(move |url_str, _ctx| {
+        if local_mode {
+            return url_str.to_owned();
+        }
+
         if let Ok(url) = Url::parse(url_str)
             && let Some(intent) = maybe_rewrite_web_url_to_intent(&url)
         {
@@ -1918,7 +1995,7 @@ pub(crate) fn initialize_app(
 
     let user_is_logged_in = auth_state.is_logged_in();
 
-    if user_is_logged_in {
+    if !local_mode && user_is_logged_in {
         // Set the first frame callback to record the app's startup time.
         // This is only sent for logged-in users so that new users don't skew performance metrics.
         let is_screen_reader_enabled = ctx.is_screen_reader_enabled();
@@ -1958,7 +2035,7 @@ pub(crate) fn initialize_app(
                 crash_recovery.on_frame_drawn(window_id, ctx);
             });
         })
-    } else {
+    } else if !local_mode {
         // If the app was opened while logged out, record an event for measuring new users.
         // This is sent immediately in case they quit the app on the signup screen.
         send_telemetry_sync_from_app_ctx!(TelemetryEvent::LoggedOutStartup, ctx);
@@ -2021,10 +2098,10 @@ pub(crate) fn initialize_app(
                 ctx,
             );
 
-            // Subscribe to RemoteServerManager push events so that remote repo
-            // metadata snapshots and incremental updates populate the remote
-            // sub-model and trigger RepoMetadataEvent emissions.
-            {
+            if !local_mode {
+                // Subscribe to RemoteServerManager push events so that remote repo
+                // metadata snapshots and incremental updates populate the remote
+                // sub-model and trigger RepoMetadataEvent emissions.
                 use remote_server::manager::{RemoteServerManager, RemoteServerManagerEvent};
                 let mgr = RemoteServerManager::handle(ctx);
                 ctx.subscribe_to_model(&mgr, |me, _, event, ctx| match event {
@@ -2060,7 +2137,9 @@ pub(crate) fn initialize_app(
     let server_api_clone = server_api.clone();
     ctx.add_singleton_model(|ctx| {
         let telemetry_collector = TelemetryCollector::new(server_api_clone);
-        telemetry_collector.initialize_telemetry_collection(ctx);
+        if !local_mode {
+            telemetry_collector.initialize_telemetry_collection(ctx);
+        }
         telemetry_collector
     });
     timer.mark_interval_end("INITIALIZE_TELEMETRY_COLLECTION");
@@ -2108,7 +2187,7 @@ pub(crate) fn initialize_app(
     ai::agent::todos::popup::init(ctx);
     terminal::view::init_environment::mode_selector::init(ctx);
     coding_entrypoints::project_buttons::init(ctx);
-    if FeatureFlag::CodeReviewSaveChanges.is_enabled() {
+    if !local_mode && FeatureFlag::CodeReviewSaveChanges.is_enabled() {
         code_review::init(ctx);
     }
 
@@ -2116,6 +2195,8 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_| DisplayCount(display_count));
 
     ctx.add_singleton_model(|_| RelaunchModel::new());
+    // Workspace and resource-center views require this shared handle even in local mode. The
+    // Changelog feature is disabled during local startup above, so no remote fetch is scheduled.
     ctx.add_singleton_model(|_| ChangelogModel::new(server_api.clone()));
     ctx.add_singleton_model(|_| GitHubAuthNotifier::new());
     ctx.add_singleton_model(|_| NetworkStatus::new());
@@ -2142,10 +2223,14 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(|_| LanguageServerShutdownManager::new());
 
     #[cfg(feature = "voice_input")]
-    ctx.add_singleton_model(voice_input::VoiceInput::new);
-    ctx.add_singleton_model(|_| {
-        VoiceTranscriber::new(Arc::new(ServerVoiceTranscriber::new(server_api.clone())))
-    });
+    if !local_mode {
+        ctx.add_singleton_model(voice_input::VoiceInput::new);
+    }
+    if !local_mode {
+        ctx.add_singleton_model(|_| {
+            VoiceTranscriber::new(Arc::new(ServerVoiceTranscriber::new(server_api.clone())))
+        });
+    }
 
     let notebooks = cloud_objects
         .iter()
@@ -2157,14 +2242,17 @@ pub(crate) fn initialize_app(
         .collect::<Vec<_>>();
 
     let mut all_queue_items = Vec::new();
-    let objects_with_pending_changes = cloud_objects
-        .iter()
-        .filter(|object| object.metadata().has_pending_content_changes())
-        .cloned()
-        .collect::<Vec<_>>();
-    all_queue_items.extend(QueueItem::from_cached_objects(
-        objects_with_pending_changes.into_iter(),
-    ));
+    if !local_mode {
+        // Restore persisted cloud-object work only for networked launches.
+        let objects_with_pending_changes = cloud_objects
+            .iter()
+            .filter(|object| object.metadata().has_pending_content_changes())
+            .cloned()
+            .collect::<Vec<_>>();
+        all_queue_items.extend(QueueItem::from_cached_objects(
+            objects_with_pending_changes.into_iter(),
+        ));
+    }
 
     let cloud_model = ctx.add_singleton_model(|_ctx| {
         CloudModel::new(
@@ -2175,21 +2263,25 @@ pub(crate) fn initialize_app(
     });
     ctx.add_singleton_model(ai::cloud_environments::CloudEnvironmentCatalog::new);
 
-    let unsynced_actions: Vec<(CloudObjectTypeAndId, ObjectAction)> = object_actions
-        .iter()
-        .filter(|action| action.is_pending())
-        .filter_map(|action| {
-            cloud_model.read(ctx, |model, _| {
-                let object = model.get_by_uid(&action.uid);
-                object.map(|o| (o.cloud_object_type_and_id(), action.clone()))
+    if !local_mode {
+        let unsynced_actions: Vec<(CloudObjectTypeAndId, ObjectAction)> = object_actions
+            .iter()
+            .filter(|action| action.is_pending())
+            .filter_map(|action| {
+                cloud_model.read(ctx, |model, _| {
+                    let object = model.get_by_uid(&action.uid);
+                    object.map(|o| (o.cloud_object_type_and_id(), action.clone()))
+                })
             })
-        })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>();
 
-    all_queue_items.extend(QueueItem::from_unsynced_actions(
-        unsynced_actions.into_iter(),
-    ));
+        all_queue_items.extend(QueueItem::from_unsynced_actions(
+            unsynced_actions.into_iter(),
+        ));
+    }
 
+    // Keep the shared queue handle available to local settings and MCP consumers; local mode
+    // leaves it empty so no persisted cloud-object work can start.
     ctx.add_singleton_model(|ctx| {
         SyncQueue::new(
             all_queue_items,
@@ -2262,12 +2354,14 @@ pub(crate) fn initialize_app(
     } else {
         ctx.add_singleton_model(|ctx| RepoOutlines::new_with_indexing_enabled(false, ctx));
     }
-    ctx.add_singleton_model(|ctx| {
-        warp_core::sync_queue::SyncQueue::<SyncTask>::new_with_rate_limit(
-            &ctx.background_executor(),
-            Some(DEFAULT_SYNC_REQUESTS_PER_MIN),
-        )
-    });
+    if !local_mode {
+        ctx.add_singleton_model(|ctx| {
+            warp_core::sync_queue::SyncQueue::<SyncTask>::new_with_rate_limit(
+                &ctx.background_executor(),
+                Some(DEFAULT_SYNC_REQUESTS_PER_MIN),
+            )
+        });
+    }
 
     ctx.add_singleton_model(|_| UserProfiles::new(restored_user_profiles));
 
@@ -2279,14 +2373,19 @@ pub(crate) fn initialize_app(
     // and before the UpdateManager models because they rely on the TeamTester model.
     ctx.add_singleton_model(TeamTesterStatus::new);
 
-    ctx.add_singleton_model(|ctx| {
-        TeamUpdateManager::new(
-            server_api_provider.as_ref(ctx).get_team_client(),
-            persistence_writer.sender(),
-            ctx,
-        )
-    });
+    if !local_mode {
+        ctx.add_singleton_model(|ctx| {
+            TeamUpdateManager::new(
+                server_api_provider.as_ref(ctx).get_team_client(),
+                persistence_writer.sender(),
+                ctx,
+            )
+        });
+    }
 
+    // UpdateManager remains registered because local settings, cloud-object projections, and MCP
+    // models require its shared handle. Its local-mode guards keep cloud polling and queue work
+    // inert while preserving those local consumers.
     ctx.add_singleton_model(|ctx| {
         UpdateManager::new(
             persistence_writer.sender(),
@@ -2297,11 +2396,17 @@ pub(crate) fn initialize_app(
 
     let toml_file_path = settings::user_preferences_toml_file_path();
     let cloud_preferences_syncer = ctx.add_singleton_model(move |ctx| {
-        initialize_cloud_preferences_syncer(
-            toml_file_path,
-            startup_toml_parse_error_for_syncer.as_deref(),
-            ctx,
-        )
+        if local_mode {
+            // Keep the shared handle available to local settings consumers, but never
+            // schedule cloud preference retries in local mode.
+            CloudPreferencesSyncer::new(false, toml_file_path, false, ctx)
+        } else {
+            initialize_cloud_preferences_syncer(
+                toml_file_path,
+                startup_toml_parse_error_for_syncer.as_deref(),
+                ctx,
+            )
+        }
     });
     ctx.subscribe_to_model(&cloud_preferences_syncer, |_, event, ctx| {
         if let CloudPreferencesSyncerEvent::InitialLoadCompleted = event {
@@ -2360,12 +2465,14 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(NotebookKeybindings::new);
     ctx.add_singleton_model(TerminalKeybindings::new);
     ctx.add_singleton_model(|_| ActiveSession::default());
-    ctx.add_singleton_model(|ctx| {
-        Listener::new(
-            server_api_provider.as_ref(ctx).get_cloud_objects_client(),
-            ctx,
-        )
-    });
+    if !local_mode {
+        ctx.add_singleton_model(|ctx| {
+            Listener::new(
+                server_api_provider.as_ref(ctx).get_cloud_objects_client(),
+                ctx,
+            )
+        });
+    }
 
     #[cfg(all(not(target_family = "wasm"), feature = "local_tty"))]
     {
@@ -2378,7 +2485,7 @@ pub(crate) fn initialize_app(
     // on a valid ambient-agent task id so local staging clients — and any runner
     // with a stray or malformed OZ_RUN_ID — keep using the gcloud path.
     #[cfg(not(target_family = "wasm"))]
-    let managed_iap_mint = ambient_agent_task_id.is_some().then(|| {
+    let managed_iap_mint = (!local_mode && ambient_agent_task_id.is_some()).then(|| {
         let client = server_api_provider.as_ref(ctx).get_managed_secrets_client();
         ManagedIapMint::new(Arc::new(ManagedSecretsIapMinter::new(client)))
     });
@@ -2410,41 +2517,45 @@ pub(crate) fn initialize_app(
         IapManager::new(iap_state, path_resolver, managed_iap_mint, ctx)
     });
     // Subscribe to IAP manager events to show toasts when refresh fails.
-    ctx.subscribe_to_model(&IapManager::handle(ctx), |_, e, ctx| {
-        match e {
-            IapManagerEvent::RefreshFailed {
-                message,
-                is_first_failure_of_streak,
-            } if *is_first_failure_of_streak => {
-                let window_id = ctx
-                    .windows()
-                    .active_window()
-                    .or_else(|| ctx.windows().ordered_window_ids().first().copied());
-                let Some(window_id) = window_id else {
-                    return;
-                };
-                let toast: DismissibleToast<WorkspaceAction> =
-                    DismissibleToast::error(format!("IAP credential refresh failed: {message}"));
-                ToastStack::handle(ctx).update(ctx, |stack, ctx| {
-                    stack.add_ephemeral_toast(toast, window_id, ctx);
-                });
-            }
-            _ => {}
-        };
-    });
+    if !local_mode {
+        ctx.subscribe_to_model(&IapManager::handle(ctx), |_, e, ctx| {
+            match e {
+                IapManagerEvent::RefreshFailed {
+                    message,
+                    is_first_failure_of_streak,
+                } if *is_first_failure_of_streak => {
+                    let window_id = ctx
+                        .windows()
+                        .active_window()
+                        .or_else(|| ctx.windows().ordered_window_ids().first().copied());
+                    let Some(window_id) = window_id else {
+                        return;
+                    };
+                    let toast: DismissibleToast<WorkspaceAction> = DismissibleToast::error(
+                        format!("IAP credential refresh failed: {message}"),
+                    );
+                    ToastStack::handle(ctx).update(ctx, |stack, ctx| {
+                        stack.add_ephemeral_toast(toast, window_id, ctx);
+                    });
+                }
+                _ => {}
+            };
+        });
+    }
 
     // CLI commands establish IAP access and refresh auth in their dispatch path so they can
     // surface failures synchronously. Other interactive clients gate startup user authentication
     // on IAP here, since the request itself calls the IAP-gated warp-server — except the TUI,
     // which authenticates immediately and resolves IAP out of band (see
     // `startup_auth_is_non_blocking`).
-    let startup_authentication = if matches!(launch_mode, LaunchMode::CommandLine { .. }) {
-        None
-    } else {
-        pending_api_key
-            .map(StartupUserAuthentication::ApiKey)
-            .or_else(|| user_is_logged_in.then_some(StartupUserAuthentication::RefreshUser))
-    };
+    let startup_authentication =
+        if local_mode || matches!(launch_mode, LaunchMode::CommandLine { .. }) {
+            None
+        } else {
+            pending_api_key
+                .map(StartupUserAuthentication::ApiKey)
+                .or_else(|| user_is_logged_in.then_some(StartupUserAuthentication::RefreshUser))
+        };
     if let Some(authentication) = startup_authentication {
         authenticate_user_after_iap_access(
             authentication,
@@ -2469,10 +2580,11 @@ pub(crate) fn initialize_app(
     ctx.add_singleton_model(EnvVarCollectionManager::new);
     ctx.add_singleton_model(WorkflowManager::new);
 
-    if FeatureFlag::ScheduledAmbientAgents.is_enabled() {
+    if !local_mode && FeatureFlag::ScheduledAmbientAgents.is_enabled() {
         ctx.add_singleton_model(ScheduledAgentManager::new);
     }
 
+    // Registration only provides the shared handle; local mode disables polling above.
     AutoupdateState::register(ctx, server_api.clone());
 
     ctx.add_singleton_model(LocalWorkflows::new);
@@ -2566,9 +2678,11 @@ pub(crate) fn initialize_app(
 
     // Index global rules (e.g. ~/.agents/AGENTS.md) on a background task so
     // they are available to subsequent agent queries.
-    ProjectContextModel::handle(ctx).update(ctx, |me, ctx| me.index_global_rules(ctx));
+    if !local_mode {
+        ProjectContextModel::handle(ctx).update(ctx, |me, ctx| me.index_global_rules(ctx));
+    }
     #[cfg(all(not(target_family = "wasm"), feature = "local_fs"))]
-    {
+    if !local_mode {
         ctx.add_singleton_model(ai::remote_agent_context::RemoteAgentContext::new);
     }
 
@@ -2619,12 +2733,20 @@ pub(crate) fn app_callbacks(
     is_integration_test: bool,
     mut tracing_initialization: Option<tracing::Initialization>,
 ) -> warpui::platform::AppCallbacks {
+    let local_mode = is_local_mode();
+
     warpui::platform::AppCallbacks {
         on_internet_reachability_changed: Some(Box::new(move |reachable, ctx| {
-            NetworkStatus::handle(ctx)
-                .update(ctx, move |me, ctx| me.reachability_changed(reachable, ctx));
+            if !local_mode {
+                NetworkStatus::handle(ctx)
+                    .update(ctx, move |me, ctx| me.reachability_changed(reachable, ctx));
+            }
         })),
         on_become_active: Some(Box::new(move |ctx| {
+            if local_mode {
+                return;
+            }
+
             let auth_state = AuthStateProvider::as_ref(ctx).get();
             ctx.record_app_focus(
                 auth_state.user_id().map(|uid| uid.as_string()),
@@ -2664,8 +2786,9 @@ pub(crate) fn app_callbacks(
 
             #[cfg(feature = "voice_input")]
             {
-                if let voice_input::VoiceInputState::Listening { enabled_from, .. } =
-                    voice_input::VoiceInput::as_ref(ctx).state()
+                if !local_mode
+                    && let voice_input::VoiceInputState::Listening { enabled_from, .. } =
+                        voice_input::VoiceInput::as_ref(ctx).state()
                 {
                     // Abort the voice input if it's toggled from a key press, as we cannot listen to key events
                     // if the user is focused on a different app - we could miss the release of the key.
@@ -2679,11 +2802,13 @@ pub(crate) fn app_callbacks(
             }
             ctx.dispatch_global_action("root_view:update_quake_mode_state", &update_quake_mode_arg);
 
-            let auth_state = AuthStateProvider::as_ref(ctx).get();
-            ctx.record_app_blur(
-                auth_state.user_id().map(|uid| uid.as_string()),
-                auth_state.anonymous_id(),
-            );
+            if !local_mode {
+                let auth_state = AuthStateProvider::as_ref(ctx).get();
+                ctx.record_app_blur(
+                    auth_state.user_id().map(|uid| uid.as_string()),
+                    auth_state.anonymous_id(),
+                );
+            }
         })),
         on_will_terminate: Some(Box::new(move |ctx| {
             NotebookManager::handle(ctx).update(ctx, |manager, ctx| {
@@ -2696,14 +2821,16 @@ pub(crate) fn app_callbacks(
                 writer.terminate();
             });
 
-            let auth_state = AuthStateProvider::as_ref(ctx).get();
-            ctx.try_record_daily_app_focus_duration(
-                auth_state.user_id().map(|uid| uid.as_string()),
-                auth_state.anonymous_id(),
-            );
-            TelemetryCollector::handle(ctx).update(ctx, |telemetry_collector, ctx| {
-                telemetry_collector.flush_telemetry_events_for_shutdown(ctx);
-            });
+            if !local_mode {
+                let auth_state = AuthStateProvider::as_ref(ctx).get();
+                ctx.try_record_daily_app_focus_duration(
+                    auth_state.user_id().map(|uid| uid.as_string()),
+                    auth_state.anonymous_id(),
+                );
+                TelemetryCollector::handle(ctx).update(ctx, |telemetry_collector, ctx| {
+                    telemetry_collector.flush_telemetry_events_for_shutdown(ctx);
+                });
+            }
 
             // Shutdown all LSP servers gracefully before app termination
             lsp::LspManagerModel::handle(ctx).update(ctx, |manager, ctx| {
@@ -2727,11 +2854,15 @@ pub(crate) fn app_callbacks(
             // ensure that the new process doesn't find the old process while
             // attempting to enforce our single-instance policy on Linux.
             app_services::teardown(ctx);
-            autoupdate::spawn_child_if_necessary(ctx);
+            if !local_mode {
+                autoupdate::spawn_child_if_necessary(ctx);
+            }
 
             // Tear down any application profilers that are running, writing
             // results to disk.
-            profiling::teardown();
+            if !local_mode {
+                profiling::teardown();
+            }
 
             #[cfg(enable_crash_recovery)]
             crash_recovery::CrashRecovery::handle(ctx).update(ctx, |crash_recovery, _ctx| {
@@ -2744,7 +2875,9 @@ pub(crate) fn app_callbacks(
             // Tear down crash reporting as the last thing we do before the application
             // terminates.
             #[cfg(feature = "crash_reporting")]
-            crash_reporting::uninit_sentry();
+            if !local_mode {
+                crash_reporting::uninit_sentry();
+            }
         })),
         on_should_close_window: Some(Box::new(move |window_id, ctx| {
             let general_settings = GeneralSettings::as_ref(ctx);
@@ -2761,12 +2894,14 @@ pub(crate) fn app_callbacks(
 
             let summary = UnsavedStateSummary::for_window(window_id, ctx);
 
-            send_telemetry_from_app_ctx!(
-                TelemetryEvent::UserInitiatedClose {
-                    initiated_on: CloseTarget::Window,
-                },
-                ctx
-            );
+            if !local_mode {
+                send_telemetry_from_app_ctx!(
+                    TelemetryEvent::UserInitiatedClose {
+                        initiated_on: CloseTarget::Window,
+                    },
+                    ctx
+                );
+            }
 
             // Don't show dialog on integration test. Machine can't press buttons.
             if !is_integration_test && summary.save_unsaved_code_and_should_warn(ctx) {
@@ -2806,23 +2941,27 @@ pub(crate) fn app_callbacks(
                 return ApproveTerminateResult::Terminate;
             }
 
-            send_telemetry_from_app_ctx!(
-                TelemetryEvent::UserInitiatedClose {
-                    initiated_on: CloseTarget::App,
-                },
-                ctx
-            );
+            if !local_mode {
+                send_telemetry_from_app_ctx!(
+                    TelemetryEvent::UserInitiatedClose {
+                        initiated_on: CloseTarget::App,
+                    },
+                    ctx
+                );
+            }
 
             // If there's a pending autoupdate, apply that before showing the unsaved changes
             // dialog. We apply the update first so that the dialog can force-terminate.
-            let applying_update = autoupdate::apply_pending_update(ctx, |ctx| {
-                // Once the deferred update is applied, re-terminate the app. This termination is
-                // cancellable so that we still show the unsaved changes dialog.
-                log::info!("Deferred autoupdate applied, terminating app");
-                ctx.terminate_app(TerminationMode::Cancellable, None);
-            });
-            if applying_update {
-                return ApproveTerminateResult::Cancel;
+            if !local_mode {
+                let applying_update = autoupdate::apply_pending_update(ctx, |ctx| {
+                    // Once the deferred update is applied, re-terminate the app. This termination is
+                    // cancellable so that we still show the unsaved changes dialog.
+                    log::info!("Deferred autoupdate applied, terminating app");
+                    ctx.terminate_app(TerminationMode::Cancellable, None);
+                });
+                if applying_update {
+                    return ApproveTerminateResult::Cancel;
+                }
             }
 
             let summary = UnsavedStateSummary::for_app(ctx);
@@ -2849,7 +2988,9 @@ pub(crate) fn app_callbacks(
                         .toggle_and_save_value(ctx)
                 );
             });
-            send_telemetry_from_app_ctx!(TelemetryEvent::QuitModalDisabled, ctx);
+            if !local_mode {
+                send_telemetry_from_app_ctx!(TelemetryEvent::QuitModalDisabled, ctx);
+            }
         })),
         on_notification_clicked: Some(Box::new(move |notification_response, ctx| {
             if let Some(notification_data) = notification_response.data() {
@@ -2892,6 +3033,7 @@ pub(crate) fn app_callbacks(
             for url in &urls {
                 let parsed_url = Url::parse(url);
                 match parsed_url {
+                    Ok(url) if local_mode && is_cloud_agent_web_home_launch_url(&url) => {}
                     Ok(url) => uri::handle_incoming_uri(&url, ctx),
                     Err(e) => log::warn!("Unable to parse received url: {e}"),
                 }
@@ -2974,15 +3116,19 @@ fn focus_running_window_and_show_native_modal(
 }
 
 fn on_close_app_cancelled(open_navigation_palette: bool, ctx: &mut AppContext) {
-    autoupdate::cancel_relaunch(ctx);
+    if !is_local_mode() {
+        autoupdate::cancel_relaunch(ctx);
+    }
 
-    send_telemetry_from_app_ctx!(
-        TelemetryEvent::QuitModalCancel {
-            nav_palette: open_navigation_palette,
-            modal_for: CloseTarget::App,
-        },
-        ctx
-    );
+    if !is_local_mode() {
+        send_telemetry_from_app_ctx!(
+            TelemetryEvent::QuitModalCancel {
+                nav_palette: open_navigation_palette,
+                modal_for: CloseTarget::App,
+            },
+            ctx
+        );
+    }
 
     let sessions = SessionNavigationData::all_sessions(ctx).collect_vec();
     let sessions_summary = RunningSessionSummary::new(&sessions);
@@ -3030,13 +3176,15 @@ fn on_close_window_cancelled(
     open_navigation_palette: bool,
     ctx: &mut AppContext,
 ) {
-    send_telemetry_from_app_ctx!(
-        TelemetryEvent::QuitModalCancel {
-            nav_palette: open_navigation_palette,
-            modal_for: CloseTarget::Window,
-        },
-        ctx
-    );
+    if !is_local_mode() {
+        send_telemetry_from_app_ctx!(
+            TelemetryEvent::QuitModalCancel {
+                nav_palette: open_navigation_palette,
+                modal_for: CloseTarget::Window,
+            },
+            ctx
+        );
+    }
 
     let sessions = SessionNavigationData::all_sessions(ctx).collect_vec();
     let sessions_summary = RunningSessionSummary::new(&sessions);
@@ -3113,7 +3261,9 @@ fn launch(ctx: &mut warpui::AppContext, app_state: Option<AppState>, launch_mode
             // Process any URLs that were provided on the command line (which may be
             // file:// URLs or ones using our custom URL scheme).
             for url in launch_mode.args().urls.iter() {
-                uri::handle_incoming_uri(url, ctx);
+                if !is_local_mode() || !is_cloud_agent_web_home_launch_url(url) {
+                    uri::handle_incoming_uri(url, ctx);
+                }
             }
 
             // If, after session restoration and command-line argument handling, we

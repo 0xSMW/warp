@@ -1,29 +1,43 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+#[cfg(any(
+    test,
+    feature = "integration_tests",
+    feature = "local_claude_codex_child_harnesses"
+))]
+use std::collections::HashSet;
 
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_multi_agent_api as api;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
 use super::history_model::{
     BlocklistAIHistoryEvent, BlocklistAIHistoryModel, ConversationStatusUpdate,
 };
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::ai::agent::LifecycleEventType;
+#[cfg(any(
+    test,
+    feature = "integration_tests",
+    feature = "local_claude_codex_child_harnesses"
+))]
+use crate::ai::agent::ReceivedMessageInput;
 use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
 use crate::ai::agent::task::TaskId;
-use crate::ai::agent::{
-    AIAgentExchangeId, AIAgentInput, AIAgentOutputMessageType, LifecycleEventType,
-    ReceivedMessageInput,
-};
+use crate::ai::agent::{AIAgentExchangeId, AIAgentInput, AIAgentOutputMessageType};
 
 const MAX_RETRY_ATTEMPTS: i32 = 3;
+#[cfg(any(test, feature = "integration_tests"))]
 const MAX_PENDING_LIFECYCLE_EVENTS_PER_TARGET: usize = 200;
 
 /// Stage associated with a lifecycle error detail.
 /// This keeps persisted/runtime metadata consistent across API payloads and DB rows.
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LifecycleEventDetailStage {
     Runtime,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug, Clone, Default)]
 pub(super) struct LifecycleEventDetailPayload {
     pub(crate) stage: Option<LifecycleEventDetailStage>,
@@ -32,6 +46,7 @@ pub(super) struct LifecycleEventDetailPayload {
     pub(crate) blocked_action: Option<String>,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl LifecycleEventDetailStage {
     /// Canonical lowercase representation used in persistence/API payloads.
     fn as_str(self) -> &'static str {
@@ -44,21 +59,31 @@ impl LifecycleEventDetailStage {
 /// Type-specific queued data.
 #[derive(Debug, Clone)]
 pub enum PendingEventDetail {
+    #[cfg(any(
+        test,
+        feature = "integration_tests",
+        feature = "local_claude_codex_child_harnesses"
+    ))]
     Message {
         message_id: String,
         addresses: Vec<String>,
         subject: String,
         message_body: String,
     },
-    Lifecycle {
-        event: api::AgentEvent,
-    },
+    #[cfg(any(test, feature = "integration_tests"))]
+    Lifecycle { event: api::AgentEvent },
 }
 
 /// A queued event consumed by the controller.
 #[derive(Debug, Clone)]
 pub struct PendingEvent {
+    #[cfg(any(test, feature = "integration_tests"))]
     pub event_id: String,
+    #[cfg(any(
+        test,
+        feature = "integration_tests",
+        feature = "local_claude_codex_child_harnesses"
+    ))]
     pub source_agent_id: String,
     pub attempt_count: i32,
     pub detail: PendingEventDetail,
@@ -70,6 +95,7 @@ pub enum OrchestrationEventServiceEvent {
     EventsReady { conversation_id: AIConversationId },
 }
 
+/*
 /// Thread-safe handle that commits a conversation's ambient run as exiting from any thread,
 /// without needing model access — including from an idle-timeout's background timer thread, at
 /// the exact moment it decides to fire, before anything (including the timer's own completion
@@ -94,16 +120,36 @@ impl ExitCommitHandle {
         }
     }
 }
+*/
+
+/*
+/// Compatibility handle retained while cloud exit tracking is disabled.
+#[cfg(not(target_family = "wasm"))]
+#[derive(Clone, Copy, Default)]
+pub struct ExitCommitHandle;
+
+#[cfg(not(target_family = "wasm"))]
+impl ExitCommitHandle {
+    /// No-op compatibility method for callers of the disabled cloud exit path.
+    pub fn commit(&self, conversation_id: AIConversationId) {
+        let _ = conversation_id;
+    }
+}
+*/
 
 /// Synchronous state manager for orchestration event queuing, delivery tracking, and readiness detection.
 pub struct OrchestrationEventService {
     pending_events: HashMap<AIConversationId, Vec<PendingEvent>>,
     awaiting_server_echo_events: HashMap<AIConversationId, Vec<PendingEvent>>,
+    /*
     conversation_statuses: HashMap<AIConversationId, ConversationStatus>,
+    */
+    /*
     /// Conversations whose ambient run has begun a terminal exit with no further idle window
     /// to cancel it (see [`ExitCommitHandle`]). Shared and mutex-guarded, rather than a
     /// plain `HashSet`, so `ExitCommitHandle` can commit this state from a non-model thread.
     exiting_conversations: Arc<Mutex<HashSet<AIConversationId>>>,
+    */
 }
 
 impl OrchestrationEventService {
@@ -119,28 +165,24 @@ impl OrchestrationEventService {
         Self {
             pending_events: HashMap::new(),
             awaiting_server_echo_events: HashMap::new(),
-            conversation_statuses: HashMap::new(),
-            exiting_conversations: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
-    /// Vends a thread-safe handle that can commit conversations as exiting from any thread. See
-    /// [`ExitCommitHandle`].
+    /*
+    /// Compatibility handle retained for callers while cloud exit tracking is disabled.
     #[cfg(not(target_family = "wasm"))]
     pub fn exit_commit_handle(&self) -> ExitCommitHandle {
-        ExitCommitHandle(Arc::clone(&self.exiting_conversations))
+        ExitCommitHandle
     }
 
-    /// Drops any orchestration events still queued for `conversation_id`, since its ambient
-    /// run's exit is now being finalized and they arrived too late to ever be delivered
-    /// (QUALITY-1801). Assumes [`ExitCommitHandle::commit`] already committed the exiting flag
-    /// for this conversation — by the time this runs, on the model thread, it always has — so
-    /// this only does the part that needs model access: the flag itself is not touched here.
+    /// Compatibility no-op retained for callers while cloud pending-event cleanup is disabled.
     #[cfg(not(target_family = "wasm"))]
     pub fn drop_pending_events_for_exiting_conversation(
         &mut self,
         conversation_id: AIConversationId,
     ) {
+        let _ = conversation_id;
+        /*
         if let Some(dropped) = self.pending_events.remove(&conversation_id)
             && !dropped.is_empty()
         {
@@ -150,13 +192,19 @@ impl OrchestrationEventService {
                 dropped.len()
             );
         }
+        */
     }
+    */
 
-    /// True once [`ExitCommitHandle::commit`] has been called for `conversation_id`.
+    /// Compatibility query retained for local controller callers.
     pub fn is_conversation_exiting(&self, conversation_id: AIConversationId) -> bool {
+        let _ = conversation_id;
+        /*
         self.exiting_conversations
             .lock()
             .is_ok_and(|exiting| exiting.contains(&conversation_id))
+        */
+        false
     }
 
     pub fn handle_history_event(
@@ -197,10 +245,14 @@ impl OrchestrationEventService {
             } => {
                 self.pending_events.remove(conversation_id);
                 self.awaiting_server_echo_events.remove(conversation_id);
+                /*
                 self.conversation_statuses.remove(conversation_id);
+                */
+                /*
                 if let Ok(mut exiting) = self.exiting_conversations.lock() {
                     exiting.remove(conversation_id);
                 }
+                */
             }
             _ => {}
         }
@@ -211,6 +263,8 @@ impl OrchestrationEventService {
         conversation_id: AIConversationId,
         ctx: &ModelContext<Self>,
     ) {
+        let _ = (conversation_id, ctx);
+        /*
         let Some(conversation) =
             BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
         else {
@@ -219,6 +273,7 @@ impl OrchestrationEventService {
         };
         self.conversation_statuses
             .insert(conversation_id, conversation.status().clone());
+        */
     }
 
     fn on_conversation_status_updated(
@@ -231,14 +286,18 @@ impl OrchestrationEventService {
             let Some(conversation) =
                 BlocklistAIHistoryModel::as_ref(ctx).conversation(&conversation_id)
             else {
+                /*
                 self.conversation_statuses.remove(&conversation_id);
+                */
                 return;
             };
             conversation.status().clone()
         };
 
+        /*
         self.conversation_statuses
             .insert(conversation_id, current_status.clone());
+        */
         let has_pending = self
             .pending_events
             .get(&conversation_id)
@@ -259,6 +318,7 @@ impl OrchestrationEventService {
         }
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn enqueue_lifecycle_event(
         &mut self,
         target_conversation_id: AIConversationId,
@@ -286,6 +346,7 @@ impl OrchestrationEventService {
     /// Accepts pre-built events from the v2 streamer and enqueues them
     /// for drain by the controller via the normal injection path.
     /// Lifecycle events go through coalescing and cap enforcement.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn enqueue_event_batch(
         &mut self,
         conversation_id: AIConversationId,
@@ -308,7 +369,13 @@ impl OrchestrationEventService {
         ctx.emit(OrchestrationEventServiceEvent::EventsReady { conversation_id });
     }
 
-    #[cfg(any(test, not(target_family = "wasm")))]
+    #[cfg(any(
+        test,
+        all(
+            not(target_family = "wasm"),
+            feature = "local_claude_codex_child_harnesses"
+        )
+    ))]
     pub fn has_pending_events(&self, conversation_id: AIConversationId) -> bool {
         self.pending_events
             .get(&conversation_id)
@@ -353,10 +420,21 @@ impl OrchestrationEventService {
             return vec![];
         }
 
+        #[cfg(any(
+            test,
+            feature = "integration_tests",
+            feature = "local_claude_codex_child_harnesses"
+        ))]
         let mut messages = Vec::new();
+        #[cfg(any(test, feature = "integration_tests"))]
         let mut lifecycle_events = Vec::new();
         for event in &deliverable {
             match &event.detail {
+                #[cfg(any(
+                    test,
+                    feature = "integration_tests",
+                    feature = "local_claude_codex_child_harnesses"
+                ))]
                 PendingEventDetail::Message {
                     message_id,
                     addresses,
@@ -369,7 +447,13 @@ impl OrchestrationEventService {
                     subject: subject.clone(),
                     message_body: message_body.clone(),
                 }),
+                #[cfg(any(test, feature = "integration_tests"))]
                 PendingEventDetail::Lifecycle { event } => lifecycle_events.push(event.clone()),
+                #[cfg(all(
+                    not(any(test, feature = "integration_tests")),
+                    not(feature = "local_claude_codex_child_harnesses")
+                ))]
+                _ => {}
             }
         }
 
@@ -379,10 +463,27 @@ impl OrchestrationEventService {
             .or_default()
             .extend(deliverable);
 
+        #[cfg(any(
+            test,
+            feature = "integration_tests",
+            feature = "local_claude_codex_child_harnesses"
+        ))]
         let mut inputs = Vec::new();
+        #[cfg(not(any(
+            test,
+            feature = "integration_tests",
+            feature = "local_claude_codex_child_harnesses"
+        )))]
+        let inputs = Vec::new();
+        #[cfg(any(
+            test,
+            feature = "integration_tests",
+            feature = "local_claude_codex_child_harnesses"
+        ))]
         if !messages.is_empty() {
             inputs.push(AIAgentInput::MessagesReceivedFromAgents { messages });
         }
+        #[cfg(any(test, feature = "integration_tests"))]
         if !lifecycle_events.is_empty() {
             inputs.push(AIAgentInput::EventsFromAgents {
                 events: lifecycle_events,
@@ -451,11 +552,22 @@ impl OrchestrationEventService {
             return;
         };
 
+        #[cfg(any(
+            test,
+            feature = "integration_tests",
+            feature = "local_claude_codex_child_harnesses"
+        ))]
         let mut echoed_message_ids = Vec::new();
+        #[cfg(any(test, feature = "integration_tests"))]
         let mut echoed_lifecycle_event_ids = Vec::new();
         if let Some(output) = exchange.output_status.output() {
             for msg in &output.get().messages {
                 match &msg.message {
+                    #[cfg(any(
+                        test,
+                        feature = "integration_tests",
+                        feature = "local_claude_codex_child_harnesses"
+                    ))]
                     AIAgentOutputMessageType::MessagesReceivedFromAgents { messages } => {
                         for received in messages {
                             if !received.message_id.is_empty() {
@@ -463,6 +575,13 @@ impl OrchestrationEventService {
                             }
                         }
                     }
+                    #[cfg(not(any(
+                        test,
+                        feature = "integration_tests",
+                        feature = "local_claude_codex_child_harnesses"
+                    )))]
+                    AIAgentOutputMessageType::MessagesReceivedFromAgents { .. } => {}
+                    #[cfg(any(test, feature = "integration_tests"))]
                     AIAgentOutputMessageType::EventsFromAgents { event_ids } => {
                         for id in event_ids {
                             if !id.is_empty() {
@@ -470,6 +589,8 @@ impl OrchestrationEventService {
                             }
                         }
                     }
+                    #[cfg(not(any(test, feature = "integration_tests")))]
+                    AIAgentOutputMessageType::EventsFromAgents { .. } => {}
                     AIAgentOutputMessageType::Text(_)
                     | AIAgentOutputMessageType::Reasoning { .. }
                     | AIAgentOutputMessageType::Summarization { .. }
@@ -486,6 +607,7 @@ impl OrchestrationEventService {
             }
         }
 
+        #[cfg(any(test, feature = "integration_tests"))]
         if !echoed_message_ids.is_empty() || !echoed_lifecycle_event_ids.is_empty() {
             self.acknowledge_delivery_from_server_echo(
                 conversation_id,
@@ -493,21 +615,42 @@ impl OrchestrationEventService {
                 &echoed_lifecycle_event_ids,
             );
         }
+        #[cfg(all(
+            not(any(test, feature = "integration_tests")),
+            feature = "local_claude_codex_child_harnesses"
+        ))]
+        if !echoed_message_ids.is_empty() {
+            self.acknowledge_delivery_from_server_echo(conversation_id, &echoed_message_ids);
+        }
     }
 
     /// Clears awaiting_server_echo_events entries that match the given IDs.
+    #[cfg(any(
+        test,
+        feature = "integration_tests",
+        feature = "local_claude_codex_child_harnesses"
+    ))]
     fn acknowledge_delivery_from_server_echo(
         &mut self,
         conversation_id: AIConversationId,
         echoed_message_ids: &[String],
-        echoed_lifecycle_event_ids: &[String],
+        #[cfg(any(test, feature = "integration_tests"))] echoed_lifecycle_event_ids: &[String],
     ) {
+        #[cfg(any(test, feature = "integration_tests"))]
         if echoed_message_ids.is_empty() && echoed_lifecycle_event_ids.is_empty() {
+            return;
+        }
+        #[cfg(all(
+            not(any(test, feature = "integration_tests")),
+            feature = "local_claude_codex_child_harnesses"
+        ))]
+        if echoed_message_ids.is_empty() {
             return;
         }
 
         let echoed_message_ids: HashSet<&str> =
             echoed_message_ids.iter().map(String::as_str).collect();
+        #[cfg(any(test, feature = "integration_tests"))]
         let echoed_lifecycle_event_ids: HashSet<&str> = echoed_lifecycle_event_ids
             .iter()
             .map(String::as_str)
@@ -522,6 +665,7 @@ impl OrchestrationEventService {
                 let was_echoed = did_event_round_trip_through_server(
                     pending_event,
                     &echoed_message_ids,
+                    #[cfg(any(test, feature = "integration_tests"))]
                     &echoed_lifecycle_event_ids,
                 );
                 !was_echoed
@@ -536,21 +680,33 @@ impl OrchestrationEventService {
     }
 }
 
+#[cfg(any(
+    test,
+    feature = "integration_tests",
+    feature = "local_claude_codex_child_harnesses"
+))]
 fn did_event_round_trip_through_server(
     pending_event: &PendingEvent,
     echoed_message_ids: &HashSet<&str>,
-    echoed_lifecycle_event_ids: &HashSet<&str>,
+    #[cfg(any(test, feature = "integration_tests"))] echoed_lifecycle_event_ids: &HashSet<&str>,
 ) -> bool {
     match &pending_event.detail {
+        #[cfg(any(
+            test,
+            feature = "integration_tests",
+            feature = "local_claude_codex_child_harnesses"
+        ))]
         PendingEventDetail::Message { message_id, .. } => {
             echoed_message_ids.contains(message_id.as_str())
         }
+        #[cfg(any(test, feature = "integration_tests"))]
         PendingEventDetail::Lifecycle { event } => {
             echoed_lifecycle_event_ids.contains(event.event_id.as_str())
         }
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 pub(super) fn build_lifecycle_event(
     event_id: String,
     sender_agent_id: String,
@@ -574,6 +730,7 @@ pub(super) fn build_lifecycle_event(
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[allow(deprecated)]
 fn lifecycle_event_detail_from_type(
     event_type: LifecycleEventType,
@@ -622,6 +779,7 @@ fn lifecycle_event_detail_from_type(
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[allow(deprecated)]
 pub(super) fn lifecycle_event_type_from_proto(
     lifecycle_event: &api::agent_event::LifecycleEvent,
@@ -662,6 +820,7 @@ pub(super) fn lifecycle_event_type_from_proto(
 /// True when a pending event is a lifecycle succeeded/in_progress event and
 /// therefore eligible to be superseded by a newer lifecycle transition from
 /// the same sender.
+#[cfg(any(test, feature = "integration_tests"))]
 fn is_coalescable_lifecycle_pending_event(event: &PendingEvent) -> bool {
     let PendingEventDetail::Lifecycle { event: agent_event } = &event.detail else {
         return false;
@@ -675,6 +834,7 @@ fn is_coalescable_lifecycle_pending_event(event: &PendingEvent) -> bool {
     )
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 fn coalesce_lifecycle_events(
     queue: &mut Vec<PendingEvent>,
     new_event: &PendingEvent,
@@ -732,6 +892,7 @@ fn coalesce_lifecycle_events(
 
 /// Enforce an upper bound on pending lifecycle events while preferentially dropping
 /// supersedable lifecycle states first, preserving critical transitions.
+#[cfg(any(test, feature = "integration_tests"))]
 fn enforce_lifecycle_queue_cap(
     queue: &mut Vec<PendingEvent>,
     max_pending_lifecycle_events: usize,
@@ -752,6 +913,7 @@ fn enforce_lifecycle_queue_cap(
 }
 
 /// Count lifecycle entries in a mixed pending queue (message + lifecycle).
+#[cfg(any(test, feature = "integration_tests"))]
 fn count_pending_lifecycle_events(queue: &[PendingEvent]) -> usize {
     queue
         .iter()

@@ -6,6 +6,7 @@ use std::path::Path;
 use anyhow::Result;
 use remote_server::ssh::SshCommandError;
 use remote_server::transport::{Error, InstallOutcome, InstallSource};
+use warp_core::channel::{Channel, ChannelState};
 
 /// Runs the binary install sequence for the SSH transport. It first asks the
 /// remote host to download directly, then falls back to uploading a cached
@@ -76,6 +77,12 @@ pub(super) async fn install_binary(socket_path: &Path) -> InstallOutcome {
 /// Runs the install script on the remote host to download and install the
 /// binary directly from the CDN.
 async fn install_on_server(socket_path: &Path) -> Result<(), Error> {
+    if matches!(ChannelState::channel(), Channel::Local) {
+        return Err(Error::Other(anyhow::anyhow!(
+            "Remote-server downloads are disabled in local-only mode"
+        )));
+    }
+
     let script = remote_server::setup::install_script(None);
     match remote_server::ssh::run_ssh_script(
         socket_path,

@@ -1,6 +1,7 @@
 mod blocks;
 mod code;
 mod commands;
+#[cfg(test)]
 mod conversations;
 mod diffset;
 mod files;
@@ -8,7 +9,7 @@ pub mod mixer;
 mod notebooks;
 mod rules;
 pub mod search;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(not(target_family = "wasm"), test))]
 mod skills;
 mod styles;
 pub mod view;

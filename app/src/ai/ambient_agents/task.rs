@@ -1,7 +1,7 @@
 //! Ambient agent task types and utilities.
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(test, feature = "local_claude_codex_child_harnesses"))]
 pub use cloud_object_models::HarnessModelConfig;
 pub use cloud_object_models::{AgentConfigSnapshot, HarnessAuthSecretsConfig, HarnessConfig};
 use iso8601_duration::Duration as Iso8601Duration;
@@ -10,15 +10,21 @@ use session_sharing_protocol::common::SessionId;
 use url::Url;
 use warp_cli::agent::Harness;
 use warp_core::ui::theme::WarpTheme;
+#[cfg(test)]
 use warp_errors::report_error;
+#[cfg(test)]
+use warpui::SingletonEntity;
 use warpui::color::ColorU;
-use warpui::{SingletonEntity, View, ViewContext};
+use warpui::{View, ViewContext};
 
 use super::AmbientAgentTaskId;
 use crate::ai::artifacts::{Artifact, deserialize_artifacts};
+#[cfg(test)]
 use crate::server::server_api::ServerApiProvider;
 use crate::ui_components::icons::Icon;
+#[cfg(test)]
 use crate::view_components::DismissibleToast;
+#[cfg(test)]
 use crate::workspace::ToastStack;
 
 fn parse_session_id_from_link(session_link: &str) -> Option<SessionId> {
@@ -155,15 +161,6 @@ impl AgentSource {
 pub enum ExecutionLocation {
     Local,
     Remote,
-}
-
-impl ExecutionLocation {
-    pub(crate) fn as_query_param(self) -> &'static str {
-        match self {
-            ExecutionLocation::Local => "LOCAL",
-            ExecutionLocation::Remote => "REMOTE",
-        }
-    }
 }
 
 fn deserialize_ambient_agent_source<'de, D>(
@@ -512,24 +509,6 @@ pub enum AmbientAgentTaskState {
 }
 
 impl AmbientAgentTaskState {
-    /// Returns the query param value for the server API.
-    pub fn as_query_param(&self) -> Option<&str> {
-        match self {
-            AmbientAgentTaskState::Queued => Some("QUEUED"),
-            AmbientAgentTaskState::Pending => Some("PENDING"),
-            AmbientAgentTaskState::Claimed => Some("CLAIMED"),
-            AmbientAgentTaskState::InProgress => Some("INPROGRESS"),
-            AmbientAgentTaskState::Succeeded => Some("SUCCEEDED"),
-            AmbientAgentTaskState::Failed => Some("FAILED"),
-            AmbientAgentTaskState::Error => Some("ERROR"),
-            AmbientAgentTaskState::Blocked => Some("BLOCKED"),
-            AmbientAgentTaskState::Cancelled => Some("CANCELLED"),
-            // Unknown states are only for resilient deserialization and should not be
-            // sent back as filter values.
-            AmbientAgentTaskState::Unknown => None,
-        }
-    }
-
     pub fn is_working(&self) -> bool {
         match self {
             AmbientAgentTaskState::Queued
@@ -668,39 +647,51 @@ pub struct RequestUsage {
     pub platform_cost: Option<f64>,
 }
 
-/// Cancel an ambient agent task and show a toast with the result.
+/// Retains the cancellation API for local cleanup paths; production cloud requests are disabled.
 pub fn cancel_task_with_toast<V: View>(task_id: AmbientAgentTaskId, ctx: &mut ViewContext<V>) {
-    let ai_client = ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client();
-    let window_id = ctx.window_id();
-    ctx.spawn(
-        async move { ai_client.cancel_ambient_agent_task(&task_id).await },
-        move |_view, result, ctx| {
-            let message = match result {
-                Ok(()) => "Task cancelled".to_string(),
-                Err(e) => {
-                    report_error!(&e);
-                    format!("Failed to cancel task: {e}")
-                }
-            };
-            ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                let toast = DismissibleToast::default(message);
-                toast_stack.add_ephemeral_toast(toast, window_id, ctx);
-            });
-        },
-    );
+    #[cfg(test)]
+    {
+        let ai_client = ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client();
+        let window_id = ctx.window_id();
+        ctx.spawn(
+            async move { ai_client.cancel_ambient_agent_task(&task_id).await },
+            move |_view, result, ctx| {
+                let message = match result {
+                    Ok(()) => "Task cancelled".to_string(),
+                    Err(e) => {
+                        report_error!(&e);
+                        format!("Failed to cancel task: {e}")
+                    }
+                };
+                ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
+                    let toast = DismissibleToast::default(message);
+                    toast_stack.add_ephemeral_toast(toast, window_id, ctx);
+                });
+            },
+        );
+    }
+
+    #[cfg(not(test))]
+    let _ = (task_id, ctx);
 }
 
-/// Cancel an ambient agent task without surfacing a toast to the user.
+/// Retains the silent cancellation API for local cleanup paths; production cloud requests are disabled.
 pub fn cancel_task_silently<V: View>(task_id: AmbientAgentTaskId, ctx: &mut ViewContext<V>) {
-    let ai_client = ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client();
-    ctx.spawn(
-        async move { ai_client.cancel_ambient_agent_task(&task_id).await },
-        move |_view, result, _| {
-            if let Err(e) = result {
-                report_error!(e.context("Failed to cancel task"));
-            }
-        },
-    );
+    #[cfg(test)]
+    {
+        let ai_client = ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client();
+        ctx.spawn(
+            async move { ai_client.cancel_ambient_agent_task(&task_id).await },
+            move |_view, result, _| {
+                if let Err(e) = result {
+                    report_error!(e.context("Failed to cancel task"));
+                }
+            },
+        );
+    }
+
+    #[cfg(not(test))]
+    let _ = (task_id, ctx);
 }
 
 #[cfg(test)]

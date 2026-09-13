@@ -742,7 +742,7 @@ impl TerminalView {
     /// editor (e.g. shared-session viewer follow-up prompts). Returns
     /// without writing if there is no active CLI agent session or the text
     /// is empty.
-    #[cfg(feature = "local_tty")]
+    #[cfg(all(feature = "local_tty", any(test, feature = "integration_tests")))]
     pub(crate) fn submit_text_to_cli_agent_pty(
         &mut self,
         text: String,
@@ -772,7 +772,7 @@ impl TerminalView {
     /// composing input text — e.g. to dismiss a confirmation dialog, or in
     /// case a prior write to the pty was silently dropped. Returns without
     /// writing if there is no active CLI agent session.
-    #[cfg(feature = "local_tty")]
+    #[cfg(all(feature = "local_tty", any(test, feature = "integration_tests")))]
     pub(crate) fn submit_bare_enter_to_cli_agent_pty(&mut self, ctx: &mut ViewContext<Self>) {
         if CLIAgentSessionsModel::as_ref(ctx)
             .session(self.view_id)

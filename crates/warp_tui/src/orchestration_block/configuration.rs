@@ -11,6 +11,9 @@ use warpui_core::{AppContext, ModelHandle};
 
 /// Row id emitted by `location_snapshot` for remote execution.
 const LOCATION_CLOUD_ID: &str = "cloud";
+#[cfg(not(test))]
+const REMOTE_ORCHESTRATION_UNAVAILABLE: &str =
+    "Remote agent orchestration is unavailable in the local-only TUI.";
 
 /// Applies the TUI policy that Local configuration has no harness page and
 /// therefore always uses Oz.
@@ -203,10 +206,21 @@ impl OrchestrationBlockController for ModelOrchestrationBlockController {
         state: &OrchestrationConfigState,
         ctx: &AppContext,
     ) -> Option<String> {
+        #[cfg(not(test))]
+        if state.execution_mode.is_remote() {
+            return Some(REMOTE_ORCHESTRATION_UNAVAILABLE.to_string());
+        }
+
         accept_disabled_reason_with_auth(state, ctx)
     }
 
     fn accept(&self, action_id: &AIAgentActionId, request: RunAgentsRequest, ctx: &mut AppContext) {
+        #[cfg(not(test))]
+        if request.execution_mode.is_remote() {
+            log::warn!("TUI remote orchestration dispatch is disabled in local-only mode");
+            return;
+        }
+
         self.action_model.update(ctx, |action_model, ctx| {
             action_model.execute_run_agents(action_id, request, ctx);
         });

@@ -103,6 +103,7 @@ impl TransientHint {
     }
 
     /// Clears the current notice and cancels its pending expiry.
+    #[cfg(test)]
     pub(crate) fn clear(&mut self) {
         self.content = None;
         if let Some(timer) = self.timer.take() {

@@ -1,49 +1,67 @@
-//! Bridges durable lead-agent messages into Claude Code's hook-driven
-//! next-turn context.
+//! Compatibility and local-wake state helpers for Claude Code's parent bridge.
 //!
-//! The bridge uses an on-disk three-stage state machine inside the per-session
-//! state directory:
+//! The managed cloud parent/child message bridge is currently disabled. The
+//! remaining state helpers support the local harness module and self-managed
+//! wake path.
+//!
+//! The state helpers use an on-disk three-stage state machine inside the
+//! per-session state directory:
 //! - `staged/` holds newly observed message IDs from the event stream.
 //! - `surfaced/` holds the fully hydrated records currently exposed to Claude.
 //! - `pending-hook-output.json` plus `pending-hook-output.ack` coordinates the
 //!   handoff between Warp's driver and the Claude hook process.
-use std::fmt::Write as _;
 use std::fs;
+#[cfg(test)]
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 
-use anyhow::{Context, Result, anyhow};
-use async_trait::async_trait;
-use parking_lot::Mutex;
+#[cfg(test)]
+use anyhow::Context;
+use anyhow::{Result, anyhow};
+#[cfg(test)]
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use tempfile::NamedTempFile;
-use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
-use warpui::ModelSpawner;
-use warpui::r#async::SpawnedFutureHandle;
 
-use crate::ai::agent_events::{
-    AgentEventConsumer, AgentEventConsumerControlFlow, AgentEventDriverConfig,
-    AgentMessageEventMetadata, MessageHydrator, ServerApiAgentEventSource, run_agent_event_driver,
-};
-use crate::ai::agent_sdk::driver::{AgentDriver, OZ_MESSAGE_LISTENER_STATE_ROOT_ENV};
-use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::server::server_api::ServerApi;
-use crate::server::server_api::ai::{AIClient, AgentRunEvent};
+#[cfg(test)]
+use crate::ai::agent_events::{AgentMessageEventMetadata, MessageHydrator};
+use crate::ai::agent_sdk::driver::OZ_MESSAGE_LISTENER_STATE_ROOT_ENV;
 
 const LEGACY_MESSAGE_LISTENER_STATE_ROOT_ENV: &str = "OZ_PARENT_STATE_ROOT";
 const PARENT_BRIDGE_DEFAULT_STATE_ROOT: &str = ".claude-code/oz-parent-bridge";
+#[cfg(test)]
 const PARENT_BRIDGE_SURFACED_DIR_NAME: &str = "surfaced";
+#[cfg(test)]
 const PARENT_BRIDGE_EVENT_CURSOR_FILE_NAME: &str = "event-cursor.json";
+#[cfg(test)]
 const PARENT_BRIDGE_HOOK_OUTPUT_FILE_NAME: &str = "pending-hook-output.json";
+#[cfg(test)]
 const PARENT_BRIDGE_HOOK_OUTPUT_ACK_FILE_NAME: &str = "pending-hook-output.ack";
+/*
 const PARENT_BRIDGE_MAX_CONTEXT_CHARS_ENV: &str = "OZ_PARENT_MAX_CONTEXT_CHARS";
 const PARENT_BRIDGE_DEFAULT_MAX_CONTEXT_CHARS: usize = 6000;
+*/
+#[cfg(test)]
 pub(super) const MESSAGE_BRIDGE_CONTEXT_PREAMBLE: &str = "Oz mailbox update for this child run.\nSource: lead agent\nContext type: user-level coordination messages\n";
+#[cfg(test)]
 const PARENT_BRIDGE_REMAINING_MESSAGES_NOTE: &str =
     "\n\nAdditional lead agent mailbox messages remain queued and may be surfaced later.";
 
+pub(super) enum MessageBridgeCleanupDisposition {
+    RemoveState,
+    PreserveState,
+}
+
+#[cfg(test)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct MessageBridgeEventCursor {
+    since_sequence: i64,
+}
+
+/*
 pub(super) struct MessageBridge {
     run_id: String,
     state_dir: PathBuf,
@@ -51,15 +69,6 @@ pub(super) struct MessageBridge {
     state_lock: AsyncMutex<()>,
 }
 
-pub(super) enum MessageBridgeCleanupDisposition {
-    RemoveState,
-    PreserveState,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-struct MessageBridgeEventCursor {
-    since_sequence: i64,
-}
 struct MessageBridgeRuntime {
     task: SpawnedFutureHandle,
 }
@@ -112,8 +121,14 @@ impl AgentEventConsumer for MessageBridgeEventConsumer {
             .await
     }
 }
+*/
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(super) struct MessageBridge {
+    state_dir: PathBuf,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(super) struct MessageBridgeMessageRecord {
     pub sequence: i64,
     pub message_id: String,
@@ -126,6 +141,7 @@ pub(super) struct MessageBridgeMessageRecord {
     pub occurred_at: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(super) struct MessageBridgeHookOutput {
     pub additional_context: String,
@@ -133,16 +149,19 @@ pub(super) struct MessageBridgeHookOutput {
     pub surfaced_count: usize,
 }
 
+#[cfg(test)]
 struct RenderedMessageBridgeMessage {
     block: String,
     block_chars: usize,
 }
+#[cfg(test)]
 struct SelectedMessageBridgeMessage {
     path: PathBuf,
     record: MessageBridgeMessageRecord,
     rendered: RenderedMessageBridgeMessage,
 }
 
+#[cfg(test)]
 struct SelectedMessageBridgeMessages {
     messages: Vec<SelectedMessageBridgeMessage>,
     context_chars: usize,
@@ -150,83 +169,31 @@ struct SelectedMessageBridgeMessages {
 }
 
 impl MessageBridge {
-    fn hydrator(&self, server_api: Arc<ServerApi>) -> MessageHydrator {
-        match self.run_id.parse::<AmbientAgentTaskId>() {
-            Ok(task_id) => MessageHydrator::for_task(server_api, task_id),
-            Err(_) => MessageHydrator::new(server_api),
-        }
-    }
-    pub(super) fn new(run_id: String, session_id: Uuid) -> Result<Self> {
+    pub(super) fn new(_: String, session_id: Uuid) -> Result<Self> {
         Ok(Self {
-            run_id,
             state_dir: parent_bridge_root()?.join(session_id.to_string()),
-            runtime: Mutex::new(None),
-            state_lock: AsyncMutex::new(()),
         })
     }
 
+    /*
     pub(super) async fn start(
         &self,
-        foreground: &ModelSpawner<AgentDriver>,
-        server_api: Arc<ServerApi>,
+        _: &ModelSpawner<AgentDriver>,
+        _: Arc<ServerApi>,
     ) -> Result<()> {
-        if self.runtime.lock().is_some() {
-            return Ok(());
-        }
-
-        ensure_parent_bridge_state_dir(&self.state_dir)?;
-        let run_id = self.run_id.clone();
-        let state_dir = self.state_dir.clone();
-        let task = foreground
-            .spawn(move |_, ctx| {
-                ctx.spawn(
-                    async move {
-                        if let Err(err) =
-                            run_parent_bridge_forever(server_api, run_id, state_dir.clone()).await
-                        {
-                            log::warn!(
-                                "Claude message bridge stopped for {}: {err:#}",
-                                state_dir.display()
-                            );
-                        }
-                    },
-                    |_, _, _| {},
-                )
-            })
-            .await
-            .map_err(|_| anyhow!("Agent driver dropped while starting Claude message bridge"))?;
-        *self.runtime.lock() = Some(MessageBridgeRuntime { task });
         Ok(())
     }
 
-    pub(super) async fn handle_session_update(&self, server_api: Arc<ServerApi>) -> Result<()> {
-        if !self.state_dir.exists() {
-            return Ok(());
-        }
-        let hydrator = self.hydrator(server_api);
-        let _guard = self.state_lock.lock().await;
-        acknowledge_parent_bridge_hook_output(&hydrator, &self.state_dir).await?;
-        prepare_parent_bridge_hook_output(
-            &hydrator,
-            &self.state_dir,
-            parent_bridge_max_context_chars(),
-        )
-        .await
+    pub(super) async fn handle_session_update(&self, _: Arc<ServerApi>) -> Result<()> {
+        Ok(())
     }
 
-    pub(super) async fn flush_acks(&self, server_api: Arc<ServerApi>) -> Result<()> {
-        if !self.state_dir.exists() {
-            return Ok(());
-        }
-        let hydrator = self.hydrator(server_api);
-        let _guard = self.state_lock.lock().await;
-        acknowledge_parent_bridge_hook_output(&hydrator, &self.state_dir).await
+    pub(super) async fn flush_acks(&self, _: Arc<ServerApi>) -> Result<()> {
+        Ok(())
     }
+    */
 
     pub(super) fn cleanup(&self, disposition: MessageBridgeCleanupDisposition) -> Result<()> {
-        if let Some(runtime) = self.runtime.lock().take() {
-            runtime.task.abort();
-        }
         if matches!(disposition, MessageBridgeCleanupDisposition::PreserveState) {
             return Ok(());
         }
@@ -260,30 +227,37 @@ pub(super) fn parent_bridge_root() -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("could not determine home directory"))
 }
 
+#[cfg(test)]
 fn parent_bridge_staged_dir(state_dir: &Path) -> PathBuf {
     state_dir.join("staged")
 }
 
+#[cfg(test)]
 fn parent_bridge_surfaced_dir(state_dir: &Path) -> PathBuf {
     state_dir.join(PARENT_BRIDGE_SURFACED_DIR_NAME)
 }
 
+#[cfg(test)]
 pub(super) fn parent_bridge_hook_output_file(state_dir: &Path) -> PathBuf {
     state_dir.join(PARENT_BRIDGE_HOOK_OUTPUT_FILE_NAME)
 }
 
+#[cfg(test)]
 pub(super) fn parent_bridge_hook_output_ack_file(state_dir: &Path) -> PathBuf {
     state_dir.join(PARENT_BRIDGE_HOOK_OUTPUT_ACK_FILE_NAME)
 }
 
+#[cfg(test)]
 pub(super) fn parent_bridge_event_cursor_file(state_dir: &Path) -> PathBuf {
     state_dir.join(PARENT_BRIDGE_EVENT_CURSOR_FILE_NAME)
 }
 
+#[cfg(test)]
 fn parent_bridge_message_path(dir: &Path, sequence: i64, message_id: &str) -> PathBuf {
     dir.join(format!("{sequence:020}-{message_id}.json"))
 }
 
+#[cfg(test)]
 pub(super) fn parent_bridge_staged_message_path(
     state_dir: &Path,
     sequence: i64,
@@ -292,6 +266,7 @@ pub(super) fn parent_bridge_staged_message_path(
     parent_bridge_message_path(&parent_bridge_staged_dir(state_dir), sequence, message_id)
 }
 
+#[cfg(test)]
 pub(super) fn parent_bridge_surfaced_message_path(
     state_dir: &Path,
     sequence: i64,
@@ -300,6 +275,7 @@ pub(super) fn parent_bridge_surfaced_message_path(
     parent_bridge_message_path(&parent_bridge_surfaced_dir(state_dir), sequence, message_id)
 }
 
+#[cfg(test)]
 pub(super) fn ensure_parent_bridge_state_dir(state_dir: &Path) -> Result<()> {
     fs::create_dir_all(parent_bridge_staged_dir(state_dir))
         .with_context(|| format!("Failed to create {}", state_dir.display()))?;
@@ -308,6 +284,7 @@ pub(super) fn ensure_parent_bridge_state_dir(state_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn read_parent_bridge_event_cursor(state_dir: &Path) -> Result<i64> {
     let path = parent_bridge_event_cursor_file(state_dir);
     if !path.exists() {
@@ -321,6 +298,7 @@ pub(super) fn read_parent_bridge_event_cursor(state_dir: &Path) -> Result<i64> {
     Ok(cursor.since_sequence)
 }
 
+#[cfg(test)]
 pub(super) fn write_parent_bridge_event_cursor(state_dir: &Path, sequence: i64) -> Result<()> {
     write_parent_bridge_json_atomically(
         &parent_bridge_event_cursor_file(state_dir),
@@ -330,6 +308,7 @@ pub(super) fn write_parent_bridge_event_cursor(state_dir: &Path, sequence: i64) 
     )
 }
 
+#[cfg(test)]
 pub(super) fn stage_parent_bridge_message(
     state_dir: &Path,
     record: &MessageBridgeMessageRecord,
@@ -341,6 +320,7 @@ pub(super) fn stage_parent_bridge_message(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) async fn prime_parent_bridge_staged_for_self_managed_wake(
     hydrator: &MessageHydrator,
     state_dir: &Path,
@@ -370,6 +350,7 @@ pub(super) async fn prime_parent_bridge_staged_for_self_managed_wake(
     write_parent_bridge_event_cursor(state_dir, wake_message.sequence)
 }
 
+#[cfg(test)]
 fn move_parent_bridge_surfaced_messages_to_staged(state_dir: &Path) -> Result<()> {
     let surfaced_records = parent_bridge_message_records(&parent_bridge_surfaced_dir(state_dir))?;
     for (path, record) in surfaced_records {
@@ -391,6 +372,7 @@ fn move_parent_bridge_surfaced_messages_to_staged(state_dir: &Path) -> Result<()
     Ok(())
 }
 
+/*
 pub(super) fn parent_bridge_max_context_chars() -> usize {
     std::env::var(PARENT_BRIDGE_MAX_CONTEXT_CHARS_ENV)
         .ok()
@@ -398,7 +380,9 @@ pub(super) fn parent_bridge_max_context_chars() -> usize {
         .filter(|value| *value > 0)
         .unwrap_or(PARENT_BRIDGE_DEFAULT_MAX_CONTEXT_CHARS)
 }
+*/
 
+#[cfg(test)]
 fn parent_bridge_sorted_message_paths(dir: &Path) -> Result<Vec<PathBuf>> {
     if !dir.exists() {
         return Ok(Vec::new());
@@ -413,6 +397,7 @@ fn parent_bridge_sorted_message_paths(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
+#[cfg(test)]
 fn parent_bridge_message_records(dir: &Path) -> Result<Vec<(PathBuf, MessageBridgeMessageRecord)>> {
     parent_bridge_sorted_message_paths(dir)?
         .into_iter()
@@ -426,14 +411,17 @@ fn parent_bridge_message_records(dir: &Path) -> Result<Vec<(PathBuf, MessageBrid
         .collect()
 }
 
+#[cfg(test)]
 pub(super) fn parent_bridge_char_count(text: &str) -> usize {
     text.chars().count()
 }
 
+#[cfg(test)]
 fn parent_bridge_truncate_chars(text: &str, limit: usize) -> String {
     text.chars().take(limit).collect()
 }
 
+#[cfg(test)]
 pub(super) fn render_parent_bridge_message_block(record: &MessageBridgeMessageRecord) -> String {
     let subject = if record.subject.is_empty() {
         "(no subject)"
@@ -452,6 +440,7 @@ pub(super) fn render_parent_bridge_message_block(record: &MessageBridgeMessageRe
     block
 }
 
+#[cfg(test)]
 fn render_parent_bridge_message(
     record: &MessageBridgeMessageRecord,
 ) -> RenderedMessageBridgeMessage {
@@ -460,6 +449,7 @@ fn render_parent_bridge_message(
     RenderedMessageBridgeMessage { block, block_chars }
 }
 
+#[cfg(test)]
 fn truncate_parent_bridge_message(rendered: &mut RenderedMessageBridgeMessage, max_chars: usize) {
     if rendered.block_chars <= max_chars || max_chars <= 3 {
         return;
@@ -470,6 +460,7 @@ fn truncate_parent_bridge_message(rendered: &mut RenderedMessageBridgeMessage, m
     rendered.block_chars = parent_bridge_char_count(&rendered.block);
 }
 
+#[cfg(test)]
 fn build_parent_bridge_hook_output(
     selected: &SelectedMessageBridgeMessages,
     max_context_chars: usize,
@@ -503,6 +494,7 @@ fn build_parent_bridge_hook_output(
     })
 }
 
+#[cfg(test)]
 fn write_parent_bridge_hook_output(
     state_dir: &Path,
     output: &MessageBridgeHookOutput,
@@ -511,6 +503,7 @@ fn write_parent_bridge_hook_output(
     write_parent_bridge_json_atomically(&path, output)
 }
 
+#[cfg(test)]
 fn remove_file_if_exists(path: &Path) -> Result<()> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
@@ -521,6 +514,7 @@ fn remove_file_if_exists(path: &Path) -> Result<()> {
     }
 }
 
+#[cfg(test)]
 async fn hydrate_parent_bridge_message_record(
     hydrator: &MessageHydrator,
     record: &MessageBridgeMessageRecord,
@@ -543,6 +537,7 @@ async fn hydrate_parent_bridge_message_record(
     })
 }
 
+#[cfg(test)]
 async fn select_parent_bridge_messages_for_hook_output(
     hydrator: &MessageHydrator,
     records: Vec<(PathBuf, MessageBridgeMessageRecord)>,
@@ -584,6 +579,7 @@ async fn select_parent_bridge_messages_for_hook_output(
     })
 }
 
+#[cfg(test)]
 pub(super) async fn prepare_parent_bridge_hook_output(
     hydrator: &MessageHydrator,
     state_dir: &Path,
@@ -643,6 +639,7 @@ pub(super) async fn prepare_parent_bridge_hook_output(
     write_parent_bridge_hook_output(state_dir, &output)
 }
 
+#[cfg(test)]
 pub(super) async fn acknowledge_parent_bridge_hook_output(
     hydrator: &MessageHydrator,
     state_dir: &Path,
@@ -676,6 +673,7 @@ pub(super) async fn acknowledge_parent_bridge_hook_output(
     remove_file_if_exists(&ack_path)
 }
 
+/*
 async fn run_parent_bridge_forever(
     server_api: Arc<ServerApi>,
     run_id: String,
@@ -728,11 +726,14 @@ async fn read_parent_bridge_resume_cursor(
 
     Ok(local_sequence.max(server_sequence))
 }
+*/
 
+#[cfg(test)]
 fn write_parent_bridge_json_atomically<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     write_parent_bridge_bytes_atomically(path, &serde_json::to_vec(value)?)
 }
 
+#[cfg(test)]
 fn write_parent_bridge_bytes_atomically(path: &Path, bytes: &[u8]) -> Result<()> {
     let Some(parent) = path.parent() else {
         return Err(anyhow!("{} has no parent directory", path.display()));

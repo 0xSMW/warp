@@ -1,20 +1,24 @@
 use anyhow::Result;
-use warp_core::channel::{Channel, ChannelState};
+use warp_core::channel::{Channel, ChannelConfig, ChannelState};
 use warp_core::features;
 
 fn main() -> Result<()> {
-    let config = warp_channel_config::load_config!("local");
+    let config = ChannelConfig::local_only();
 
-    let mut state = ChannelState::new(Channel::Local, config)
-        .with_additional_features(features::DEBUG_FLAGS)
-        .with_additional_features(features::DOGFOOD_FLAGS)
-        .with_additional_features(features::PREVIEW_FLAGS)
+    let state = ChannelState::new(Channel::Local, config)
+        .with_additional_features(if cfg!(debug_assertions) {
+            features::DEBUG_FLAGS
+        } else {
+            &[]
+        })
+        // .with_additional_features(features::DOGFOOD_FLAGS)
+        // .with_additional_features(features::PREVIEW_FLAGS)
         .with_additional_features(features::LOCAL_FLAGS);
 
     // Enable sandbox telemetry feature flag if the env var is set.
-    if std::env::var("WITH_SANDBOX_TELEMETRY").is_ok() {
-        state = state.with_additional_features(&[features::FeatureFlag::WithSandboxTelemetry]);
-    }
+    // if std::env::var("WITH_SANDBOX_TELEMETRY").is_ok() {
+    //     state = state.with_additional_features(&[features::FeatureFlag::WithSandboxTelemetry]);
+    // }
 
     ChannelState::set(state);
 

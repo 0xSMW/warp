@@ -21,8 +21,11 @@ use crate::ai::llms::{LLMId, LLMPreferences};
 use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::ai::mcp::templatable_manager::TemplatableMCPServerManagerEvent;
 use crate::auth::AuthStateProvider;
-// The auth-completion trigger for the legacy import is compiled out for eval builds.
-#[cfg(not(feature = "agent_mode_evals"))]
+// The auth-completion trigger is only available in test and TUI test-util builds.
+#[cfg(all(
+    not(feature = "agent_mode_evals"),
+    any(test, all(feature = "tui", feature = "test-util")),
+))]
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
 use crate::cloud_object::model::persistence::{CloudModelEvent, UpdateSource};
@@ -408,6 +411,7 @@ impl AIExecutionProfilesModel {
             // Eval builds never import legacy cloud profiles into settings.
             #[cfg(not(feature = "agent_mode_evals"))]
             if imports_legacy_profiles {
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
                 if ctx.has_singleton_model::<AuthManager>() {
                     ctx.subscribe_to_model(&AuthManager::handle(ctx), |me, _, event, ctx| {
                         if matches!(event, AuthManagerEvent::AuthComplete) {
@@ -2215,9 +2219,10 @@ impl AIExecutionProfilesModel {
             TemplatableMCPServerManagerEvent::TemplatableMCPServersUpdated => {
                 self.remove_deleted_mcp_servers(ctx);
             }
+            #[cfg(test)]
+            TemplatableMCPServerManagerEvent::AuthenticationRequired { uuid: _ } => {}
             TemplatableMCPServerManagerEvent::LegacyServerConverted
             | TemplatableMCPServerManagerEvent::StateChanged { uuid: _, state: _ }
-            | TemplatableMCPServerManagerEvent::AuthenticationRequired { uuid: _ }
             | TemplatableMCPServerManagerEvent::CredentialsChanged { uuid: _ }
             | TemplatableMCPServerManagerEvent::ServerInstallationAdded(_)
             | TemplatableMCPServerManagerEvent::ServerInstallationDeleted(_) => {}

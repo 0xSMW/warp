@@ -399,6 +399,11 @@ impl SyncQueue {
     }
 
     pub fn start_dequeueing(&mut self, ctx: &mut ModelContext<Self>) {
+        if crate::is_local_mode() {
+            self.should_dequeue = false;
+            return;
+        }
+
         self.should_dequeue = true;
         self.dequeue(ctx)
     }
@@ -711,6 +716,10 @@ impl SyncQueue {
 
     /// Dequeue a request from the queue.
     fn dequeue(&mut self, ctx: &mut ModelContext<Self>) {
+        if crate::is_local_mode() {
+            return;
+        }
+
         // In some cases, we shouldn't dequeue any items, such as when we're offline
         // or when initial load was unsuccessful
         if !self.should_dequeue {

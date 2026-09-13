@@ -17,19 +17,23 @@ use warp_multi_agent_api as multi_agent_api;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warpui::{AppContext, SingletonEntity as _};
 
-use crate::ChannelState;
 use crate::ai::agent::UserQueryMode;
+#[cfg(test)]
+use crate::ai::ambient_agents::github_auth_url;
 use crate::ai::ambient_agents::task::{
     HarnessAuthSecretsConfig, HarnessConfig, normalize_orchestrator_agent_name,
 };
+#[cfg(any(test, feature = "tui"))]
 use crate::ai::ambient_agents::{
-    OUT_OF_CREDITS_TASK_FAILURE_MESSAGE, SERVER_OVERLOADED_TASK_FAILURE_MESSAGE, github_auth_url,
+    OUT_OF_CREDITS_TASK_FAILURE_MESSAGE, SERVER_OVERLOADED_TASK_FAILURE_MESSAGE,
 };
 use crate::ai::blocklist::StartAgentRequest;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::skills::resolve_skill_spec;
 use crate::ai::skills::{SkillManager, SkillReference};
+use crate::channel::{Channel, ChannelState};
 use crate::server::server_api::ai::{AgentConfigSnapshot, SpawnAgentRequest};
+#[cfg(any(test, feature = "tui"))]
 use crate::server::server_api::{AIApiError, ClientError, CloudAgentCapacityError};
 use crate::server::team_scope::RequestTeamScope;
 use crate::settings::PrivacySettings;
@@ -96,10 +100,11 @@ fn resolve_repo_qualified_skill(
 }
 
 /// Frontend-neutral output used to launch one remote child.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
 #[derive(Clone, Debug)]
 pub struct PreparedRemoteChildLaunch {
+    #[cfg(any(test, feature = "tui"))]
     pub display_name: String,
+    #[cfg(any(test, feature = "tui"))]
     pub orchestration_harness: Harness,
     pub spawn_request: SpawnAgentRequest,
 }
@@ -107,6 +112,8 @@ pub struct PreparedRemoteChildLaunch {
 /// Failure while constructing the remote child request, before calling the server.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum PrepareRemoteChildLaunchError {
+    #[error("Remote child agents are disabled in local-only mode.")]
+    LocalOnly,
     #[error("Remote child agents require the parent run_id to be available.")]
     MissingParentRunId,
     #[error("Failed to resolve child agent skills: {}", references.join(", "))]
@@ -124,12 +131,13 @@ impl PrepareRemoteChildLaunchError {
 /// The GUI represents this as `ambient_agent::Status::NeedsGithubAuth`.
 /// Orchestrated children retain their surface so the user can follow the
 /// remediation link, but the original child launch still resolves as failed.
+#[cfg(any(test, feature = "tui"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CloudAgentStartupBlocker {
     GitHubAuthRequired { message: String, auth_url: String },
 }
 
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+#[cfg(any(test, feature = "tui"))]
 impl CloudAgentStartupBlocker {
     pub fn message(&self) -> &str {
         match self {
@@ -149,6 +157,7 @@ impl CloudAgentStartupBlocker {
 /// The GUI represents these as `ambient_agent::Status::Failed`. Unlike a
 /// blocker, a failure has no remediation action that requires retaining an
 /// optimistic orchestrated-child surface.
+#[cfg(any(test, feature = "tui"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CloudAgentStartupFailure {
     Capacity { message: String },
@@ -157,7 +166,7 @@ pub enum CloudAgentStartupFailure {
     Other { message: String },
 }
 
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+#[cfg(any(test, feature = "tui"))]
 impl CloudAgentStartupFailure {
     pub fn message(&self) -> &str {
         match self {
@@ -173,7 +182,7 @@ impl CloudAgentStartupFailure {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloudAgentStartupAuthFlow {
     RetryRetainedRequest,
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    #[cfg(any(test, feature = "tui"))]
     RerunOrchestrationRequest,
 }
 
@@ -201,6 +210,7 @@ impl CloudAgentStartupPresentation {
             CloudAgentStartupAuthFlow::RetryRetainedRequest => {
                 "Please authenticate with GitHub to continue"
             }
+            #[cfg(any(test, feature = "tui"))]
             CloudAgentStartupAuthFlow::RerunOrchestrationRequest => {
                 "Authenticate with GitHub, then run the orchestration request again."
             }
@@ -218,6 +228,7 @@ impl CloudAgentStartupPresentation {
 /// This distinction preserves the existing orchestrated-child contract:
 /// blockers remain visible for user action, while terminal failures are
 /// eligible for failed-launch cleanup.
+#[cfg(any(test, feature = "tui"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CloudAgentStartupIssue {
     Blocked(CloudAgentStartupBlocker),
@@ -231,6 +242,10 @@ pub fn prepare_remote_child_launch(
     team_scope: RequestTeamScope,
     ctx: &AppContext,
 ) -> Result<PreparedRemoteChildLaunch, PrepareRemoteChildLaunchError> {
+    if matches!(ChannelState::channel(), Channel::Local) {
+        return Err(PrepareRemoteChildLaunchError::LocalOnly);
+    }
+
     let orchestration_harness = config.orchestration_harness();
     let RemoteChildLaunchConfig {
         environment_id,
@@ -250,6 +265,7 @@ pub fn prepare_remote_child_launch(
     };
     let runtime_skills = resolve_runtime_skills(&skill_references, &working_dir, ctx)?;
     let agent_name = normalize_orchestrator_agent_name(&request.name);
+    #[cfg(any(test, feature = "tui"))]
     let display_name = agent_name.clone().unwrap_or_default();
     let environment_id = Some(environment_id).filter(|id| !id.trim().is_empty());
     let harness_override = if harness_type.is_empty() {
@@ -309,20 +325,32 @@ pub fn prepare_remote_child_launch(
         orchestration_handoff: None,
     };
     Ok(PreparedRemoteChildLaunch {
+        #[cfg(any(test, feature = "tui"))]
         display_name,
+        #[cfg(any(test, feature = "tui"))]
         orchestration_harness,
         spawn_request,
     })
 }
 
 /// Maps server/client launch failures into shared startup presentation.
+#[cfg(any(test, feature = "tui"))]
 pub fn classify_cloud_agent_startup_error(error: &anyhow::Error) -> CloudAgentStartupIssue {
     if let Some(client_error) = error.downcast_ref::<ClientError>()
         && let Some(auth_url) = &client_error.auth_url
     {
         return CloudAgentStartupIssue::Blocked(CloudAgentStartupBlocker::GitHubAuthRequired {
             message: client_error.error.clone(),
-            auth_url: github_auth_url::cloud_setup_auth_url_with_next(auth_url),
+            auth_url: {
+                #[cfg(test)]
+                {
+                    github_auth_url::cloud_setup_auth_url_with_next(auth_url)
+                }
+                #[cfg(all(feature = "tui", not(test)))]
+                {
+                    auth_url.to_string()
+                }
+            },
         });
     }
     if let Some(capacity_error) = error.downcast_ref::<CloudAgentCapacityError>() {
@@ -375,7 +403,7 @@ pub(crate) fn should_disable_snapshot(ctx: &AppContext) -> bool {
 }
 
 /// Builds the Oz web URL for a server-assigned agent run ID.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+#[cfg(any(test, feature = "tui"))]
 pub fn oz_run_url(run_id: &str) -> String {
     format!("{}/runs/{run_id}", ChannelState::oz_root_url())
 }

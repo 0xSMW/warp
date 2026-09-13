@@ -6,8 +6,12 @@ pub(crate) use catalog::sort_environments_by_recency;
 pub use catalog::{CloudEnvironment, CloudEnvironmentCatalogEvent};
 #[cfg_attr(target_family = "wasm", expect(unused_imports))]
 pub use cloud_object_models::{
-    AmbientAgentEnvironment, AwsProviderConfig, BaseImage, CloudAmbientAgentEnvironment,
-    CloudAmbientAgentEnvironmentModel, GcpProviderConfig, GithubRepo, ProvidersConfig, SourceRepo,
+    AmbientAgentEnvironment, CloudAmbientAgentEnvironment, CloudAmbientAgentEnvironmentModel,
+    GithubRepo,
+};
+#[cfg(test)]
+pub use cloud_object_models::{
+    AwsProviderConfig, BaseImage, GcpProviderConfig, ProvidersConfig, SourceRepo,
 };
 use cloud_objects::cloud_object::Owner;
 use warpui::{AppContext, Entity, SingletonEntity as _, ViewContext};

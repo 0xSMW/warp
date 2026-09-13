@@ -10,6 +10,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
 
 /// Read a JSON file as `T`, or return `T::default()` if the file does not exist.
@@ -57,6 +58,7 @@ where
 }
 
 /// Serialize a slice of JSON values as a JSONL byte string (one value per line).
+#[cfg(test)]
 pub(super) fn entries_to_jsonl(entries: &[Value]) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     for entry in entries {

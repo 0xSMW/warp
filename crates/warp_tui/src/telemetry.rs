@@ -1,11 +1,18 @@
 //! Telemetry for the `warp-tui` front-end.
+#[cfg(test)]
 use std::ffi::{OsStr, OsString};
 
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
+#[cfg(test)]
 use strum_macros::{EnumDiscriminants, EnumIter};
 use warp_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
+
+#[cfg(test)]
 const MAX_TERM_PROGRAM_CHARS: usize = 64;
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 enum TuiHostMultiplexer {
     None,
@@ -14,6 +21,7 @@ enum TuiHostMultiplexer {
     Zellij,
 }
 
+#[cfg(test)]
 impl TuiHostMultiplexer {
     fn as_str(self) -> &'static str {
         match self {
@@ -25,12 +33,16 @@ impl TuiHostMultiplexer {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct TuiStartupTelemetryEvent {
+    #[cfg(test)]
     term_program: Option<String>,
+    #[cfg(test)]
     multiplexer: TuiHostMultiplexer,
 }
 
+#[cfg(test)]
 impl TuiStartupTelemetryEvent {
     pub(crate) fn from_environment() -> Self {
         Self {
@@ -45,6 +57,7 @@ impl TuiStartupTelemetryEvent {
     }
 }
 
+#[cfg(test)]
 fn sanitize_term_program(value: Option<OsString>) -> Option<String> {
     let value = value?.into_string().ok()?;
     let sanitized = value
@@ -56,6 +69,7 @@ fn sanitize_term_program(value: Option<OsString>) -> Option<String> {
     (!sanitized.is_empty()).then_some(sanitized)
 }
 
+#[cfg(test)]
 fn detect_multiplexer(
     tmux: Option<&OsStr>,
     screen: Option<&OsStr>,
@@ -74,6 +88,7 @@ fn detect_multiplexer(
     }
 }
 
+#[cfg(test)]
 impl TelemetryEvent for TuiStartupTelemetryEvent {
     fn name(&self) -> &'static str {
         "TUI.Startup"
@@ -106,6 +121,7 @@ impl TelemetryEvent for TuiStartupTelemetryEvent {
     }
 }
 
+#[cfg(test)]
 impl TelemetryEventDesc for TuiStartupTelemetryEvent {
     fn name(&self) -> &'static str {
         "TUI.Startup"
@@ -120,15 +136,18 @@ impl TelemetryEventDesc for TuiStartupTelemetryEvent {
     }
 }
 
+#[cfg(test)]
 warp_core::register_telemetry_event!(TuiStartupTelemetryEvent);
 
-#[derive(Debug, EnumDiscriminants)]
-#[strum_discriminants(derive(EnumIter))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(EnumDiscriminants))]
+#[cfg_attr(test, strum_discriminants(derive(EnumIter)))]
 pub(crate) enum TuiConversationMenuTelemetryEvent {
     Opened,
     ItemSelected,
 }
 
+#[cfg(test)]
 impl TelemetryEvent for TuiConversationMenuTelemetryEvent {
     fn name(&self) -> &'static str {
         TuiConversationMenuTelemetryEventDiscriminants::from(self).name()
@@ -155,6 +174,39 @@ impl TelemetryEvent for TuiConversationMenuTelemetryEvent {
     }
 }
 
+#[cfg(not(test))]
+impl TelemetryEvent for TuiConversationMenuTelemetryEvent {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Opened => "TUI.ConversationMenu.Opened",
+            Self::ItemSelected => "TUI.ConversationMenu.ItemSelected",
+        }
+    }
+
+    fn payload(&self) -> Option<Value> {
+        None
+    }
+
+    fn description(&self) -> &'static str {
+        "A conversation-menu event occurred in the headless Warp TUI"
+    }
+
+    fn enablement_state(&self) -> EnablementState {
+        EnablementState::ChannelSpecific {
+            channels: Vec::new(),
+        }
+    }
+
+    fn contains_ugc(&self) -> bool {
+        false
+    }
+
+    fn event_descs() -> impl Iterator<Item = Box<dyn TelemetryEventDesc>> {
+        std::iter::empty()
+    }
+}
+
+#[cfg(test)]
 impl TelemetryEventDesc for TuiConversationMenuTelemetryEventDiscriminants {
     fn name(&self) -> &'static str {
         match self {
@@ -175,7 +227,11 @@ impl TelemetryEventDesc for TuiConversationMenuTelemetryEventDiscriminants {
     }
 }
 
+#[cfg(test)]
 warp_core::register_telemetry_event!(TuiConversationMenuTelemetryEvent);
+
+#[cfg(not(test))]
+impl warp_core::telemetry::RegisteredTelemetryEvent for TuiConversationMenuTelemetryEvent {}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TuiConversationRestoreTelemetryState {
@@ -185,6 +241,7 @@ pub(crate) enum TuiConversationRestoreTelemetryState {
     Cancelled,
 }
 
+#[cfg(test)]
 impl TuiConversationRestoreTelemetryState {
     fn as_str(self) -> &'static str {
         match self {
@@ -199,9 +256,11 @@ impl TuiConversationRestoreTelemetryState {
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TuiConversationRestoreTelemetryTarget {
     Local,
+    #[cfg(test)]
     Server,
 }
 
+#[cfg(test)]
 impl TuiConversationRestoreTelemetryTarget {
     fn as_str(self) -> &'static str {
         match self {
@@ -217,6 +276,7 @@ pub(crate) struct TuiConversationRestoreTelemetryEvent {
     pub target: TuiConversationRestoreTelemetryTarget,
 }
 
+#[cfg(test)]
 impl TelemetryEvent for TuiConversationRestoreTelemetryEvent {
     fn name(&self) -> &'static str {
         "TUI.ConversationRestore"
@@ -249,6 +309,37 @@ impl TelemetryEvent for TuiConversationRestoreTelemetryEvent {
     }
 }
 
+#[cfg(not(test))]
+impl TelemetryEvent for TuiConversationRestoreTelemetryEvent {
+    fn name(&self) -> &'static str {
+        "TUI.ConversationRestore"
+    }
+
+    fn payload(&self) -> Option<Value> {
+        let _ = (&self.state, &self.target);
+        None
+    }
+
+    fn description(&self) -> &'static str {
+        "A conversation-list restore changed lifecycle state in the headless Warp TUI"
+    }
+
+    fn enablement_state(&self) -> EnablementState {
+        EnablementState::ChannelSpecific {
+            channels: Vec::new(),
+        }
+    }
+
+    fn contains_ugc(&self) -> bool {
+        false
+    }
+
+    fn event_descs() -> impl Iterator<Item = Box<dyn TelemetryEventDesc>> {
+        std::iter::empty()
+    }
+}
+
+#[cfg(test)]
 impl TelemetryEventDesc for TuiConversationRestoreTelemetryEvent {
     fn name(&self) -> &'static str {
         "TUI.ConversationRestore"
@@ -263,8 +354,13 @@ impl TelemetryEventDesc for TuiConversationRestoreTelemetryEvent {
     }
 }
 
+#[cfg(test)]
 warp_core::register_telemetry_event!(TuiConversationRestoreTelemetryEvent);
 
+#[cfg(not(test))]
+impl warp_core::telemetry::RegisteredTelemetryEvent for TuiConversationRestoreTelemetryEvent {}
+
+/*
 /// Health signals for the TUI auto-updater. Sent when the outcome of a
 /// background update check *changes* (not on every poll), so repeated
 /// `up_to_date` checks or repeated failures don't spam events.
@@ -353,6 +449,7 @@ impl TelemetryEventDesc for TuiAutoupdateTelemetryEventDiscriminants {
 }
 
 warp_core::register_telemetry_event!(TuiAutoupdateTelemetryEvent);
+*/
 
 #[cfg(test)]
 #[path = "telemetry_tests.rs"]

@@ -1,24 +1,29 @@
+#[cfg(test)]
 use std::future::Future;
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 use std::path::PathBuf;
 
+#[cfg(test)]
 use anyhow::{Context, Result, anyhow};
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 use crc::{CRC_32_ISCSI, Crc};
 pub use warp_server_client::HttpStatusError;
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 use super::ai::FileArtifactUploadTargetInfo;
+#[cfg(test)]
 use super::harness_support::{UploadFieldValue, UploadTarget};
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) static CRC32C: Crc<u32> = Crc::<u32>::new(&CRC_32_ISCSI);
+#[cfg(test)]
 const CONTENT_LENGTH_HEADER_NAME: &str = "content-length";
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 const FILE_UPLOAD_CHUNK_SIZE: usize = 64 * 1024;
 
+#[cfg(test)]
 struct NormalizedUploadTarget<'a> {
     url: &'a str,
     method: &'a str,
@@ -27,6 +32,7 @@ struct NormalizedUploadTarget<'a> {
 }
 
 /// Borrowed view of a single multipart form field.
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 struct NormalizedField<'a> {
     name: &'a str,
@@ -34,6 +40,7 @@ struct NormalizedField<'a> {
 }
 
 /// Borrowed view of a single multipart form field value.
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 enum NormalizedFieldValue<'a> {
     Static(&'a str),
@@ -41,6 +48,7 @@ enum NormalizedFieldValue<'a> {
     ContentData,
 }
 
+#[cfg(test)]
 impl<'a> From<&'a UploadTarget> for NormalizedUploadTarget<'a> {
     fn from(target: &'a UploadTarget) -> Self {
         Self {
@@ -69,7 +77,7 @@ impl<'a> From<&'a UploadTarget> for NormalizedUploadTarget<'a> {
     }
 }
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 impl<'a> From<&'a FileArtifactUploadTargetInfo> for NormalizedUploadTarget<'a> {
     fn from(target: &'a FileArtifactUploadTargetInfo) -> Self {
         Self {
@@ -107,6 +115,7 @@ impl<'a> From<&'a FileArtifactUploadTargetInfo> for NormalizedUploadTarget<'a> {
 /// It also allows the upload target implementation to skip work that's
 /// not needed for a particular target. For example, AWS S3 requires that
 /// the client provide a checksum ahead of time, while GCS does not.
+#[cfg(test)]
 pub trait UploadBody {
     /// Total length of the body in bytes. Used for the `Content-Length`
     /// header on PUT uploads and for the multipart `ContentData` part length.
@@ -122,6 +131,7 @@ pub trait UploadBody {
 }
 
 /// In-memory implementation of [`UploadBody`].
+#[cfg(test)]
 impl UploadBody for Vec<u8> {
     fn length(&self) -> u64 {
         self.len() as u64
@@ -139,20 +149,21 @@ impl UploadBody for Vec<u8> {
 
 /// `UploadBody` implementation backed by a file on disk. Used for streaming
 /// artifact uploads without buffering the file content in memory.
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 #[derive(Debug, Clone)]
 pub struct FileUploadBody {
+    #[cfg(test)]
     path: PathBuf,
 }
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 impl FileUploadBody {
     pub fn new(path: PathBuf) -> Self {
         Self { path }
     }
 }
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 impl UploadBody for FileUploadBody {
     fn length(&self) -> u64 {
         // Read metadata on demand so callers don't have to keep a pre-computed
@@ -199,12 +210,14 @@ impl UploadBody for FileUploadBody {
     }
 }
 
+#[cfg(test)]
 #[derive(Copy, Clone)]
 struct UploadErrorContext {
     transport: &'static str,
     failure: &'static str,
 }
 
+#[cfg(test)]
 fn build_upload_request<'a>(
     http_client: &'a http_client::Client,
     target: &NormalizedUploadTarget<'_>,
@@ -235,6 +248,7 @@ fn build_upload_request<'a>(
     Ok(request)
 }
 
+#[cfg(test)]
 async fn ensure_upload_succeeded(
     response: http_client::Response,
     error_context: UploadErrorContext,
@@ -255,6 +269,7 @@ async fn ensure_upload_succeeded(
     )))
 }
 
+#[cfg(test)]
 async fn send_upload_request(
     http_client: &http_client::Client,
     target: &NormalizedUploadTarget<'_>,
@@ -271,6 +286,7 @@ async fn send_upload_request(
     ensure_upload_succeeded(response, error_context).await
 }
 
+#[cfg(test)]
 pub(crate) async fn upload_to_target(
     http_client: &http_client::Client,
     target: &UploadTarget,
@@ -287,6 +303,7 @@ pub(crate) async fn upload_to_target(
 /// Internal dispatcher shared between [`upload_to_target`] and
 /// [`upload_file_to_target`]. Routes the request to either a plain body upload
 /// or a multipart form upload based on whether the target has form fields.
+#[cfg(test)]
 async fn send_upload(
     http_client: &http_client::Client,
     target: &NormalizedUploadTarget<'_>,
@@ -320,7 +337,7 @@ async fn send_upload(
 /// which needs it for `confirmFileArtifactUpload`) pass it through via
 /// `precomputed_crc32c` so we don't hash the body twice. Otherwise we only
 /// compute the checksum when requested by the upload target.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 async fn send_multipart_upload(
     http_client: &http_client::Client,
     target: &NormalizedUploadTarget<'_>,
@@ -338,7 +355,7 @@ async fn send_multipart_upload(
     ensure_upload_succeeded(response, error_context).await
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 async fn build_multipart_form(
     target: &NormalizedUploadTarget<'_>,
     body: impl UploadBody,
@@ -391,7 +408,7 @@ async fn build_multipart_form(
     Ok(form)
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 fn encode_crc32c_base64(crc32c: u32) -> String {
     // Storage providers expect the checksum as base64 of the raw big-endian CRC32C bytes,
     // not the more human-readable hex string we typically log.
@@ -400,7 +417,7 @@ fn encode_crc32c_base64(crc32c: u32) -> String {
 
 /// Upload a file artifact. Always computes the base64 CRC32C so callers can
 /// pass it to `confirmFileArtifactUpload`.
-#[cfg(feature = "local_fs")]
+#[cfg(all(test, feature = "local_fs"))]
 pub(crate) async fn upload_file_to_target(
     http_client: &http_client::Client,
     target: &FileArtifactUploadTargetInfo,

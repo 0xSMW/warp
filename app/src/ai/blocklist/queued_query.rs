@@ -627,6 +627,7 @@ impl QueuedQueryModel {
     }
 
     /// Restores a fired row when submission fails after the row was removed.
+    #[cfg(test)]
     pub(crate) fn restore_fired_row(
         &mut self,
         conversation_id: AIConversationId,

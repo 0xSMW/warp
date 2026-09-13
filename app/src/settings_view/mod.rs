@@ -7,18 +7,17 @@ use billing_and_usage_dispatch::BillingAndUsageDispatchView;
 use billing_and_usage_page::BillingAndUsagePageEvent;
 use cli_agents_page::{CLIAgentsPageAction, CLIAgentsPageEvent, CLIAgentsPageView};
 use code_editor_review_page::{EditorAndCodeReviewPageAction, EditorAndCodeReviewPageView};
+#[cfg(test)]
 use code_indexing_page::{CodeIndexingPageAction, CodeIndexingPageEvent};
-use environments_page::EnvironmentsPageView;
 use features_page::{FeaturesPageView, FeaturesSettingsPageEvent};
 use itertools::Itertools as _;
 use keybindings::KeybindingsView;
 use knowledge_page::{KnowledgePageAction, KnowledgePageEvent, KnowledgePageView};
 use main_page::{MainPageAction, MainSettingsPageEvent, MainSettingsPageView};
 use mcp_servers_page::MCPServersSettingsPageView;
-use nav::{SettingsNavItem, SettingsUmbrella};
+use nav::SettingsNavItem;
 use pathfinder_geometry::vector::Vector2F;
 use privacy_page::{PrivacyPageView, PrivacyPageViewEvent};
-use referrals_page::{ReferralsPageEvent, ReferralsPageView};
 use scripting_page::ScriptingSettingsPageView;
 use settings_file_footer::{SettingsFooterKind, SettingsFooterMouseStates, render_footer};
 use settings_page::{
@@ -27,8 +26,9 @@ use settings_page::{
 };
 use show_blocks_view::{ShowBlocksEvent, ShowBlocksView};
 use teams_page::{TeamsPageAction, TeamsPageView, TeamsPageViewEvent};
-use warp_agent_page::{WarpAgentPageAction, WarpAgentPageEvent, WarpAgentPageView};
-use warp_core::channel::ChannelState;
+#[cfg(test)]
+use warp_agent_page::WarpAgentPageAction;
+use warp_core::channel::{Channel, ChannelState};
 use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
 use warp_core::send_telemetry_from_ctx;
@@ -36,12 +36,14 @@ use warp_core::settings::ToggleableSetting as _;
 use warp_core::ui::theme::color::internal_colors;
 use warp_editor::editor::NavigationKey;
 use warpify_page::{WarpifyPageAction, WarpifyPageView};
+#[cfg(test)]
+use warpui::elements::Wrap;
 use warpui::elements::{
     Align, Border, ChildAnchor, ChildView, Clipped, ClippedScrollStateHandle, ClippedScrollable,
     ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, DispatchEventResult, Empty,
     EventHandler, Expanded, Fill, Flex, MainAxisSize, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, Radius, SavePosition, ScrollbarWidth, Shrinkable, Stack,
-    Text, Wrap,
+    Text,
 };
 use warpui::fonts::{Properties, Weight};
 use warpui::keymap::{ContextPredicate, EnabledPredicate, FixedBinding};
@@ -50,7 +52,6 @@ use warpui::{
     UpdateView as _, View, ViewContext, ViewHandle, id,
 };
 
-use self::telemetry::SettingsTelemetryEvent;
 use crate::ai::custom_model_routers::CustomModelRouter;
 use crate::ai::execution_profiles::ExecutionProfileId;
 use crate::appearance::Appearance;
@@ -87,8 +88,11 @@ mod billing_and_usage_page;
 mod billing_and_usage_page_v2;
 mod cli_agents_page;
 mod code_editor_review_page;
+#[cfg(test)]
 mod code_indexing_page;
+#[cfg(test)]
 pub(crate) mod custom_inference_modal;
+#[cfg(test)]
 mod custom_router_view;
 mod delete_environment_confirmation_dialog;
 mod directory_color_add_picker;
@@ -105,13 +109,18 @@ pub mod mcp_servers;
 pub mod mcp_servers_page;
 mod nav;
 pub mod pane_manager;
+#[cfg(test)]
 mod platform;
+#[cfg(test)]
 mod platform_page;
 mod privacy;
 mod privacy_page;
+#[cfg(test)]
 mod referrals_page;
+#[cfg(test)]
 mod remove_custom_endpoint_confirmation_dialog;
 mod scripting_page;
+#[cfg(test)]
 mod set_default_model_modal;
 mod settings_file_footer;
 pub(crate) mod settings_page;
@@ -121,7 +130,9 @@ mod teams_page;
 mod telemetry;
 mod transfer_ownership_confirmation_modal;
 pub mod update_environment_form;
+#[cfg(test)]
 mod warp_agent_page;
+#[cfg(test)]
 mod warp_drive_page;
 mod warpify_page;
 
@@ -131,6 +142,7 @@ pub(crate) use billing_and_usage::billing_cycle_usage_common::{format_cost_cents
 pub use billing_and_usage_page::create_discount_badge;
 #[cfg(not(target_family = "wasm"))]
 pub use cli_agents_page::cli_agent_settings_widget_id;
+#[cfg(test)]
 pub use code_indexing_page::CodeIndexingPageView;
 pub use features_page::FeaturesPageAction;
 pub use main_page::handle_experiment_change;
@@ -140,6 +152,7 @@ pub use settings_page::{
     render_info_icon, render_input_list, render_separator,
 };
 pub use teams_page::{OpenTeamsSettingsModalArgs, TeamsInviteOption};
+#[cfg(test)]
 pub(crate) use warp_agent_page::custom_model_routers_widget_id;
 
 /// Original sidebar width used when the settings-file footer is not
@@ -254,6 +267,7 @@ pub(super) fn render_beta_chip(appearance: &Appearance) -> Box<dyn Element> {
 /// Renders a wrapping row of pill-shaped chips for model labels, which flow
 /// onto additional lines instead of overflowing the container horizontally.
 /// Used by custom inference endpoint cards and the remove confirmation dialog.
+#[cfg(test)]
 pub(super) fn render_model_chips(
     labels: impl IntoIterator<Item = String>,
     appearance: &Appearance,
@@ -311,10 +325,10 @@ pub enum SettingsViewEvent {
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SettingsSection {
     About,
-    #[default]
     Account,
     BillingAndUsage,
     Appearance,
+    #[default]
     Features,
     Keybindings,
     Privacy,
@@ -461,6 +475,7 @@ pub fn settings_widget_deeplink_target(slug: &str) -> Option<(SettingsSection, &
             SettingsSection::Features,
             features_page::global_hotkey_widget_id(),
         )),
+        #[cfg(test)]
         "custom_router" => Some((SettingsSection::WarpAgent, custom_model_routers_widget_id())),
         #[cfg(not(target_family = "wasm"))]
         "cli_agents" => Some((
@@ -684,12 +699,15 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
     features_page::init_actions_from_parent_view(app, context, builder);
     warpify_page::init_actions_from_parent_view(app, context, builder);
     privacy_page::init_actions_from_parent_view(app, context, builder);
+    #[cfg(test)]
     warp_agent_page::init_actions_from_parent_view(app, context, builder);
     agent_profiles_page::init_actions_from_parent_view(app, context, builder);
     knowledge_page::init_actions_from_parent_view(app, context, builder);
     cli_agents_page::init_actions_from_parent_view(app, context, builder);
+    #[cfg(test)]
     code_indexing_page::init_actions_from_parent_view(app, context, builder);
     code_editor_review_page::init_actions_from_parent_view(app, context, builder);
+    #[cfg(test)]
     warp_drive_page::init_actions_from_parent_view(app, context, builder);
 
     if ChannelState::enable_debug_features() || cfg!(windows) {
@@ -987,17 +1005,21 @@ pub enum DebugSettingsAction {
 #[derive(Debug, Clone)]
 pub enum SettingsAction {
     SelectAndRefresh(SettingsSection),
+    #[cfg(test)]
     ToggleUmbrella(usize),
     MainPageToggle(MainPageAction),
     AppearancePageToggle(AppearancePageAction),
     FeaturesPageToggle(FeaturesPageAction),
     PrivacyPageToggle(PrivacyPageAction),
+    #[cfg(test)]
     WarpAgent(WarpAgentPageAction),
     AgentProfiles(AgentProfilesPageAction),
     Knowledge(KnowledgePageAction),
     CLIAgents(CLIAgentsPageAction),
+    #[cfg(test)]
     CodeIndexing(CodeIndexingPageAction),
     EditorAndCodeReview(EditorAndCodeReviewPageAction),
+    #[cfg(test)]
     WarpDrive(warp_drive_page::WarpDriveSettingsPageAction),
     WarpifyPageToggle(WarpifyPageAction),
     Tab,
@@ -1019,19 +1041,10 @@ enum CycleDirection {
 }
 
 /// A stop in the arrow-key navigation order over the sidebar.
-///
-/// A collapsed umbrella occupies a single stop rather than being skipped,
-/// so arrow-key navigation auto-expands it and selects one of its visible
-/// subpages instead of jumping over it. Which subpage is chosen depends
-/// on the direction of cycling: navigating Down enters the umbrella at
-/// its first visible subpage, while navigating Up enters at its last
-/// visible subpage, matching the natural reading order the user was
-/// moving through.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum NavStop {
-    /// A concrete page, or a subpage of an already-expanded umbrella.
-    /// Arrow-key nav lands directly on this section.
     Section(SettingsSection),
+    #[cfg(test)]
     /// A collapsed umbrella. Activating this stop navigates to either
     /// `first_subpage` (when arriving from above via Down) or
     /// `last_subpage` (when arriving from below via Up), which
@@ -1048,12 +1061,7 @@ enum NavStop {
     },
 }
 
-/// Builds the ordered list of arrow-key nav stops from `nav_items`.
-///
-/// `is_visible` decides which sections are currently shown in the sidebar;
-/// callers pass a predicate that ignores the search filter when no search
-/// is active and applies it otherwise. Umbrellas with no visible subpages
-/// are skipped entirely.
+/// Builds the ordered list of visible arrow-key nav stops from `nav_items`.
 fn build_nav_stops<F>(nav_items: &[SettingsNavItem], is_visible: F) -> Vec<NavStop>
 where
     F: Fn(SettingsSection) -> bool,
@@ -1061,7 +1069,7 @@ where
     nav_items
         .iter()
         .enumerate()
-        .flat_map(|(nav_index, item)| match item {
+        .flat_map(|(_nav_index, item)| match item {
             SettingsNavItem::Page(section) => {
                 if is_visible(*section) {
                     vec![NavStop::Section(*section)]
@@ -1069,6 +1077,7 @@ where
                     vec![]
                 }
             }
+            #[cfg(test)]
             SettingsNavItem::Umbrella(umbrella) => {
                 let visible: Vec<SettingsSection> = umbrella
                     .subpages
@@ -1084,7 +1093,7 @@ where
                     let first_subpage = visible[0];
                     let last_subpage = *visible.last().unwrap_or(&first_subpage);
                     vec![NavStop::CollapsedUmbrella {
-                        nav_index,
+                        nav_index: _nav_index,
                         first_subpage,
                         last_subpage,
                     }]
@@ -1095,18 +1104,14 @@ where
 }
 
 /// Returns the index in `stops` that corresponds to `section`.
-///
-/// A collapsed-umbrella stop also matches when `section` is one of the
-/// umbrella's subpages — this covers the edge case where the user manually
-/// collapsed the umbrella while still on a subpage, so arrow-key cycling
-/// continues to move relative to the umbrella's position in the nav order.
 fn current_stop_index(
     stops: &[NavStop],
-    nav_items: &[SettingsNavItem],
+    #[cfg(test)] nav_items: &[SettingsNavItem],
     section: SettingsSection,
 ) -> Option<usize> {
     stops.iter().position(|stop| match stop {
         NavStop::Section(s) => *s == section,
+        #[cfg(test)]
         NavStop::CollapsedUmbrella { nav_index, .. } => matches!(
             nav_items.get(*nav_index),
             Some(SettingsNavItem::Umbrella(u)) if u.contains(section)
@@ -1146,24 +1151,30 @@ macro_rules! update_page {
             SettingsPageViewHandle::Keybindings(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Teams(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Warpify(handle) => $ctx.update_view(handle, $update),
+            #[cfg(test)]
             SettingsPageViewHandle::WarpCloudAgentAPIKeys(handle) => {
                 $ctx.update_view(handle, $update)
             }
             SettingsPageViewHandle::Privacy(handle) => $ctx.update_view(handle, $update),
+            #[cfg(test)]
             SettingsPageViewHandle::Referrals(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Scripting(handle) => $ctx.update_view(handle, $update),
+            #[cfg(test)]
             SettingsPageViewHandle::WarpAgent(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::AgentProfiles(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::Knowledge(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::CLIAgents(handle) => $ctx.update_view(handle, $update),
+            #[cfg(test)]
             SettingsPageViewHandle::CloudEnvironments(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::About(handle) => $ctx.update_view(handle, $update),
+            #[cfg(test)]
             SettingsPageViewHandle::CodeIndexing(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::EditorAndCodeReview(handle) => {
                 $ctx.update_view(handle, $update)
             }
             SettingsPageViewHandle::BillingAndUsage(handle) => $ctx.update_view(handle, $update),
             SettingsPageViewHandle::MCPServers(handle) => $ctx.update_view(handle, $update),
+            #[cfg(test)]
             SettingsPageViewHandle::WarpDrive(handle) => $ctx.update_view(handle, $update),
         }
     };
@@ -1179,9 +1190,7 @@ pub struct SettingsView {
     clipped_scroll_state: ClippedScrollStateHandle,
     context_menu: ViewHandle<Menu<SettingsAction>>,
     context_menu_state: Option<Vector2F>,
-    environments_page_handle: ViewHandle<EnvironmentsPageView>,
-    /// Sidebar navigation items (pages + umbrellas). This is the single source
-    /// of truth for which sections sit under which umbrella.
+    /// Sidebar navigation items.
     nav_items: Vec<SettingsNavItem>,
     /// Current settings.toml error, mirrored from `Workspace` via
     /// [`set_settings_error_state`]. Used by the sidebar footer to decide
@@ -1239,11 +1248,7 @@ impl SettingsView {
         // About page
         let about_page_handle = ctx.add_typed_action_view(AboutPageView::new);
 
-        // Warp Agent page
-        let warp_agent_page_handle = ctx.add_typed_action_view(WarpAgentPageView::new);
-        ctx.subscribe_to_view(&warp_agent_page_handle, |me, _, event, ctx| {
-            me.handle_warp_agent_page_event(event, ctx);
-        });
+        // Commented out: Warp Agent settings are cloud-only in production.
 
         // Agent profiles page, under the Agents umbrella
         let agent_profiles_page_handle = ctx.add_typed_action_view(AgentProfilesPageView::new);
@@ -1263,27 +1268,23 @@ impl SettingsView {
             me.handle_cli_agents_page_event(event, ctx);
         });
 
-        // Environments page
-        let environments_page_handle = ctx.add_typed_action_view(EnvironmentsPageView::new);
-        ctx.subscribe_to_view(&environments_page_handle, |me, _, event, ctx| {
-            me.handle_environments_page_event(event, ctx);
-        });
-
-        // Billing & Usage page (internally, this routes to the v1 or v2 version. Depending on FFs and current plan).
-        let billing_and_usage_handle = ctx.add_typed_action_view(BillingAndUsageDispatchView::new);
-        ctx.subscribe_to_view(&billing_and_usage_handle, |me, _, event, ctx| {
-            me.handle_billing_and_usage_page_event(event, ctx);
-        });
-        let billing_and_usage_page = SettingsPage::new(billing_and_usage_handle);
+        // Billing & Usage is unavailable in the production Local channel. Keep the view
+        // available to tests and the other channels so the enum and routing types remain stable.
+        let billing_and_usage_page = if cfg!(test) || ChannelState::channel() != Channel::Local {
+            let billing_and_usage_handle =
+                ctx.add_typed_action_view(BillingAndUsageDispatchView::new);
+            ctx.subscribe_to_view(&billing_and_usage_handle, |me, _, event, ctx| {
+                me.handle_billing_and_usage_page_event(event, ctx);
+            });
+            Some(SettingsPage::new(billing_and_usage_handle))
+        } else {
+            None
+        };
 
         // Keybindings page
         let keybindings_handle = ctx.add_typed_action_view(KeybindingsView::new);
 
-        // Code umbrella pages
-        let code_indexing_page_handle = ctx.add_typed_action_view(CodeIndexingPageView::new);
-        ctx.subscribe_to_view(&code_indexing_page_handle, |me, _, event, ctx| {
-            me.handle_code_indexing_page_event(event, ctx);
-        });
+        // Editor and Code Review remains directly accessible in local-only production.
         let editor_review_page_handle = ctx.add_typed_action_view(EditorAndCodeReviewPageView::new);
 
         // Teams page, adding unconditionally, as `should_render` later on decides whether it
@@ -1313,29 +1314,12 @@ impl SettingsView {
             me.handle_privacy_page_event(event, ctx);
         });
 
-        let referrals_client = ServerApiProvider::as_ref(ctx).get_referrals_client();
-        let referrals_page_handle =
-            ctx.add_typed_action_view(|ctx| ReferralsPageView::new(referrals_client, ctx));
-        ctx.subscribe_to_view(&referrals_page_handle, |me, _, event, ctx| {
-            me.handle_referrals_page_event(event, ctx);
-        });
+        // Commented out: Referrals settings are cloud-only in production.
         let scripting_page_handle = if FeatureFlag::WarpControlCli.is_enabled() {
             Some(ctx.add_typed_action_view(ScriptingSettingsPageView::new))
         } else {
             None
         };
-
-        // Warp Drive page
-        let warp_drive_page_handle =
-            ctx.add_typed_action_view(warp_drive_page::WarpDriveSettingsPageView::new);
-        ctx.subscribe_to_view(&warp_drive_page_handle, |me, _, event, ctx| {
-            me.handle_warp_drive_page_event(event, ctx);
-        });
-
-        let platform_page_handle = ctx.add_typed_action_view(platform_page::PlatformPageView::new);
-        ctx.subscribe_to_view(&platform_page_handle, |me, _, event, ctx| {
-            me.handle_platform_page_event(event, ctx);
-        });
 
         // MCP Servers page
         let mcp_servers_page_handle = ctx.add_typed_action_view(MCPServersSettingsPageView::new);
@@ -1372,24 +1356,22 @@ impl SettingsView {
         });
 
         let mut settings_pages = vec![
-            SettingsPage::new(main_page_handle),
-            SettingsPage::new(warp_agent_page_handle),
+            // SettingsPage::new(main_page_handle),
             SettingsPage::new(agent_profiles_page_handle),
             SettingsPage::new(knowledge_page_handle),
             SettingsPage::new(cli_agents_page_handle),
-            billing_and_usage_page,
-            SettingsPage::new(code_indexing_page_handle),
             SettingsPage::new(editor_review_page_handle),
             SettingsPage::new(teams_page_handle),
             SettingsPage::new(appearance_page_handle),
             SettingsPage::new(features_page_handle),
             SettingsPage::new(keybindings_handle),
-            SettingsPage::new(platform_page_handle),
             SettingsPage::new(warpify_page_handle),
-            SettingsPage::new(referrals_page_handle),
             SettingsPage::new(show_blocks_view_handle),
-            SettingsPage::new(warp_drive_page_handle),
         ];
+
+        if let Some(billing_and_usage_page) = billing_and_usage_page {
+            settings_pages.insert(4, billing_and_usage_page);
+        }
 
         if let Some(scripting_page_handle) = scripting_page_handle {
             settings_pages.push(SettingsPage::new(scripting_page_handle));
@@ -1397,49 +1379,41 @@ impl SettingsView {
 
         settings_pages.extend(vec![
             SettingsPage::new(mcp_servers_page_handle),
-            SettingsPage::new(environments_page_handle.clone()),
-            SettingsPage::new(privacy_page_handle),
+            // SettingsPage::new(privacy_page_handle),
             SettingsPage::new(about_page_handle),
         ]);
 
         // Build sidebar nav items. Umbrellas group their subpages here and
         // nowhere else, so this list is the only place membership is declared.
         let mut nav_items = vec![
-            SettingsNavItem::Page(SettingsSection::Account),
-            SettingsNavItem::Umbrella(SettingsUmbrella::new(
-                "Agents",
-                vec![
-                    SettingsSection::WarpAgent,
-                    SettingsSection::AgentProfiles,
-                    SettingsSection::AgentMCPServers,
-                    SettingsSection::Knowledge,
-                    SettingsSection::ThirdPartyCLIAgents,
-                ],
-            )),
-            SettingsNavItem::Page(SettingsSection::BillingAndUsage),
-            SettingsNavItem::Umbrella(SettingsUmbrella::new(
-                "Code",
-                vec![
-                    SettingsSection::CodeIndexing,
-                    SettingsSection::EditorAndCodeReview,
-                ],
-            )),
-            SettingsNavItem::Umbrella(SettingsUmbrella::new(
-                "Cloud platform",
-                vec![
-                    SettingsSection::CloudEnvironments,
-                    SettingsSection::WarpCloudAgentAPIKeys,
-                ],
-            )),
-            SettingsNavItem::Page(SettingsSection::Teams),
-            SettingsNavItem::Page(SettingsSection::Appearance),
             SettingsNavItem::Page(SettingsSection::Features),
+            // SettingsNavItem::Page(SettingsSection::Account),
+            // SettingsNavItem::Umbrella(SettingsUmbrella::new(
+            //     "Agents",
+            //     vec![
+            //         SettingsSection::WarpAgent,
+            //         SettingsSection::AgentProfiles,
+            //         SettingsSection::AgentMCPServers,
+            //         SettingsSection::Knowledge,
+            //         SettingsSection::ThirdPartyCLIAgents,
+            //     ],
+            // )),
+            // SettingsNavItem::Page(SettingsSection::BillingAndUsage),
+            SettingsNavItem::Page(SettingsSection::EditorAndCodeReview),
+            // SettingsNavItem::Umbrella(SettingsUmbrella::new(
+            //     "Cloud platform",
+            //     vec![
+            //         SettingsSection::CloudEnvironments,
+            //         SettingsSection::WarpCloudAgentAPIKeys,
+            //     ],
+            // )),
+            // SettingsNavItem::Page(SettingsSection::Teams),
+            SettingsNavItem::Page(SettingsSection::Appearance),
             SettingsNavItem::Page(SettingsSection::Keybindings),
             SettingsNavItem::Page(SettingsSection::Warpify),
-            SettingsNavItem::Page(SettingsSection::Referrals),
-            SettingsNavItem::Page(SettingsSection::SharedBlocks),
-            SettingsNavItem::Page(SettingsSection::WarpDrive),
-            SettingsNavItem::Page(SettingsSection::Privacy),
+            // SettingsNavItem::Page(SettingsSection::Referrals),
+            // SettingsNavItem::Page(SettingsSection::SharedBlocks),
+            // SettingsNavItem::Page(SettingsSection::Privacy),
             SettingsNavItem::Page(SettingsSection::About),
         ];
 
@@ -1458,19 +1432,25 @@ impl SettingsView {
 
         let initial_page = match page {
             Some(SettingsSection::Scripting) if !FeatureFlag::WarpControlCli.is_enabled() => {
-                SettingsSection::Account
+                SettingsSection::Features
             }
+            Some(SettingsSection::BillingAndUsage)
+                if !cfg!(test) && ChannelState::channel() == Channel::Local =>
+            {
+                SettingsSection::Features
+            }
+            Some(
+                SettingsSection::Account
+                | SettingsSection::Privacy
+                | SettingsSection::WarpAgent
+                | SettingsSection::Referrals
+                | SettingsSection::WarpDrive
+                | SettingsSection::CodeIndexing
+                | SettingsSection::CloudEnvironments
+                | SettingsSection::WarpCloudAgentAPIKeys,
+            ) => SettingsSection::Features,
             other => other.unwrap_or_default(),
         };
-
-        // Auto-expand the umbrella if the initial page is one of its subpages.
-        for item in &mut nav_items {
-            if let SettingsNavItem::Umbrella(umbrella) = item
-                && umbrella.contains(initial_page)
-            {
-                umbrella.expanded = true;
-            }
-        }
 
         Self {
             pages_filter: settings_pages
@@ -1485,7 +1465,6 @@ impl SettingsView {
             clipped_scroll_state: Default::default(),
             context_menu,
             context_menu_state: Default::default(),
-            environments_page_handle,
             nav_items,
             settings_file_error: None,
             settings_error_banner_dismissed: false,
@@ -1546,28 +1525,8 @@ impl SettingsView {
                 let search_query = editor.as_ref(ctx).buffer_text(ctx);
                 let is_search_active = !search_query.is_empty();
 
-                if is_search_active {
-                    // Save umbrella expanded state before search modifies it.
-                    for item in &mut self.nav_items {
-                        if let SettingsNavItem::Umbrella(umbrella) = item
-                            && umbrella.pre_search_expanded.is_none()
-                        {
-                            umbrella.pre_search_expanded = Some(umbrella.expanded);
-                        }
-                    }
-                } else {
-                    // Search cleared: restore umbrella expanded state.
-                    for item in &mut self.nav_items {
-                        if let SettingsNavItem::Umbrella(umbrella) = item
-                            && let Some(saved) = umbrella.pre_search_expanded.take()
-                        {
-                            umbrella.expanded = saved;
-                        }
-                    }
-                }
-
                 // Every page owns its whole widget list, so one filter pass
-                // covers all of them, subpages included.
+                // covers all of them.
                 for (i, page) in self.settings_pages.iter().enumerate() {
                     self.pages_filter[i] = update_page!(
                         &page.view_handle,
@@ -1580,34 +1539,8 @@ impl SettingsView {
                     );
                 }
 
-                // Auto-expand umbrellas that have matching subpages during
-                // search. Collected first so the read of the page filter does
-                // not overlap the mutable borrow of `nav_items`.
-                if is_search_active {
-                    let matching_umbrellas: Vec<usize> = self
-                        .nav_items
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(nav_index, item)| match item {
-                            SettingsNavItem::Umbrella(umbrella) => umbrella
-                                .subpages
-                                .iter()
-                                .any(|subpage| self.section_passes_search_filter(*subpage))
-                                .then_some(nav_index),
-                            SettingsNavItem::Page(_) => None,
-                        })
-                        .collect();
-                    for nav_index in matching_umbrellas {
-                        if let Some(SettingsNavItem::Umbrella(umbrella)) =
-                            self.nav_items.get_mut(nav_index)
-                        {
-                            umbrella.expanded = true;
-                        }
-                    }
-                }
-
                 // Auto-select: if the current page is no longer visible, jump
-                // to the first visible subpage or page.
+                // to the first visible page.
                 let current_still_visible = self
                     .filtered_pages(ctx)
                     .any(|(page, _)| page.section == self.current_settings_page);
@@ -1620,6 +1553,7 @@ impl SettingsView {
                             .iter()
                             .flat_map(|item| match item {
                                 SettingsNavItem::Page(section) => vec![*section],
+                                #[cfg(test)]
                                 SettingsNavItem::Umbrella(umbrella) => umbrella.subpages.clone(),
                             })
                             .find(|section| self.section_passes_search_filter(*section))
@@ -1783,24 +1717,6 @@ impl SettingsView {
         }
     }
 
-    fn handle_environments_page_event(
-        &mut self,
-        event: &SettingsPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            SettingsPageEvent::FocusModal => ctx.focus(&self.search_editor),
-            SettingsPageEvent::EnvironmentSetupModeSelectorToggled { .. }
-            | SettingsPageEvent::AgentAssistedEnvironmentModalToggled { .. } => {
-                // Re-render so the modal overlay is shown/hidden.
-                ctx.notify();
-            }
-            SettingsPageEvent::Pane(_) => {
-                // Not applicable in standalone settings view.
-            }
-        }
-    }
-
     fn handle_features_page_event(
         &mut self,
         event: &FeaturesSettingsPageEvent,
@@ -1850,23 +1766,6 @@ impl SettingsView {
         }
     }
 
-    fn handle_platform_page_event(
-        &mut self,
-        event: &platform_page::PlatformPageViewEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            platform_page::PlatformPageViewEvent::ShowCreateApiKeyModal => {
-                // Modal rendering is handled in get_modal_content_for_page
-                ctx.notify();
-            }
-            platform_page::PlatformPageViewEvent::HideCreateApiKeyModal => {
-                // Modal rendering is handled in get_modal_content_for_page
-                ctx.notify();
-            }
-        }
-    }
-
     fn handle_mcp_servers_page_event(
         &mut self,
         event: &MCPServersSettingsPageEvent,
@@ -1893,62 +1792,6 @@ impl SettingsView {
             view_handle.update(ctx, |view, ctx| {
                 view.search_for_binding(keybinding_name, ctx);
             })
-        }
-    }
-
-    fn handle_referrals_page_event(
-        &mut self,
-        event: &ReferralsPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            ReferralsPageEvent::SignupAnonymousUser => {
-                ctx.emit(SettingsViewEvent::SignupAnonymousUser)
-            }
-            ReferralsPageEvent::FocusModal => ctx.focus(&self.search_editor),
-            ReferralsPageEvent::ShowToast { message, flavor } => {
-                ctx.emit(SettingsViewEvent::ShowToast {
-                    message: message.clone(),
-                    flavor: *flavor,
-                })
-            }
-        }
-    }
-
-    fn handle_warp_drive_page_event(
-        &mut self,
-        event: &warp_drive_page::WarpDriveSettingsPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            warp_drive_page::WarpDriveSettingsPageEvent::SignUp => {
-                ctx.emit(SettingsViewEvent::SignupAnonymousUser)
-            }
-        }
-    }
-
-    fn handle_warp_agent_page_event(
-        &mut self,
-        event: &WarpAgentPageEvent,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        match event {
-            WarpAgentPageEvent::FocusModal => ctx.focus(&self.search_editor),
-            #[cfg(feature = "local_fs")]
-            WarpAgentPageEvent::OpenCustomRouterEditor(router) => {
-                ctx.emit(SettingsViewEvent::OpenCustomRouterEditor(router.clone()));
-            }
-            #[cfg(feature = "local_fs")]
-            WarpAgentPageEvent::OpenCustomRouterFile(path) => {
-                ctx.emit(SettingsViewEvent::OpenCustomRouterFile(path.clone()));
-            }
-            WarpAgentPageEvent::SignupAnonymousUser => {
-                ctx.emit(SettingsViewEvent::SignupAnonymousUser)
-            }
-            WarpAgentPageEvent::ShowModal | WarpAgentPageEvent::HideModal => {
-                // Modal rendering is handled in get_modal_content_for_page
-                ctx.notify();
-            }
         }
     }
 
@@ -1992,6 +1835,7 @@ impl SettingsView {
         }
     }
 
+    #[cfg(test)]
     fn handle_code_indexing_page_event(
         &mut self,
         event: &CodeIndexingPageEvent,
@@ -2046,8 +1890,6 @@ impl SettingsView {
         if self.settings_page(section).is_none() {
             return;
         }
-        let previous_section = self.current_settings_page;
-
         ctx.enable_key_bindings_dispatching();
 
         if let Some(current_page) = self.current_settings_page() {
@@ -2065,20 +1907,6 @@ impl SettingsView {
             self.clear_search_query(ctx);
         }
         self.current_settings_page = section;
-        if previous_section != section && section == SettingsSection::CloudEnvironments {
-            send_telemetry_from_ctx!(SettingsTelemetryEvent::EnvironmentsPageOpened, ctx);
-        }
-
-        // Every subpage renders its own backing page directly, so navigating
-        // to one only needs to auto-expand the umbrella containing it.
-        for item in &mut self.nav_items {
-            if let SettingsNavItem::Umbrella(umbrella) = item
-                && umbrella.contains(section)
-            {
-                umbrella.expanded = true;
-            }
-        }
-
         #[cfg(feature = "crash_reporting")]
         {
             crate::crash_reporting::set_tag("warp.settings_page", section.to_string());
@@ -2120,19 +1948,25 @@ impl SettingsView {
             SettingsPageViewHandle::Appearance(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::BillingAndUsage(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::About(v) => v.as_ref(app).should_render(app),
+            #[cfg(test)]
             SettingsPageViewHandle::WarpCloudAgentAPIKeys(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Privacy(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Warpify(v) => v.as_ref(app).should_render(app),
+            #[cfg(test)]
             SettingsPageViewHandle::Referrals(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Scripting(v) => v.as_ref(app).should_render(app),
+            #[cfg(test)]
             SettingsPageViewHandle::WarpAgent(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::AgentProfiles(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::Knowledge(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::CLIAgents(v) => v.as_ref(app).should_render(app),
+            #[cfg(test)]
             SettingsPageViewHandle::CloudEnvironments(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::MCPServers(v) => v.as_ref(app).should_render(app),
+            #[cfg(test)]
             SettingsPageViewHandle::CodeIndexing(v) => v.as_ref(app).should_render(app),
             SettingsPageViewHandle::EditorAndCodeReview(v) => v.as_ref(app).should_render(app),
+            #[cfg(test)]
             SettingsPageViewHandle::WarpDrive(v) => v.as_ref(app).should_render(app),
         }
     }
@@ -2244,10 +2078,7 @@ impl SettingsView {
         let search_query = self.search_editor.as_ref(ctx).buffer_text(ctx);
         let is_search_active = !search_query.is_empty();
 
-        // Build nav stops from the current sidebar state. A collapsed umbrella
-        // is represented as a single stop (rather than being skipped) so that
-        // arrow-key navigation auto-expands it and selects its first visible
-        // subpage instead of silently jumping over it.
+        // Build nav stops from the current sidebar state.
         let stops = build_nav_stops(&self.nav_items, |section| {
             !is_search_active || self.section_passes_search_filter(section)
         });
@@ -2256,22 +2087,21 @@ impl SettingsView {
             return;
         }
 
-        let next_index =
-            match current_stop_index(&stops, &self.nav_items, self.current_settings_page) {
-                Some(idx) => next_stop_index(idx, stops.len(), direction),
-                // Current page isn't in the visible nav order (e.g. it was
-                // just filtered out); jump to the first visible stop.
-                None => 0,
-            };
+        #[cfg(test)]
+        let current_index = current_stop_index(&stops, &self.nav_items, self.current_settings_page);
+        #[cfg(not(test))]
+        let current_index = current_stop_index(&stops, self.current_settings_page);
 
-        // Selecting a subpage auto-expands its umbrella in
-        // set_and_refresh_current_page_internal, which is exactly the behavior
-        // we want when landing on a `CollapsedUmbrella` stop. We pick the
-        // entry subpage based on `direction` so that Up into a collapsed
-        // umbrella lands on its last visible subpage (matching the reading
-        // order the user was moving through) and Down lands on the first.
+        let next_index = match current_index {
+            Some(idx) => next_stop_index(idx, stops.len(), direction),
+            // Current page isn't in the visible nav order (e.g. it was
+            // just filtered out); jump to the first visible stop.
+            None => 0,
+        };
+
         let target_section = match stops[next_index] {
             NavStop::Section(section) => section,
+            #[cfg(test)]
             NavStop::CollapsedUmbrella {
                 first_subpage,
                 last_subpage,
@@ -2354,13 +2184,7 @@ impl SettingsView {
             SettingsPageViewHandle::Privacy(view) => {
                 view.read(app, |view, _| view.get_modal_content())
             }
-            SettingsPageViewHandle::WarpCloudAgentAPIKeys(view) => {
-                view.read(app, |view, _| view.get_modal_content())
-            }
             SettingsPageViewHandle::MCPServers(view) => {
-                view.read(app, |view, _| view.get_modal_content(app))
-            }
-            SettingsPageViewHandle::WarpAgent(view) => {
                 view.read(app, |view, _| view.get_modal_content(app))
             }
             SettingsPageViewHandle::Teams(view) => {
@@ -2445,6 +2269,7 @@ impl SettingsView {
 
 #[cfg(feature = "integration_tests")]
 impl SettingsView {
+    #[cfg(test)]
     pub fn is_umbrella_expanded(&self, label: &str) -> Option<bool> {
         self.nav_items.iter().find_map(|nav_item| match nav_item {
             SettingsNavItem::Umbrella(umbrella) if umbrella.label == label => {
@@ -2452,6 +2277,12 @@ impl SettingsView {
             }
             SettingsNavItem::Umbrella(_) | SettingsNavItem::Page(_) => None,
         })
+    }
+
+    #[cfg(not(test))]
+    pub fn is_umbrella_expanded(&self, label: &str) -> Option<bool> {
+        let _ = label;
+        None
     }
 
     pub fn search_query(&self, app: &AppContext) -> String {
@@ -2490,8 +2321,8 @@ impl View for SettingsView {
             .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
             .with_child(self.render_search_editor(appearance));
 
-        // Render sidebar using nav_items (pages + umbrellas).
-        for (nav_index, nav_item) in self.nav_items.iter().enumerate() {
+        // Render sidebar using nav_items.
+        for (_nav_index, nav_item) in self.nav_items.iter().enumerate() {
             match nav_item {
                 SettingsNavItem::Page(section) => {
                     let section = *section;
@@ -2516,6 +2347,7 @@ impl View for SettingsView {
                         );
                     }
                 }
+                #[cfg(test)]
                 SettingsNavItem::Umbrella(umbrella) => {
                     let is_subpage_visible = |section: &SettingsSection| -> bool {
                         settings_pages
@@ -2539,7 +2371,7 @@ impl View for SettingsView {
                                 .render_umbrella_row(appearance)
                                 .on_click(move |ctx, _, _| {
                                     ctx.dispatch_typed_action(SettingsAction::ToggleUmbrella(
-                                        nav_index,
+                                        _nav_index,
                                     ));
                                 })
                                 .finish(),
@@ -2686,24 +2518,6 @@ impl View for SettingsView {
             );
         }
 
-        // Render environment setup mode selector overlay when open.
-        if let Some(selector_handle) = self
-            .environments_page_handle
-            .as_ref(app)
-            .environment_setup_mode_selector_handle()
-        {
-            stack.add_child(ChildView::new(selector_handle).finish());
-        }
-
-        // Render agent-assisted environment modal overlay when open.
-        if let Some(modal_handle) = self
-            .environments_page_handle
-            .as_ref(app)
-            .agent_assisted_environment_modal_handle(app)
-        {
-            stack.add_child(ChildView::new(modal_handle).finish());
-        }
-
         SavePosition::new(stack.finish(), POSITION_ID).finish()
     }
 }
@@ -2725,6 +2539,7 @@ impl TypedActionView for SettingsView {
                     );
                 }
             }
+            #[cfg(test)]
             SettingsAction::ToggleUmbrella(nav_index) => {
                 if let Some(SettingsNavItem::Umbrella(umbrella)) =
                     self.nav_items.get_mut(*nav_index)
@@ -2769,15 +2584,8 @@ impl TypedActionView for SettingsView {
                     })
                 }
             }
-            SettingsAction::WarpAgent(ai_action) => {
-                if let Some(warp_agent_page) = self.settings_page(SettingsSection::WarpAgent)
-                    && let SettingsPageViewHandle::WarpAgent(view) = &warp_agent_page.view_handle
-                {
-                    view.update(ctx, |view, ctx| {
-                        view.handle_action(ai_action, ctx);
-                    })
-                }
-            }
+            #[cfg(test)]
+            SettingsAction::WarpAgent(_) => {}
             SettingsAction::AgentProfiles(profiles_action) => {
                 if let Some(page) = self.settings_page(SettingsSection::AgentProfiles)
                     && let SettingsPageViewHandle::AgentProfiles(view) = &page.view_handle
@@ -2805,6 +2613,7 @@ impl TypedActionView for SettingsView {
                     })
                 }
             }
+            #[cfg(test)]
             SettingsAction::CodeIndexing(code_action) => {
                 if let Some(page) = self.settings_page(SettingsSection::CodeIndexing)
                     && let SettingsPageViewHandle::CodeIndexing(view) = &page.view_handle
@@ -2823,6 +2632,7 @@ impl TypedActionView for SettingsView {
                     })
                 }
             }
+            #[cfg(test)]
             SettingsAction::WarpDrive(warp_drive_action) => {
                 if let Some(warp_drive_page) = self.settings_page(SettingsSection::WarpDrive)
                     && let SettingsPageViewHandle::WarpDrive(view) = &warp_drive_page.view_handle

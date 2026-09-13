@@ -1,75 +1,131 @@
 //! Commands to interact with ambient agents on Warp's platform.
+#[cfg(test)]
 use std::io::Write as _;
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
 
+#[cfg(test)]
 use anyhow::{Context as _, anyhow};
+#[cfg(test)]
 use bytes::Bytes;
+#[cfg(test)]
 use comfy_table::Cell;
+#[cfg(test)]
 use futures::{StreamExt, future};
+#[cfg(test)]
 use serde::{Deserialize, Serialize};
-use warp_cli::agent::{Harness, OutputFormat, Prompt, RunCloudArgs};
+use warp_cli::agent::RunCloudArgs;
+#[cfg(test)]
+use warp_cli::agent::{Harness, OutputFormat, Prompt};
+#[cfg(test)]
 use warp_cli::json_filter::JsonOutput;
+#[cfg(test)]
 use warp_cli::scope::TeamSelection;
 use warp_cli::task::{
-    ArtifactTypeArg, ExecutionLocationArg, ListTasksArgs, MessageCommand, MessageDeliveredArgs,
-    MessageListArgs, MessageReadArgs, MessageSendArgs, MessageWatchArgs, RunSortByArg,
+    ArtifactTypeArg, ExecutionLocationArg, ListTasksArgs, MessageCommand, RunSortByArg,
     RunSourceArg, RunStateArg, TaskGetArgs,
 };
+#[cfg(test)]
+use warp_cli::task::{
+    MessageDeliveredArgs, MessageListArgs, MessageReadArgs, MessageSendArgs, MessageWatchArgs,
+};
 use warp_cli::{GlobalOptions, SortOrderArg};
+#[cfg(test)]
 use warp_core::channel::ChannelState;
+#[cfg(test)]
 use warp_core::features::FeatureFlag;
+#[cfg(test)]
 use warp_server_client::HttpStatusError;
+use warpui::AppContext;
+#[cfg(test)]
 use warpui::r#async::{Spawnable, Timer};
+#[cfg(test)]
 use warpui::platform::TerminationMode;
-use warpui::{AppContext, ModelContext, SingletonEntity};
+#[cfg(test)]
+use warpui::{ModelContext, SingletonEntity};
 
+#[cfg(test)]
 use super::common::{EnvironmentChoice, ResolveConfigurationError, parse_ambient_task_id};
+#[cfg(test)]
 use crate::ServerApiProvider;
+#[cfg(test)]
 use crate::ai::agent::{UserQueryMode, extract_user_query_mode};
+#[cfg(test)]
 use crate::ai::agent_sdk::driver::attachments::{
     MAX_ATTACHMENT_COUNT_FOR_CLOUD_QUERY, process_attachment,
 };
-use crate::ai::ambient_agents::spawn::{
-    AmbientAgentEvent, SessionJoinInfo, TASK_STATUS_POLLING_DURATION, spawn_task,
-};
+#[cfg(test)]
+use crate::ai::ambient_agents::spawn::{AmbientAgentEvent, SessionJoinInfo, spawn_task};
+#[cfg(test)]
 use crate::ai::ambient_agents::task::HarnessConfig;
-use crate::ai::ambient_agents::{
-    AgentConfigSnapshot, AmbientAgentTask, AmbientAgentTaskId, AmbientAgentTaskState,
-};
+#[cfg(test)]
+use crate::ai::ambient_agents::{AgentConfigSnapshot, AmbientAgentTaskId};
+use crate::ai::ambient_agents::{AmbientAgentTask, AmbientAgentTaskState};
+#[cfg(test)]
 use crate::ai::artifacts::Artifact;
+#[cfg(test)]
 use crate::auth::AuthStateProvider;
+#[cfg(test)]
 use crate::cloud_object::model::persistence::CloudModel;
+#[cfg(test)]
 use crate::server::ids::{ServerId, SyncId};
+#[cfg(test)]
 use crate::server::server_api::ServerApi;
+#[cfg(test)]
 use crate::server::server_api::ai::{
-    AIClient, AgentMessageHeader, AgentRunEvent, AgentSource, ArtifactType, ExecutionLocation,
-    ListAgentMessagesRequest, ReadAgentMessageResponse, RunSortBy, RunSortOrder,
-    SendAgentMessageRequest, SendAgentMessageResponse, SpawnAgentRequest, TaskListFilter,
+    AIClient, AgentMessageHeader, AgentRunEvent, ListAgentMessagesRequest,
+    ReadAgentMessageResponse, SendAgentMessageRequest, SendAgentMessageResponse, SpawnAgentRequest,
 };
+use crate::server::server_api::ai::{
+    AgentSource, ArtifactType, ExecutionLocation, RunSortBy, RunSortOrder, TaskListFilter,
+};
+#[cfg(test)]
 use crate::server::team_scope::RequestTeamScope;
+#[cfg(test)]
 use crate::terminal::shared_session;
+#[cfg(test)]
 use crate::util::time_format::format_approx_duration_from_now_utc;
+#[cfg(test)]
 use crate::workspaces::user_workspaces::{TeamScopeForCli, UserWorkspaces};
 
+#[cfg(test)]
 const MAX_LINE_WIDTH: usize = 90;
+#[cfg(test)]
 const STREAM_RETRY_BACKOFF_STEPS: &[u64] = &[1, 2, 5, 10];
+#[cfg(test)]
 const HTTP_UNPROCESSABLE_ENTITY: u16 = 422;
 #[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 const HTTP_NOT_FOUND: u16 = 404;
+#[cfg(test)]
 const OPERATION_NOT_SUPPORTED_TYPE_URI: &str =
     "https://docs.warp.dev/errors/operation_not_supported";
 
 /// Singleton model that runs async work for ambient agent CLI commands.
+#[cfg(test)]
 struct AmbientAgentRunner;
 
+#[cfg(not(test))]
+fn local_only_error(command: &str) -> anyhow::Error {
+    anyhow::anyhow!("{command} is disabled in local-only mode")
+}
+
 /// Run an ambient agent with the provided arguments.
+#[cfg(test)]
 pub fn run_ambient_agent(ctx: &mut AppContext, args: RunCloudArgs) -> anyhow::Result<()> {
     let runner = ctx.add_singleton_model(|_ctx| AmbientAgentRunner);
     runner.update(ctx, |runner, ctx| runner.run_agent(args, ctx))
 }
 
+#[cfg(not(test))]
+pub fn run_ambient_agent(_ctx: &mut AppContext, _args: RunCloudArgs) -> anyhow::Result<()> {
+    Err(local_only_error("Ambient agent execution"))
+}
+
 /// List ambient agent tasks.
+#[cfg(test)]
 pub fn list_ambient_agent_tasks(
     ctx: &mut AppContext,
     global_options: GlobalOptions,
@@ -91,12 +147,28 @@ pub fn list_ambient_agent_tasks(
     })
 }
 
+#[cfg(not(test))]
+pub fn list_ambient_agent_tasks(
+    _ctx: &mut AppContext,
+    _global_options: GlobalOptions,
+    _args: ListTasksArgs,
+) -> anyhow::Result<()> {
+    Err(local_only_error("Ambient agent task listing"))
+}
+
 /// Print a table of ambient agent tasks.
+#[cfg(test)]
 pub(super) fn print_tasks(tasks: &[AmbientAgentTask]) {
     AmbientAgentRunner::print_tasks_table(tasks);
 }
 
+#[cfg(not(test))]
+pub(super) fn print_tasks(_tasks: &[AmbientAgentTask]) {
+    eprintln!("{}", local_only_error("Ambient agent task output"));
+}
+
 /// Get status of a specific ambient agent task.
+#[cfg(test)]
 pub fn get_ambient_agent_task_status(
     ctx: &mut AppContext,
     global_options: GlobalOptions,
@@ -107,6 +179,15 @@ pub fn get_ambient_agent_task_status(
     runner.update(ctx, |runner, ctx| {
         runner.get_task_status(args, output_format, ctx)
     })
+}
+
+#[cfg(not(test))]
+pub fn get_ambient_agent_task_status(
+    _ctx: &mut AppContext,
+    _global_options: GlobalOptions,
+    _args: TaskGetArgs,
+) -> anyhow::Result<()> {
+    Err(local_only_error("Ambient agent task status"))
 }
 
 /// Translate CLI-level `ListTasksArgs` into the server-facing `TaskListFilter`.
@@ -204,11 +285,13 @@ fn sort_order_from_arg(arg: SortOrderArg) -> RunSortOrder {
     }
 }
 
+#[cfg(test)]
 enum ListTasksOutput {
     Raw(serde_json::Value),
     Tasks(Vec<AmbientAgentTask>),
 }
 
+#[cfg(test)]
 async fn load_tasks_for_output(
     ai_client: &dyn AIClient,
     limit: i32,
@@ -230,6 +313,7 @@ async fn load_tasks_for_output(
     }
 }
 /// Run a message-related CLI command.
+#[cfg(test)]
 pub fn run_message(
     ctx: &mut AppContext,
     global_options: GlobalOptions,
@@ -256,6 +340,16 @@ pub fn run_message(
     }
 }
 
+#[cfg(not(test))]
+pub fn run_message(
+    _ctx: &mut AppContext,
+    _global_options: GlobalOptions,
+    _command: MessageCommand,
+) -> anyhow::Result<()> {
+    Err(local_only_error("Ambient agent messaging"))
+}
+
+#[cfg(test)]
 impl AmbientAgentRunner {
     fn spawn_command(
         &self,
@@ -597,7 +691,7 @@ impl AmbientAgentRunner {
                     request,
                     request_team_scope,
                     ai_client_clone,
-                    Some(TASK_STATUS_POLLING_DURATION),
+                    None,
                 ));
                 let mut session_join_info = None;
                 let mut spawned_task_id = None;
@@ -644,7 +738,7 @@ impl AmbientAgentRunner {
                             }
                             AmbientAgentEvent::TimedOut => {
                                 let task_id_str = spawned_task_id.as_ref().map_or_else(|| "unknown".to_string(), |id| id.to_string());
-                                println!("Agent session with run ID {task_id_str} is not ready after {}s. Check for a sharing link in the ambient agent management panel. See https://docs.warp.dev/platform/managing-cloud-agents for details.", TASK_STATUS_POLLING_DURATION.as_secs());
+                                println!("Agent session with run ID {task_id_str} is not ready.");
                             }
                         },
                         Err(err) => {
@@ -1107,12 +1201,14 @@ impl AmbientAgentRunner {
     }
 }
 
+#[cfg(test)]
 #[derive(Serialize)]
 struct MessageDeliveredResult<'a> {
     message_id: &'a str,
     delivered: bool,
 }
 
+#[cfg(test)]
 #[derive(Serialize)]
 struct MessageWatchEvent {
     sequence: i64,
@@ -1123,10 +1219,12 @@ struct MessageWatchEvent {
     occurred_at: String,
 }
 
+#[cfg(test)]
 fn format_optional_timestamp(timestamp: Option<&str>) -> &str {
     timestamp.unwrap_or("-")
 }
 
+#[cfg(test)]
 fn ensure_stream_output_format(output_format: OutputFormat) -> anyhow::Result<()> {
     if output_format == OutputFormat::Ndjson {
         return Ok(());
@@ -1137,6 +1235,7 @@ fn ensure_stream_output_format(output_format: OutputFormat) -> anyhow::Result<()
     ))
 }
 
+#[cfg(test)]
 fn stream_retry_backoff(failures: usize) -> Duration {
     let index = failures
         .saturating_sub(1)
@@ -1144,6 +1243,7 @@ fn stream_retry_backoff(failures: usize) -> Duration {
     Duration::from_secs(STREAM_RETRY_BACKOFF_STEPS[index])
 }
 
+#[cfg(test)]
 fn write_stream_record<T: Serialize>(record: &T) -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
     super::output::write_json_line(record, &mut stdout)?;
@@ -1151,10 +1251,12 @@ fn write_stream_record<T: Serialize>(record: &T) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn task_id_from_run_id(run_id: &str) -> Option<AmbientAgentTaskId> {
     run_id.parse().ok()
 }
 
+#[cfg(test)]
 fn task_id_from_oz_run_id_env() -> anyhow::Result<Option<AmbientAgentTaskId>> {
     match std::env::var(warp_cli::OZ_RUN_ID_ENV) {
         Ok(run_id) => parse_ambient_task_id(&run_id, "Invalid OZ_RUN_ID").map(Some),
@@ -1166,6 +1268,7 @@ fn task_id_from_oz_run_id_env() -> anyhow::Result<Option<AmbientAgentTaskId>> {
     }
 }
 
+#[cfg(test)]
 fn task_id_for_message_send(sender_run_id: &str) -> anyhow::Result<Option<AmbientAgentTaskId>> {
     match task_id_from_run_id(sender_run_id) {
         Some(task_id) => Ok(Some(task_id)),
@@ -1173,6 +1276,7 @@ fn task_id_for_message_send(sender_run_id: &str) -> anyhow::Result<Option<Ambien
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone)]
 struct SendAgentMessageLogContext {
     sender_run_id: String,
@@ -1182,6 +1286,7 @@ struct SendAgentMessageLogContext {
     body_len: usize,
 }
 
+#[cfg(test)]
 impl SendAgentMessageLogContext {
     fn new(request: &SendAgentMessageRequest, task_id: Option<&AmbientAgentTaskId>) -> Self {
         Self {
@@ -1235,6 +1340,7 @@ impl SendAgentMessageLogContext {
     }
 }
 
+#[cfg(test)]
 async fn watch_messages_forever(
     server_api: Arc<ServerApi>,
     ai_client: Arc<dyn AIClient>,
@@ -1374,6 +1480,7 @@ async fn watch_messages_forever(
     }
 }
 
+#[cfg(test)]
 fn print_send_message_response(
     response: &SendAgentMessageResponse,
     output_format: OutputFormat,
@@ -1382,6 +1489,7 @@ fn print_send_message_response(
     write_send_message_response(response, output_format, &mut stdout)
 }
 
+#[cfg(test)]
 fn write_send_message_response<W>(
     response: &SendAgentMessageResponse,
     output_format: OutputFormat,
@@ -1410,6 +1518,7 @@ where
     }
 }
 
+#[cfg(test)]
 fn print_read_message_response(
     response: &ReadAgentMessageResponse,
     output_format: OutputFormat,
@@ -1418,6 +1527,7 @@ fn print_read_message_response(
     write_read_message_response(response, output_format, &mut stdout)
 }
 
+#[cfg(test)]
 fn write_read_message_response<W>(
     response: &ReadAgentMessageResponse,
     output_format: OutputFormat,
@@ -1452,6 +1562,7 @@ where
     }
 }
 
+#[cfg(test)]
 fn print_mark_message_delivered_result(
     message_id: &str,
     output_format: OutputFormat,
@@ -1460,6 +1571,7 @@ fn print_mark_message_delivered_result(
     write_mark_message_delivered_result(message_id, output_format, &mut stdout)
 }
 
+#[cfg(test)]
 fn write_mark_message_delivered_result<W>(
     message_id: &str,
     output_format: OutputFormat,
@@ -1483,6 +1595,7 @@ where
     }
 }
 
+#[cfg(test)]
 impl super::output::TableFormat for AgentMessageHeader {
     fn header() -> Vec<Cell> {
         vec![
@@ -1508,6 +1621,7 @@ impl super::output::TableFormat for AgentMessageHeader {
 }
 
 /// Get a conversation by conversation ID.
+#[cfg(test)]
 pub fn get_conversation(ctx: &mut AppContext, conversation_id: String) -> anyhow::Result<()> {
     let runner = ctx.add_singleton_model(|_ctx| AmbientAgentRunner);
     runner.update(ctx, |runner, ctx| {
@@ -1515,19 +1629,32 @@ pub fn get_conversation(ctx: &mut AppContext, conversation_id: String) -> anyhow
     })
 }
 
+#[cfg(not(test))]
+pub fn get_conversation(_ctx: &mut AppContext, _conversation_id: String) -> anyhow::Result<()> {
+    Err(local_only_error("Conversation retrieval"))
+}
+
 /// Get a conversation by run ID.
+#[cfg(test)]
 pub fn get_run_conversation(ctx: &mut AppContext, run_id: String) -> anyhow::Result<()> {
     let runner = ctx.add_singleton_model(|_ctx| AmbientAgentRunner);
     runner.update(ctx, |runner, ctx| runner.get_run_conversation(run_id, ctx))
 }
 
+#[cfg(not(test))]
+pub fn get_run_conversation(_ctx: &mut AppContext, _run_id: String) -> anyhow::Result<()> {
+    Err(local_only_error("Conversation retrieval"))
+}
+
 /// Normalized Warp conversation JSON, or a raw third-party harness transcript.
+#[cfg(test)]
 #[derive(Debug, PartialEq)]
 enum ConversationCliOutput {
     Normalized(serde_json::Value),
     RawTranscript(Bytes),
 }
 
+#[cfg(test)]
 async fn load_run_conversation(
     ai_client: &dyn AIClient,
     run_id: &str,
@@ -1546,6 +1673,7 @@ async fn load_run_conversation(
     }
 }
 
+#[cfg(test)]
 async fn load_public_conversation(
     ai_client: &dyn AIClient,
     conversation_id: &str,
@@ -1565,6 +1693,7 @@ async fn load_public_conversation(
 }
 
 #[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 async fn download_raw_run_transcript(
     ai_client: &dyn AIClient,
     run_id: &str,
@@ -1578,6 +1707,7 @@ async fn download_raw_run_transcript(
 }
 
 #[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 async fn download_raw_conversation_transcript(
     ai_client: &dyn AIClient,
     conversation_id: &str,
@@ -1594,6 +1724,7 @@ async fn download_raw_conversation_transcript(
 }
 
 #[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 fn map_raw_transcript_download(
     result: anyhow::Result<Bytes>,
     not_found_message: String,
@@ -1606,12 +1737,14 @@ fn map_raw_transcript_download(
     }
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct Rfc7807Problem {
     #[serde(default, rename = "type")]
     problem_type: String,
 }
 
+#[cfg(test)]
 fn is_normalized_conversation_unsupported(err: &anyhow::Error) -> bool {
     err.chain().any(|cause| {
         let Some(status_error) = cause.downcast_ref::<HttpStatusError>() else {
@@ -1628,6 +1761,7 @@ fn is_normalized_conversation_unsupported(err: &anyhow::Error) -> bool {
 }
 
 #[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 fn is_http_status(err: &anyhow::Error, status: u16) -> bool {
     err.chain().any(|cause| {
         cause
@@ -1636,10 +1770,12 @@ fn is_http_status(err: &anyhow::Error, status: u16) -> bool {
     })
 }
 
+#[cfg(test)]
 fn print_conversation_cli_output(output: &ConversationCliOutput) -> anyhow::Result<()> {
     write_conversation_cli_output(output, std::io::stdout())
 }
 
+#[cfg(test)]
 fn write_conversation_cli_output<W>(
     output: &ConversationCliOutput,
     mut writer: W,
@@ -1659,6 +1795,7 @@ where
     Ok(())
 }
 
+#[cfg(test)]
 impl AmbientAgentRunner {
     fn get_conversation(
         &self,
@@ -1695,10 +1832,12 @@ impl AmbientAgentRunner {
     }
 }
 
+#[cfg(test)]
 impl warpui::Entity for AmbientAgentRunner {
     type Event = ();
 }
 
+#[cfg(test)]
 impl SingletonEntity for AmbientAgentRunner {}
 
 #[cfg(test)]

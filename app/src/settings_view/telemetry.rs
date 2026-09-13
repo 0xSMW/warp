@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use serde_json::Value;
 use strum_macros::{EnumDiscriminants, EnumIter};
 use warp_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};

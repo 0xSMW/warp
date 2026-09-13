@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use command::Stdio;
 use command::r#async::Command;
+#[cfg(test)]
 use futures::future::join_all;
 use tokio::fs as tokio_fs;
 use warp_util::standardized_path::StandardizedPath;
@@ -62,6 +63,7 @@ pub(crate) struct TouchedWorkspace {
 #[derive(Clone, Debug)]
 pub(crate) struct TouchedRepo {
     /// Absolute path to the working tree root (the directory containing `.git`).
+    #[cfg(test)]
     pub git_root: PathBuf,
     /// `<owner>/<repo>` parsed from the `origin` remote URL, when discoverable.
     /// Drives env-overlap matching against `CloudAmbientAgentEnvironment.github_repos`
@@ -81,6 +83,7 @@ pub(crate) struct TouchedRepo {
 /// actually wrote to (plus per-exchange cwds for repo discovery). That gate
 /// is what makes the orphan-file branch safe — we never stage a read-only
 /// path like `~/.ssh/id_rsa` for upload.
+#[cfg(test)]
 pub(crate) async fn derive_touched_workspace(paths: Vec<PathBuf>) -> TouchedWorkspace {
     if paths.is_empty() {
         return TouchedWorkspace::default();
@@ -201,7 +204,11 @@ pub(crate) async fn resolve_repo_for_path(path: &Path) -> Option<TouchedRepo> {
         .await
         .as_deref()
         .and_then(parse_github_repo);
-    Some(TouchedRepo { git_root, repo_id })
+    Some(TouchedRepo {
+        #[cfg(test)]
+        git_root,
+        repo_id,
+    })
 }
 
 /// Suggests the available environment whose configured repositories overlap

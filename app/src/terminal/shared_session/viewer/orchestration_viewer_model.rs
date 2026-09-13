@@ -1,3 +1,5 @@
+#![cfg(any(test, feature = "integration_tests"))]
+
 //! Drives the orchestration pill bar in shared session viewers.
 //!
 //! After the viewer joins a parent ambient-agent session, this model

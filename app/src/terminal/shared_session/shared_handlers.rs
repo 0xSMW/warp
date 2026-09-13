@@ -1,24 +1,39 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+#[cfg(any(test, feature = "integration_tests"))]
 use input_classifier::InputType;
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::common::{
     CLIAgentSessionState, InputMode, InputType as ProtocolInputType, SelectedAgentModel,
+};
+use session_sharing_protocol::common::{
     SelectedConversation, ServerConversationToken, UniversalDeveloperInputContextUpdate,
 };
 use warp_core::features::FeatureFlag;
-use warpui::{AppContext, ModelHandle, SingletonEntity, WeakViewHandle};
+#[cfg(any(test, feature = "integration_tests"))]
+use warpui::WeakViewHandle;
+use warpui::{AppContext, ModelHandle, SingletonEntity};
 
-use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewEntryOrigin};
-use crate::ai::blocklist::{BlocklistAIContextModel, BlocklistAIHistoryModel, InputConfig};
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::ai::blocklist::InputConfig;
+use crate::ai::blocklist::agent_view::AgentViewController;
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::ai::blocklist::agent_view::AgentViewEntryOrigin;
+use crate::ai::blocklist::{BlocklistAIContextModel, BlocklistAIHistoryModel};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::llms::{LLMId, LLMPreferences};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::cli_agent_sessions::{
     CLIAgentInputEntrypoint, CLIAgentInputState, CLIAgentRichInputCloseReason, CLIAgentSession,
     CLIAgentSessionContext, CLIAgentSessionStatus, CLIAgentSessionsModel,
 };
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::{CLIAgent, TerminalView};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::workspaces::user_workspaces::{ResolvedTeamScope, UserWorkspaces};
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// Handles updating the local LLM preferences when a selected agent model update is received.
 /// This function is shared between the viewer and sharer to ensure consistent behavior.
 pub(crate) fn apply_selected_agent_model_update(
@@ -65,6 +80,7 @@ pub(crate) fn apply_selected_agent_model_update(
     });
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// Handles updating the local input mode when an input mode update is received.
 /// This function is shared between the viewer and sharer to ensure consistent behavior.
 pub(crate) fn apply_input_mode_update(
@@ -106,6 +122,7 @@ pub(crate) fn apply_input_mode_update(
     });
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// Handles updating the local auto-approve setting when an update is received.
 /// This function is shared between the viewer and sharer to ensure consistent behavior.
 pub(crate) fn apply_auto_approve_agent_actions_update(
@@ -134,6 +151,7 @@ pub(crate) fn apply_auto_approve_agent_actions_update(
     });
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// Handles updating the local selected conversation when a selected conversation update is received.
 /// This function is shared between the viewer and sharer to ensure consistent behavior.
 pub(crate) fn apply_selected_conversation_update(
@@ -363,6 +381,7 @@ fn build_selected_conversation_update_agent_view_enabled(
     })
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// Applies CLI agent session + rich-input state from the remote side.
 /// Creates/removes the session and opens/closes rich input based on
 /// the given `CLIAgentSessionState`.
@@ -496,6 +515,7 @@ impl RemoteUpdateGuard {
         !self.inner.get()
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     /// Returns an RAII token that suppresses outgoing broadcasts until dropped.
     /// Wrap all `apply_*` calls for incoming remote updates in this so that
     /// the synchronous event dispatch sees the guard as active.
@@ -511,11 +531,13 @@ impl RemoteUpdateGuard {
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// RAII token that suppresses outgoing broadcasts while held.
 pub(crate) struct ActiveRemoteUpdate {
     inner: Rc<Cell<bool>>,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl Drop for ActiveRemoteUpdate {
     fn drop(&mut self) {
         self.inner.set(false);

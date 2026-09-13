@@ -1,3 +1,6 @@
+// Commented out in production: built-in cloud/Oz formatting is disabled in local-only mode.
+// Keep the formatter available for its focused regression tests.
+#[cfg(test)]
 pub mod text {
     use std::collections::HashSet;
     use std::fmt;
@@ -571,6 +574,38 @@ pub mod text {
     }
 }
 
+#[cfg(not(test))]
+pub mod text {
+    use std::io::{self, Write};
+
+    use crate::ai::agent::{AIAgentInput, AIAgentOutput};
+
+    pub fn format_input<W: Write>(_: &AIAgentInput, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn format_output<W: Write>(_: &AIAgentOutput, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn conversation_started<W: Write>(_: &str, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn run_started<W: Write>(_: &str, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn shared_session_established<W: Write>(_: &str, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn plan_artifact_created<W: Write>(_: &str, _: &str, _: &str, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 pub mod json {
     use std::borrow::Cow;
     use std::io::{self, Write};
@@ -1331,20 +1366,58 @@ pub mod json {
     }
 }
 
-use std::io::{self, BufWriter, Write};
+#[cfg(not(test))]
+pub mod json {
+    use std::io::{self, Write};
 
+    use crate::ai::agent::{AIAgentInput, AIAgentOutput};
+
+    pub fn format_output<W: Write>(_: &AIAgentOutput, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn format_input<W: Write>(_: &AIAgentInput, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn conversation_started<W: Write>(_: &str, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn run_started<W: Write>(_: &str, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn shared_session_established<W: Write>(_: &str, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+
+    pub fn plan_artifact_created<W: Write>(_: &str, _: &str, _: &str, _: &mut W) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+use std::io::Write;
+use std::io::{self, BufWriter};
+
+#[cfg(test)]
 use warp_core::channel::ChannelState;
 
+#[cfg(test)]
 use crate::ai::agent::{AIAgentText, AIAgentTextSection};
+#[cfg(test)]
 use crate::code::editor_management::CodeSource;
 
 /// Constructs the Oz dashboard URL for a given run ID.
+#[cfg(test)]
 fn run_url(run_id: &str) -> String {
     let oz_root_url = ChannelState::oz_root_url();
     format!("{oz_root_url}/runs/{run_id}")
 }
 
 /// Execute a closure with a buffered stdout writer and flush it afterwards.
+#[cfg(test)]
 pub fn with_stdout_buffered<F>(f: F) -> io::Result<()>
 where
     F: FnOnce(&mut BufWriter<io::StdoutLock>) -> io::Result<()>,
@@ -1356,6 +1429,15 @@ where
     buf.flush()
 }
 
+#[cfg(not(test))]
+pub fn with_stdout_buffered<F>(_f: F) -> io::Result<()>
+where
+    F: FnOnce(&mut BufWriter<io::StdoutLock>) -> io::Result<()>,
+{
+    Ok(())
+}
+
+#[cfg(test)]
 fn format_agent_text<W: Write>(text: &AIAgentText, w: &mut W) -> io::Result<()> {
     let mut wrote_newline = false;
     for section in &text.sections {

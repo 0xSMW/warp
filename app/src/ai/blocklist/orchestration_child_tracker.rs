@@ -1,3 +1,5 @@
+#![cfg(any(test, feature = "integration_tests"))]
+
 //! Tracks child run state for one parent family.
 //!
 //! When the parent's SSE stream fires a `child_agent_started` event, the
@@ -36,9 +38,10 @@ use warpui::SingletonEntity;
 
 #[cfg(not(test))]
 use super::history_model::BlocklistAIHistoryModel;
+#[cfg(any(test, feature = "integration_tests"))]
+use super::orchestration_event_streamer::OrchestrationEventStreamerEvent;
 use super::orchestration_event_streamer::{
-    OrchestrationEventStreamer, OrchestrationEventStreamerEvent,
-    conversation_status_from_lifecycle_event_type,
+    OrchestrationEventStreamer, conversation_status_from_lifecycle_event_type,
 };
 use crate::ai::agent::conversation::ConversationStatus;
 // Compiled out of unit-test builds so the state machine can be exercised
@@ -60,11 +63,9 @@ pub enum ChildSignal {
     Lifecycle(api::LifecycleEventType),
     /// A REST seed row (cold-start seed / restore fetch). Boxed because the
     /// task row dwarfs the other variants.
-    #[allow(dead_code)]
     Seeded(Box<AmbientAgentTask>),
     /// A child created in this process, already backed by a local
     /// conversation that its executor hydrates.
-    #[allow(dead_code)]
     Registered,
 }
 
@@ -77,7 +78,6 @@ pub struct TrackedChild {
     /// `true` for every placeholder the tracker materializes on behalf of a
     /// run hosted elsewhere. `false` only for in-band children, which already
     /// own a real local conversation and are tracked for status only.
-    #[allow(dead_code)]
     pub is_remote_child: bool,
     /// The most recent SSE lifecycle event type received for this child, if
     /// any. Used by the placeholder-completion callback to backfill status
@@ -157,7 +157,12 @@ impl OrchestrationChildTracker {
 
         match signal {
             ChildSignal::Registered => {
-                self.register_in_band_child(task_id, child_run_id, ctx);
+                self.register_in_band_child(
+                    task_id,
+                    child_run_id,
+                    #[cfg(any(test, feature = "integration_tests"))]
+                    ctx,
+                );
             }
             ChildSignal::SessionLinked { session_uuid } => {
                 self.apply_session_linked(task_id, &session_uuid);
@@ -166,7 +171,11 @@ impl OrchestrationChildTracker {
                 self.apply_lifecycle(task_id, child_run_id, kind, ctx);
             }
             ChildSignal::Seeded(task) => {
-                self.apply_seeded(*task, ctx);
+                self.apply_seeded(
+                    *task,
+                    #[cfg(any(test, feature = "integration_tests"))]
+                    ctx,
+                );
             }
             ChildSignal::Started => {
                 self.apply_started(task_id, child_run_id, ctx);
@@ -204,6 +213,7 @@ impl OrchestrationChildTracker {
                 is_remote_child: true,
                 last_lifecycle: None,
             },
+            #[cfg(any(test, feature = "integration_tests"))]
             ctx,
         );
         // Also kick the metadata fetch to get real task state, session_id,
@@ -254,6 +264,7 @@ impl OrchestrationChildTracker {
                     });
                 }
             }
+            #[cfg(any(test, feature = "integration_tests"))]
             ctx.emit(OrchestrationEventStreamerEvent::ChildStatusChanged {
                 parent_task_id: self.parent_task_id,
                 run_id: run_id.to_string(),
@@ -270,7 +281,9 @@ impl OrchestrationChildTracker {
         if let Some(child) = self.children.get_mut(&task_id) {
             child.last_lifecycle = Some(kind);
         }
+        #[cfg(any(test, feature = "integration_tests"))]
         let status = conversation_status_from_lifecycle_event_type(kind);
+        #[cfg(any(test, feature = "integration_tests"))]
         ctx.emit(OrchestrationEventStreamerEvent::ChildStatusChanged {
             parent_task_id: self.parent_task_id,
             run_id: run_id.to_string(),
@@ -286,7 +299,9 @@ impl OrchestrationChildTracker {
         &mut self,
         task_id: AmbientAgentTaskId,
         run_id: &str,
-        ctx: &mut ModelContext<OrchestrationEventStreamer>,
+        #[cfg(any(test, feature = "integration_tests"))] ctx: &mut ModelContext<
+            OrchestrationEventStreamer,
+        >,
     ) {
         // A real conversation already exists for this run, so any speculative
         // metadata fetch is moot.
@@ -307,6 +322,7 @@ impl OrchestrationChildTracker {
                 is_remote_child: false,
                 last_lifecycle: None,
             },
+            #[cfg(any(test, feature = "integration_tests"))]
             ctx,
         );
     }
@@ -316,7 +332,9 @@ impl OrchestrationChildTracker {
     fn apply_seeded(
         &mut self,
         task: AmbientAgentTask,
-        ctx: &mut ModelContext<OrchestrationEventStreamer>,
+        #[cfg(any(test, feature = "integration_tests"))] ctx: &mut ModelContext<
+            OrchestrationEventStreamer,
+        >,
     ) {
         // The ancestor endpoint includes the parent itself in the response;
         // skip it.
@@ -353,6 +371,7 @@ impl OrchestrationChildTracker {
                 is_remote_child: true,
                 last_lifecycle: None,
             },
+            #[cfg(any(test, feature = "integration_tests"))]
             ctx,
         );
     }
@@ -410,10 +429,13 @@ impl OrchestrationChildTracker {
         task_id: AmbientAgentTaskId,
         run_id: &str,
         child: TrackedChild,
-        ctx: &mut ModelContext<OrchestrationEventStreamer>,
+        #[cfg(any(test, feature = "integration_tests"))] ctx: &mut ModelContext<
+            OrchestrationEventStreamer,
+        >,
     ) {
         self.children.insert(task_id, child);
         self.children_by_run_id.insert(run_id.to_string(), task_id);
+        #[cfg(any(test, feature = "integration_tests"))]
         ctx.emit(OrchestrationEventStreamerEvent::ChildSpawned {
             parent_task_id: self.parent_task_id,
             run_id: run_id.to_string(),
@@ -444,7 +466,11 @@ impl OrchestrationChildTracker {
                 });
                 if let Some(task) = cached {
                     self.children_awaiting_metadata.remove(run_id);
-                    self.apply_seeded(task, ctx);
+                    self.apply_seeded(
+                        task,
+                        #[cfg(any(test, feature = "integration_tests"))]
+                        ctx,
+                    );
                 }
             }
             return;
@@ -470,7 +496,11 @@ impl OrchestrationChildTracker {
             // leaves the guard set; the shared fetch populates the cache and a
             // later re-drive completes discovery.
             if let Some(task) = cached {
-                self.apply_seeded(task, ctx);
+                self.apply_seeded(
+                    task,
+                    #[cfg(any(test, feature = "integration_tests"))]
+                    ctx,
+                );
             }
         }
     }

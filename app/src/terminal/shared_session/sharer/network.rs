@@ -1,81 +1,97 @@
 //! The "sender" of a shared session represents the sharer's end.
 //!
 //! Currently there is no way to share a session from wasm.
-#![cfg_attr(
-    any(test, feature = "integration_tests", target_family = "wasm"),
-    allow(dead_code)
-)]
-
+#[cfg(any(test, feature = "integration_tests"))]
 use std::collections::HashMap;
+#[cfg(any(test, feature = "integration_tests"))]
 use std::pin::pin;
 use std::sync::Arc;
+#[cfg(any(test, feature = "integration_tests"))]
 use std::time::Duration;
 
 use async_channel::Receiver;
-use byte_unit::{Byte, UnitType};
+use byte_unit::Byte;
+#[cfg(any(test, feature = "integration_tests"))]
+use byte_unit::UnitType;
+#[cfg(any(test, feature = "integration_tests"))]
 use futures_util::stream::AbortHandle;
+#[cfg(any(test, feature = "integration_tests"))]
 use futures_util::{SinkExt, StreamExt};
+#[cfg(any(test, feature = "integration_tests"))]
 use instant::Instant;
 use parking_lot::FairMutex;
 use session_sharing_protocol::common::{
-    ActivePrompt, ActivePromptUpdate, AgentPromptFailureReason, AgentPromptRequest,
-    AgentPromptRequestId, CommandExecutionFailureReason, CommandExecutionRequestId, ControlAction,
+    ActivePrompt, OrderedTerminalEventType, ParticipantId, Role, RoleRequestId,
+    RoleRequestResponse, Selection, UniversalDeveloperInputContext,
+    UniversalDeveloperInputContextUpdate,
+};
+#[cfg(any(test, feature = "integration_tests"))]
+use session_sharing_protocol::common::{
+    ActivePromptUpdate, AgentPromptFailureReason, AgentPromptRequest, AgentPromptRequestId,
+    CommandExecutionFailureReason, CommandExecutionRequestId, ControlAction,
     ControlActionFailureReason, ControlActionRequestId, FeatureSupport, InputOperationId,
-    InputOperationSeqNo, InputUpdate, OrderedTerminalEvent, OrderedTerminalEventType,
-    ParticipantId, ParticipantList, ParticipantPresenceUpdate, Role, RoleRequestId,
-    RoleRequestResponse, Scrollback, Selection, SelectionUpdate, SessionId,
-    UniversalDeveloperInputContext, UniversalDeveloperInputContextUpdate, UserID, WindowSize,
+    InputOperationSeqNo, InputUpdate, OrderedTerminalEvent, ParticipantList,
+    ParticipantPresenceUpdate, SelectionUpdate, SessionId, UserID, WindowSize,
     WriteToPtyFailureReason, WriteToPtyRequestId,
 };
 #[cfg(not(any(test, feature = "integration_tests")))]
-use session_sharing_protocol::common::{SelectedAgentModel, TelemetryContext};
-#[cfg(not(any(test, feature = "integration_tests")))]
-use session_sharing_protocol::sharer::InitPayload;
+use session_sharing_protocol::sharer::Lifetime;
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::sharer::{
     AddGuestsResponse, DownstreamMessage, FailedToAddGuestsReason, FailedToInitializeSessionReason,
-    Lifetime, LinkAccessLevelUpdateResponse, ReconnectPayload, ReconnectToken, RemoveGuestResponse,
-    RoleUpdateReason, SessionEndedReason, SessionRetentionReason, SessionSourceType,
-    SessionTerminatedReason, TeamAccessLevelUpdateResponse, UpdatePendingUserRoleResponse,
-    UpstreamMessage,
+    LinkAccessLevelUpdateResponse, ReconnectPayload, ReconnectToken, RemoveGuestResponse,
+    SessionSourceType, SessionTerminatedReason, TeamAccessLevelUpdateResponse,
+    UpdatePendingUserRoleResponse, UpstreamMessage,
 };
+use session_sharing_protocol::sharer::{
+    RoleUpdateReason, SessionEndedReason, SessionRetentionReason,
+};
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_core::features::FeatureFlag;
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_errors::report_error;
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_server_client::iap::IapManager;
+#[cfg(any(test, feature = "integration_tests"))]
 use warpui::r#async::Timer;
-use warpui::{Entity, ModelContext, RequestState, RetryOption, SingletonEntity};
+use warpui::{Entity, ModelContext};
+#[cfg(any(test, feature = "integration_tests"))]
+use warpui::{RequestState, RetryOption, SingletonEntity};
+#[cfg(any(test, feature = "integration_tests"))]
 use websocket::{Message, Sink, Stream, WebSocket, WebsocketMessage as _};
 
-use crate::auth::{AuthStateProvider, UserUid};
-use crate::editor::{CrdtOperation, ReplicaId};
-use crate::server::server_api::ServerApiProvider;
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::auth::AuthStateProvider;
+use crate::auth::UserUid;
+use crate::editor::CrdtOperation;
 #[cfg(not(any(test, feature = "integration_tests")))]
-use crate::server::telemetry::telemetry_context;
+use crate::editor::ReplicaId;
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::server::server_api::ServerApiProvider;
 use crate::terminal::TerminalModel;
 use crate::terminal::model::block::BlockId;
 #[cfg(not(any(test, feature = "integration_tests")))]
 use crate::terminal::shared_session::SharedSessionScrollbackType;
-use crate::terminal::shared_session::{
-    EventNumber, SELECTION_THROTTLE_PERIOD, SharedSessionSource, connect_endpoint,
-};
+use crate::terminal::shared_session::SharedSessionSource;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::throttle::throttle;
 
 /// The amount of time we will wait to batch consecutive PTY read events before sending an event to the server.
-#[cfg(not(any(test, feature = "integration_tests")))]
-const PTY_READS_BATCH_THRESHOLD: Duration = Duration::from_millis(50);
-/// Under `test`/`integration_tests` the threshold is larger so the transient
+/// Under `test` the threshold is larger so the transient
 /// `Batching` state is reliably observable instead of racing the real ~50ms timer
 /// under coarse scheduler granularity (which flaked on Windows CI); see
 /// `test_handle_pty_read_event_while_not_batching`.
 #[cfg(any(test, feature = "integration_tests"))]
 const PTY_READS_BATCH_THRESHOLD: Duration = Duration::from_millis(250);
-#[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
-const CREATE_SESSION_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
+#[cfg(any(test, feature = "integration_tests"))]
+const SELECTION_THROTTLE_PERIOD: Duration = Duration::from_millis(20);
+#[cfg(any(test, feature = "integration_tests"))]
 const AMBIENT_CREATE_SESSION_MAX_ATTEMPTS: usize = 3;
 /// Exponential backoff when retrying reconnection. This configuration has us retry for ~128 seconds before giving up,
 /// where the last interval between retries is 26s.
 /// We should be somewhat generous with the amount of retries allowed when a sharer wants to recover their session,
 /// since they have the choice of giving up early by closing the window/stopping sharing.
+#[cfg(any(test, feature = "integration_tests"))]
 const RECONNECT_RETRY_STRATEGY: RetryOption = RetryOption::exponential(
     Duration::from_millis(1000), /* interval */
     1.2,                         /* exponential factor */
@@ -83,6 +99,41 @@ const RECONNECT_RETRY_STRATEGY: RetryOption = RetryOption::exponential(
 )
 .with_jitter(0.2);
 
+#[cfg(any(test, feature = "integration_tests"))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+struct EventNumber(usize);
+
+#[cfg(any(test, feature = "integration_tests"))]
+impl EventNumber {
+    fn new() -> Self {
+        Self(0)
+    }
+
+    fn advance(&mut self) -> usize {
+        let next = self.0;
+        self.0 += 1;
+        next
+    }
+}
+
+#[cfg(any(test, feature = "integration_tests"))]
+impl From<EventNumber> for usize {
+    fn from(value: EventNumber) -> Self {
+        value.0
+    }
+}
+
+#[cfg(test)]
+fn connect_endpoint(path: String) -> Option<String> {
+    crate::terminal::shared_session::connect_endpoint(path)
+}
+
+#[cfg(all(feature = "integration_tests", not(test)))]
+fn connect_endpoint(_path: String) -> Option<String> {
+    None
+}
+
+#[cfg(any(test, feature = "integration_tests"))]
 macro_rules! sharer_info {
     ($network:expr_2021, $($arg:tt)+) => {{
         let (session_id, source_task_id) = $network.log_context();
@@ -95,6 +146,7 @@ macro_rules! sharer_info {
     }};
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 macro_rules! sharer_warn {
     ($network:expr_2021, $($arg:tt)+) => {{
         let (session_id, source_task_id) = $network.log_context();
@@ -107,6 +159,7 @@ macro_rules! sharer_warn {
     }};
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 macro_rules! sharer_error {
     ($network:expr_2021, $($arg:tt)+) => {{
         let (session_id, source_task_id) = $network.log_context();
@@ -121,6 +174,7 @@ macro_rules! sharer_error {
 }
 
 /// How far along the starting process we are.
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug)]
 enum Stage {
     /// The server is not ready to receive messages from us.
@@ -133,6 +187,7 @@ enum Stage {
     Finished,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 enum PtyBytesBatchStatus {
     /// We're not currently batching PTY read events.
     NotBatching {
@@ -151,25 +206,14 @@ enum PtyBytesBatchStatus {
 /// Helper struct to group together the most up to date state that the server needs to know about.
 /// Any event we send to the server where we only care about the latest value should be included here.
 /// This is used to avoid sending duplicate updates, and to update the server with the latest state on reconnection.
+#[cfg(any(test, feature = "integration_tests"))]
 struct CachedLatestState {
     prompt: ActivePrompt,
     selection: Selection,
     universal_developer_input_context: Option<UniversalDeveloperInputContext>,
 }
 
-#[derive(Clone)]
-#[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
-struct StartupConfig {
-    scrollback: Scrollback,
-    window_size: WindowSize,
-    init_block_id: BlockId,
-    input_replica_id: ReplicaId,
-    universal_developer_input_context: UniversalDeveloperInputContext,
-    lifetime: Lifetime,
-    selected_model_id: String,
-    share_with_team_uid: Option<crate::server::ids::ServerId>,
-}
-
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug)]
 struct StartupRetryState {
     current_attempt: usize,
@@ -178,8 +222,8 @@ struct StartupRetryState {
     transport_abort_handle: Option<AbortHandle>,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl StartupRetryState {
-    #[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
     fn new(max_attempts: usize) -> Self {
         Self {
             current_attempt: 0,
@@ -190,8 +234,8 @@ impl StartupRetryState {
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug)]
-#[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
 enum StartupFailure {
     Transport,
     InitializeSend,
@@ -201,6 +245,7 @@ enum StartupFailure {
     ServerRejected(FailedToInitializeSessionReason),
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl StartupFailure {
     fn is_retryable(&self) -> bool {
         match self {
@@ -254,7 +299,7 @@ impl StartupFailure {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 fn share_with_team_uid_for_init_payload(
     scope: &(impl crate::workspaces::user_workspaces::TeamScope + ?Sized),
 ) -> Option<String> {
@@ -265,7 +310,7 @@ fn share_with_team_uid_for_init_payload(
         .map(String::from)
 }
 
-#[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
+#[cfg(any(test, feature = "integration_tests"))]
 fn startup_max_attempts(source: &SharedSessionSource) -> usize {
     if matches!(source.source_type, SessionSourceType::AmbientAgent { .. }) {
         AMBIENT_CREATE_SESSION_MAX_ATTEMPTS
@@ -274,6 +319,7 @@ fn startup_max_attempts(source: &SharedSessionSource) -> usize {
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 pub struct Network {
     model: Arc<FairMutex<TerminalModel>>,
     stage: Stage,
@@ -293,7 +339,6 @@ pub struct Network {
 
     // TODO (suraj): figure out how to better structure the
     // Network model for testing so that we don't need stuff like this.
-    #[allow(dead_code)]
     ws_proxy_rx: async_channel::Receiver<UpstreamMessage>,
 
     selection_throttled_tx: async_channel::Sender<Selection>,
@@ -304,7 +349,6 @@ pub struct Network {
     session_id: Option<SessionId>,
     reconnect_token: Option<ReconnectToken>,
     sharer_id: Option<ParticipantId>,
-    startup_config: Option<StartupConfig>,
     source: SharedSessionSource,
 
     /// HashMap from event_no to the event. We keep these in memory to support reconnections
@@ -318,9 +362,12 @@ pub struct Network {
     pending_input_updates: Vec<InputUpdate>,
 }
 
+#[cfg(not(any(test, feature = "integration_tests")))]
+pub struct Network {}
+
+#[cfg(any(test, feature = "integration_tests"))]
 impl Network {
     /// Creates a model that artifically declares that a shared session has been started.
-    #[cfg(any(test, feature = "integration_tests"))]
     pub fn new_for_test(
         model: Arc<FairMutex<TerminalModel>>,
         ordered_events_rx: Receiver<OrderedTerminalEventType>,
@@ -357,7 +404,6 @@ impl Network {
             session_id: None,
             reconnect_token: None,
             sharer_id: None,
-            startup_config: None,
             source: SharedSessionSource::default(),
             unacked_terminal_events: HashMap::new(),
             next_buffer_seq_no: (init_block_id, InputOperationSeqNo::zero()),
@@ -370,111 +416,6 @@ impl Network {
             sharer_firebase_uid,
         });
         network.start_ordered_terminal_events_listener(ordered_events_rx, ctx);
-        ctx.spawn_stream_local(
-            selection_throttled_rx,
-            |network, selection, _ctx| {
-                let event_no = network.selection_event_no.advance();
-                network.send_message_to_server(UpstreamMessage::UpdateSelection(SelectionUpdate {
-                    selection,
-                    event_no: event_no.into(),
-                }));
-            },
-            |_, _| {},
-        );
-        network
-    }
-
-    /// Initializes the Network interface for the shared session (creator-side) and
-    /// tries to establish a websocket connection against the server.
-    #[cfg(not(any(test, feature = "integration_tests")))]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        model: Arc<FairMutex<TerminalModel>>,
-        ordered_events_rx: Receiver<OrderedTerminalEventType>,
-        scrollback_type: SharedSessionScrollbackType,
-        active_prompt: ActivePrompt,
-        selection: Selection,
-        input_replica_id: ReplicaId,
-        terminal_view_id: warpui::EntityId,
-        team_uid: Option<crate::server::ids::ServerId>,
-        universal_developer_input_context: UniversalDeveloperInputContext,
-        lifetime: Lifetime,
-        source: SharedSessionSource,
-        max_session_size: Byte,
-        ctx: &mut ModelContext<Self>,
-    ) -> Self {
-        let (ws_proxy_tx, ws_proxy_rx) = async_channel::unbounded();
-        let scrollback = scrollback_type.to_scrollback(&model.lock());
-        let num_bytes_scrollback = scrollback.num_bytes();
-        let (selection_throttled_tx, selection_rx) = async_channel::unbounded();
-        let selection_throttled_rx = throttle(SELECTION_THROTTLE_PERIOD, selection_rx);
-        let init_block_id = model.lock().block_list().active_block_id().clone();
-        let window_size = {
-            let size_info = *model.lock().block_list().size();
-            WindowSize {
-                num_rows: size_info.rows(),
-                num_cols: size_info.columns(),
-            }
-        };
-        let selected_model_id: String = crate::ai::llms::LLMPreferences::as_ref(ctx)
-            .get_active_base_model_for_team_uid(team_uid, ctx, Some(terminal_view_id))
-            .id
-            .clone()
-            .into();
-        let startup_retry = StartupRetryState::new(startup_max_attempts(&source));
-        let startup_config = StartupConfig {
-            scrollback: scrollback.clone(),
-            window_size,
-            init_block_id: init_block_id.clone(),
-            input_replica_id,
-            universal_developer_input_context: universal_developer_input_context.clone(),
-            lifetime,
-            selected_model_id,
-            share_with_team_uid: team_uid,
-        };
-
-        let mut network = Network {
-            event_no: EventNumber::new(),
-            selection_event_no: EventNumber::new(),
-            model: model.clone(),
-            ws_proxy_tx,
-            ws_proxy_rx,
-            selection_throttled_tx,
-            num_bytes_shared: num_bytes_scrollback,
-            max_session_size,
-            pty_bytes_batch_status: PtyBytesBatchStatus::NotBatching {
-                last_sent_at: Instant::now(),
-            },
-            cached_latest_state: CachedLatestState {
-                prompt: active_prompt.clone(),
-                selection: selection.clone(),
-                universal_developer_input_context: Some(universal_developer_input_context.clone()),
-            },
-            stage: Stage::BeforeStarted { startup_retry },
-            session_id: None,
-            reconnect_token: None,
-            sharer_id: None,
-            startup_config: Some(startup_config),
-            source,
-            unacked_terminal_events: HashMap::new(),
-            next_buffer_seq_no: (init_block_id.clone(), InputOperationSeqNo::zero()),
-            pending_input_updates: Vec::new(),
-        };
-
-        // We should validate the scrollback is under the limit before creating the Network, but check here just to be safe.
-        if num_bytes_scrollback > network.max_session_size {
-            sharer_warn!(
-                network,
-                "Session sharing scrollback exceeds max session size; failing startup"
-            );
-            ctx.emit(NetworkEvent::FailedToCreateSharedSession {
-                reason: FailedToInitializeSessionReason::ScrollbackTooLarge {},
-                cause: None,
-            });
-        } else {
-            network.start_ordered_terminal_events_listener(ordered_events_rx, ctx);
-            network.start_create_session_attempt(ctx);
-        }
         ctx.spawn_stream_local(
             selection_throttled_rx,
             |network, selection, _ctx| {
@@ -776,151 +717,6 @@ impl Network {
             Some(update.merge_into(current));
     }
 
-    #[cfg(not(any(test, feature = "integration_tests")))]
-    fn start_create_session_attempt(&mut self, ctx: &mut ModelContext<Self>) {
-        if !matches!(self.stage, Stage::BeforeStarted { .. }) {
-            return;
-        }
-        let Some(config) = self.startup_config.clone() else {
-            sharer_error!(self, "Cannot create shared session without startup config");
-            return;
-        };
-
-        self.abort_startup_handles();
-        self.close_startup_transport();
-
-        let (ws_proxy_tx, ws_proxy_rx) = async_channel::unbounded();
-        self.ws_proxy_tx = ws_proxy_tx;
-        self.ws_proxy_rx = ws_proxy_rx.clone();
-        let (attempt, max_attempts) = match &mut self.stage {
-            Stage::BeforeStarted { startup_retry } => {
-                startup_retry.current_attempt += 1;
-                (startup_retry.current_attempt, startup_retry.max_attempts)
-            }
-            Stage::StartedSuccessfully { .. } | Stage::Reconnecting { .. } | Stage::Finished => {
-                return;
-            }
-        };
-
-        if max_attempts > 1 {
-            let timeout_handle = ctx.spawn(
-                async move { Timer::after(CREATE_SESSION_ATTEMPT_TIMEOUT).await },
-                move |network, _, ctx| {
-                    network.handle_startup_attempt_timeout(attempt, ctx);
-                },
-            );
-            if let Stage::BeforeStarted { startup_retry } = &mut self.stage {
-                startup_retry.timeout_abort_handle = Some(timeout_handle.abort_handle());
-            }
-        }
-
-        let auth_client = ServerApiProvider::as_ref(ctx).get_auth_client();
-        let anonymous_id = AuthStateProvider::as_ref(ctx).get().anonymous_id();
-        let iap_headers: Vec<(&str, String)> = IapManager::as_ref(ctx)
-            .iap_state()
-            .and_then(|state| state.proxy_auth_header())
-            .into_iter()
-            .collect();
-        let connect_handle = ctx.spawn(
-            async move {
-                let Some(create_endpoint) = connect_endpoint("/sessions/create".to_owned()) else {
-                    anyhow::bail!("This channel does not support session-sharing.");
-                };
-                let user_id = UserID {
-                    anonymous_id,
-                    access_token: auth_client
-                        .get_or_refresh_access_token()
-                        .await
-                        .ok()
-                        .and_then(|token| token.bearer_token()),
-                };
-                log::info!("Connecting to session sharing server");
-                let socket =
-                    WebSocket::connect_with_headers(&create_endpoint, None::<&str>, iap_headers)
-                        .await?;
-                log::info!("Connected to session sharing server; preparing initialization");
-                anyhow::Ok((socket.split().await, user_id))
-            },
-            move |network, conn, ctx| match conn {
-                Ok(((sink, stream), user_id)) => {
-                    if !network.is_active_startup_attempt_callback(attempt) {
-                        return;
-                    }
-                    network.clear_startup_transport_handle(attempt);
-                    // We don't use the `send_message_to_server` API here
-                    // because we don't want to buffer this message.
-                    let universal_developer_input_context = network
-                        .cached_latest_state
-                        .universal_developer_input_context
-                        .clone()
-                        .unwrap_or_else(|| config.universal_developer_input_context.clone());
-
-                    let message = UpstreamMessage::Initialize(InitPayload {
-                        scrollback: config.scrollback,
-                        active_prompt: network.cached_latest_state.prompt.clone(),
-                        window_size: config.window_size,
-                        user_id,
-                        selection: network.cached_latest_state.selection.clone(),
-                        init_block_id: config.init_block_id.into(),
-                        input_replica_id: config.input_replica_id.into(),
-                        telemetry_context: Some(TelemetryContext(telemetry_context().as_value())),
-                        universal_developer_input_context: Some(UniversalDeveloperInputContext {
-                            selected_model: Some(SelectedAgentModel::new(config.selected_model_id)),
-                            ..universal_developer_input_context
-                        }),
-                        lifetime: config.lifetime,
-                        source_type: network.source.source_type.clone(),
-                        source_task_id: network.source.source_task_id.clone(),
-                        feature_support: FeatureSupport {
-                            supports_agent_view: FeatureFlag::AgentView.is_enabled(),
-                            supports_full_role: true,
-                            supports_full_role_for_real: true,
-                        },
-                        share_with_team_uid: config.share_with_team_uid.map(String::from),
-                    });
-                    if let Err(e) = network.ws_proxy_tx.try_send(message) {
-                        sharer_error!(network, "Sharer failed to send initialization message: {e}");
-                        network.handle_startup_failure(StartupFailure::InitializeSend, ctx);
-                        return;
-                    }
-                    sharer_info!(network, "Sent session sharing initialization message");
-                    network.on_websocket_connected(
-                        Some(attempt),
-                        ws_proxy_rx.clone(),
-                        sink,
-                        stream,
-                        ctx,
-                    );
-                }
-                Err(e) => {
-                    if !network.is_active_startup_attempt_callback(attempt) {
-                        return;
-                    }
-                    network.clear_startup_transport_handle(attempt);
-                    IapManager::handle(ctx).update(ctx, |manager, ctx| {
-                        manager.check_ws_connect_error(&e, ctx);
-                    });
-                    let cause = Arc::new(e.context("Failed to create shared session"));
-                    network.handle_startup_failure_with_cause(
-                        StartupFailure::Transport,
-                        Some(cause),
-                        ctx,
-                    );
-                }
-            },
-        );
-        if let Stage::BeforeStarted { startup_retry } = &mut self.stage {
-            startup_retry.transport_abort_handle = Some(connect_handle.abort_handle());
-        }
-    }
-
-    #[cfg(not(any(test, feature = "integration_tests")))]
-    fn handle_startup_attempt_timeout(&mut self, attempt: usize, ctx: &mut ModelContext<Self>) {
-        if !self.is_active_startup_attempt_callback(attempt) {
-            return;
-        }
-        self.handle_startup_failure(StartupFailure::Timeout, ctx);
-    }
     /// Returns true only while `attempt` is still the active startup attempt.
     ///
     /// Use this for one-shot startup callbacks that are only valid while the session is
@@ -979,16 +775,6 @@ impl Network {
         }
     }
 
-    #[cfg_attr(any(test, feature = "integration_tests"), allow(dead_code))]
-    fn clear_startup_transport_handle(&mut self, attempt: usize) {
-        if !self.is_active_startup_attempt_callback(attempt) {
-            return;
-        }
-        if let Stage::BeforeStarted { startup_retry } = &mut self.stage {
-            startup_retry.transport_abort_handle.take();
-        }
-    }
-
     fn close_startup_transport(&mut self) {
         self.ws_proxy_tx.close();
     }
@@ -1024,9 +810,6 @@ impl Network {
             }
             self.abort_startup_handles();
             self.close_startup_transport();
-
-            #[cfg(not(any(test, feature = "integration_tests")))]
-            self.start_create_session_attempt(ctx);
             return;
         }
 
@@ -1044,12 +827,6 @@ impl Network {
         self.abort_startup_handles();
         self.stage = Stage::Finished;
         self.close_startup_transport();
-        self.startup_config = None;
-
-        #[cfg(not(any(test, feature = "integration_tests")))]
-        if let Some(cause) = cause.as_ref() {
-            report_error!(&**cause);
-        }
 
         ctx.emit(NetworkEvent::FailedToCreateSharedSession {
             reason: failure.failed_reason(),
@@ -1336,8 +1113,6 @@ impl Network {
                     "Successfully created shared session; attempt={attempt} max_attempts={max_attempts}"
                 );
                 self.abort_startup_handles();
-                self.startup_config = None;
-
                 self.stage = Stage::StartedSuccessfully {
                     startup_attempt: Some(attempt),
                 };
@@ -1764,8 +1539,128 @@ impl Network {
     }
 }
 
+#[cfg(not(any(test, feature = "integration_tests")))]
+impl Network {
+    /// Creates an inert shared-session network without contacting Warp services.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        model: Arc<FairMutex<TerminalModel>>,
+        ordered_events_rx: Receiver<OrderedTerminalEventType>,
+        scrollback_type: SharedSessionScrollbackType,
+        active_prompt: ActivePrompt,
+        selection: Selection,
+        input_replica_id: ReplicaId,
+        terminal_view_id: warpui::EntityId,
+        team_uid: Option<crate::server::ids::ServerId>,
+        universal_developer_input_context: UniversalDeveloperInputContext,
+        lifetime: Lifetime,
+        source: SharedSessionSource,
+        max_session_size: Byte,
+        ctx: &mut ModelContext<Self>,
+    ) -> Self {
+        let _ = (
+            model,
+            ordered_events_rx,
+            scrollback_type,
+            active_prompt,
+            selection,
+            input_replica_id,
+            terminal_view_id,
+            team_uid,
+            universal_developer_input_context,
+            lifetime,
+            source,
+            max_session_size,
+            ctx,
+        );
+        Self {}
+    }
+
+    pub fn end_session(&mut self, reason: SessionEndedReason) {
+        let _ = reason;
+    }
+
+    pub fn send_active_prompt_update_if_changed(&mut self, active_prompt: ActivePrompt) {
+        let _ = active_prompt;
+    }
+
+    pub fn send_presence_selection_if_changed(&mut self, selection: Selection) {
+        let _ = selection;
+    }
+
+    pub fn send_role_update(&mut self, participant_id: ParticipantId, role: Role) {
+        let _ = (participant_id, role);
+    }
+
+    pub fn send_user_role_update(&mut self, user_uid: UserUid, role: Role) {
+        let _ = (user_uid, role);
+    }
+
+    pub fn send_pending_user_role_update(&mut self, email: String, role: Role) {
+        let _ = (email, role);
+    }
+
+    pub fn send_add_guests(&mut self, emails: Vec<String>, role: Role) {
+        let _ = (emails, role);
+    }
+
+    pub fn send_remove_guest(&mut self, user_uid: UserUid) {
+        let _ = user_uid;
+    }
+
+    pub fn send_remove_pending_guest(&mut self, email: String) {
+        let _ = email;
+    }
+
+    pub fn send_make_all_participants_readers(&mut self, reason: RoleUpdateReason) {
+        let _ = reason;
+    }
+
+    pub fn send_role_request_response(
+        &mut self,
+        participant_id: ParticipantId,
+        request_id: RoleRequestId,
+        response: RoleRequestResponse,
+    ) {
+        let _ = (participant_id, request_id, response);
+    }
+
+    pub fn send_input_update<'a>(
+        &mut self,
+        block_id: &BlockId,
+        operations: impl Iterator<Item = &'a CrdtOperation>,
+    ) {
+        let _ = (block_id, operations);
+    }
+
+    pub fn send_link_permission_update(&mut self, role: Option<Role>) {
+        let _ = role;
+    }
+
+    pub fn send_team_permission_update(&mut self, role: Option<Role>, team_uid: String) {
+        let _ = (role, team_uid);
+    }
+
+    pub fn send_universal_developer_input_context_update(
+        &mut self,
+        update: UniversalDeveloperInputContextUpdate,
+    ) {
+        let _ = update;
+    }
+
+    pub fn extend_session_retention(&mut self, reason: SessionRetentionReason) {
+        let _ = reason;
+    }
+
+    pub fn is_connected(&self) -> bool {
+        false
+    }
+}
+
+#[cfg(any(test, feature = "integration_tests"))]
 const NO_QUOTA_REMAINING_MESSAGE: &str =
     "Session sharing usage exceeded for the day. Please try again later.";
+#[cfg(any(test, feature = "integration_tests"))]
 fn session_terminated_reason_diagnostic_label(reason: &SessionTerminatedReason) -> &'static str {
     match reason {
         SessionTerminatedReason::NoUserQuotaRemaining {} => "no_user_quota_remaining",
@@ -1774,6 +1669,7 @@ fn session_terminated_reason_diagnostic_label(reason: &SessionTerminatedReason) 
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// Converts [`SessionTerminatedReason`] to a user-facing string.
 pub fn session_terminated_reason_string(
     reason: &SessionTerminatedReason,
@@ -1794,6 +1690,7 @@ pub fn session_terminated_reason_string(
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// Converts [`FailedToInitializeSessionReason`] to a user-facing error message.
 pub fn failed_to_initialize_session_user_error(reason: &FailedToInitializeSessionReason) -> String {
     match reason {
@@ -1812,6 +1709,7 @@ pub fn failed_to_initialize_session_user_error(reason: &FailedToInitializeSessio
     .to_string()
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 pub fn failed_to_add_guests_user_error(reason: &FailedToAddGuestsReason) -> String {
     match reason {
         FailedToAddGuestsReason::Invalid => "Something went wrong. Please try again.",
@@ -1825,6 +1723,7 @@ pub fn failed_to_add_guests_user_error(reason: &FailedToAddGuestsReason) -> Stri
     .to_string()
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 pub enum NetworkEvent {
     SharedSessionCreatedSuccessfully {
         session_id: SessionId,
@@ -1903,10 +1802,17 @@ pub enum NetworkEvent {
     },
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl Entity for Network {
     type Event = NetworkEvent;
 }
 
+#[cfg(not(any(test, feature = "integration_tests")))]
+impl Entity for Network {
+    type Event = ();
+}
+
+#[cfg(any(test, feature = "integration_tests"))]
 impl Drop for Network {
     fn drop(&mut self) {
         let stage = self.stage_label();

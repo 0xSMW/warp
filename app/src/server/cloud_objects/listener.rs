@@ -1,22 +1,38 @@
 use std::sync::Arc;
+#[cfg(any(test, feature = "integration_tests"))]
 use std::time::Duration;
 
+#[cfg(any(test, feature = "integration_tests"))]
 use async_channel::Sender;
+#[cfg(any(test, feature = "integration_tests"))]
 pub use cloud_object_client::ObjectUpdateMessage;
+#[cfg(any(test, feature = "integration_tests"))]
 use futures_util::stream::AbortHandle;
+#[cfg(any(test, feature = "integration_tests"))]
 use instant::Instant;
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_errors::report_error;
+#[cfg(any(test, feature = "integration_tests"))]
 use warpui::r#async::Timer;
-use warpui::{Entity, ModelContext, ModelHandle, RequestState, SingletonEntity};
+use warpui::{Entity, ModelContext, SingletonEntity};
+#[cfg(any(test, feature = "integration_tests"))]
+use warpui::{ModelHandle, RequestState};
 
+#[cfg(any(test, feature = "integration_tests"))]
 use super::update_manager::UpdateManager;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::retry_strategies::LISTENER_RETRY_STRATEGY;
 use crate::server::server_api::object::ObjectClient;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::system::{SystemStats, SystemStatsEvent};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 
+#[cfg(any(test, feature = "integration_tests"))]
 lazy_static::lazy_static! {
     /// Between successful websocket connections, we ensured at least this amount of time
     /// has elapsed so that we aren't spamming the websocket server (e.g. if connections are being
@@ -24,6 +40,7 @@ lazy_static::lazy_static! {
     static ref WAIT_PERIOD_BETWEEN_SUCCESSFUL_RECONNECTS: Duration = Duration::from_secs(30);
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// If the websocket reconnects within this duration of the last disconnection, skip the
 /// out-of-band refresh of cloud objects. The periodic poll will catch any missed updates.
 ///
@@ -32,11 +49,13 @@ lazy_static::lazy_static! {
 /// larger than the upper end of that range.
 const RECONNECTION_REFRESH_THRESHOLD: Duration = Duration::from_secs(60);
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// Maximum random delay added before making an out-of-band refresh after a longer reconnection.
 /// Spreading out requests across this window helps avoid a thundering herd when many clients
 /// reconnect simultaneously (e.g. after a server release).
 const MAX_RECONNECTION_REFRESH_DELAY: Duration = Duration::from_secs(30);
 
+#[cfg(any(test, feature = "integration_tests"))]
 /// Describes the type of websocket connection that was just established.
 enum ConnectionEvent {
     /// The very first websocket connection after application startup.
@@ -54,73 +73,86 @@ pub enum ListenerEvent {}
 /// the server for cloud-object related things (e.g. a notebook was changed,
 /// or edit access was taken for a workflow, etc.)
 pub struct Listener {
+    #[cfg(any(test, feature = "integration_tests"))]
     cloud_objects_client: Arc<dyn ObjectClient>,
     /// Since we only want to start websocket connections if we know the user is
     /// on a team or has access to cloud objects, we keep track of whether
     /// or not we should be subscribing for updates. Once we start websockets, we don't stop
     /// so that the user gets a snappier experience once they start using Warp Drive.
+    #[cfg(any(test, feature = "integration_tests"))]
     should_subscribe_to_updates: bool,
     /// Abort handle for the (retried) future that resolves when the subscription is done.
+    #[cfg(any(test, feature = "integration_tests"))]
     current_subscription_abort_handle: Option<AbortHandle>,
     /// Channel that we send a message over each time we've successfully established a subscription.
+    #[cfg(any(test, feature = "integration_tests"))]
     subscription_ready_tx: Sender<()>,
     /// The time at which the last websocket disconnection occurred. `None` if no disconnection
     /// has occurred yet (i.e., this is the first connection attempt).
+    #[cfg(any(test, feature = "integration_tests"))]
     last_disconnected_at: Option<Instant>,
     /// Abort handle for a pending delayed refresh spawned after a long reconnection. Tracked so
     /// that it can be cancelled if the websocket disconnects again before the refresh fires.
+    #[cfg(any(test, feature = "integration_tests"))]
     pending_refresh_abort_handle: Option<AbortHandle>,
 }
 
 impl Listener {
     pub fn new(cloud_objects_client: Arc<dyn ObjectClient>, ctx: &mut ModelContext<Self>) -> Self {
-        let (subscription_ready_tx, subscription_ready_rx) = async_channel::unbounded();
-        let mut listener = Self {
-            cloud_objects_client,
-            should_subscribe_to_updates: false,
-            current_subscription_abort_handle: None,
-            subscription_ready_tx,
-            last_disconnected_at: None,
-            pending_refresh_abort_handle: None,
-        };
+        cfg_if::cfg_if! {
+            if #[cfg(any(test, feature = "integration_tests"))] {
+                let (subscription_ready_tx, subscription_ready_rx) = async_channel::unbounded();
+                let mut listener = Self {
+                    cloud_objects_client,
+                    should_subscribe_to_updates: false,
+                    current_subscription_abort_handle: None,
+                    subscription_ready_tx,
+                    last_disconnected_at: None,
+                    pending_refresh_abort_handle: None,
+                };
 
-        // When the websocket signals readiness, decide whether to refresh cloud objects
-        // based on how long the connection was down.
-        let _ = ctx.spawn_stream_local(
-            subscription_ready_rx,
-            Self::on_subscription_ready,
-            |_, _| {},
-        );
+                // When the websocket signals readiness, decide whether to refresh cloud objects
+                // based on how long the connection was down.
+                let _ = ctx.spawn_stream_local(
+                    subscription_ready_rx,
+                    Self::on_subscription_ready,
+                    |_, _| {},
+                );
 
-        ctx.subscribe_to_model(&SystemStats::handle(ctx), Self::handle_cpu_event);
+                ctx.subscribe_to_model(&SystemStats::handle(ctx), Self::handle_cpu_event);
 
-        ctx.subscribe_to_model(
-            &NetworkStatus::handle(ctx),
-            Self::handle_network_status_changed_event,
-        );
+                ctx.subscribe_to_model(
+                    &NetworkStatus::handle(ctx),
+                    Self::handle_network_status_changed_event,
+                );
 
-        // To prevent creating unnecessary websockets, we only open a websocket if
-        // - a user is known to be part of a team
-        // - or a user has access to >= 1 cloud object
-        // In either of these cases, it's worth creating a websocket for cloud object updates.
-        //
-        // Note that we also want a websocket for CloudPreferences, but this is handled via listening
-        // to the cloud model for the creation of cloud preferences objects (which happens when settings sync
-        // is enabled for the first time).
-        ctx.subscribe_to_model(
-            &UserWorkspaces::handle(ctx),
-            Self::handle_user_workspaces_event,
-        );
-        ctx.subscribe_to_model(&CloudModel::handle(ctx), Self::handle_cloud_model_event);
+                // To prevent creating unnecessary websockets, we only open a websocket if
+                // - a user is known to be part of a team
+                // - or a user has access to >= 1 cloud object
+                // In either of these cases, it's worth creating a websocket for cloud object updates.
+                //
+                // Note that we also want a websocket for CloudPreferences, but this is handled via listening
+                // to the cloud model for the creation of cloud preferences objects (which happens when settings sync
+                // is enabled for the first time).
+                ctx.subscribe_to_model(
+                    &UserWorkspaces::handle(ctx),
+                    Self::handle_user_workspaces_event,
+                );
+                ctx.subscribe_to_model(&CloudModel::handle(ctx), Self::handle_cloud_model_event);
 
-        // We need to do a one-time check of cloud objects when starting
-        // because the Cloud Model was initialized before this model and we could have populated
-        // its object cache with objects from sqlite.
-        if listener.has_non_welcome_cloud_objects(ctx) {
-            listener.start_listener(ctx);
+                // We need to do a one-time check of cloud objects when starting
+                // because the Cloud Model was initialized before this model and we could have populated
+                // its object cache with objects from sqlite.
+                if listener.has_non_welcome_cloud_objects(ctx) {
+                    listener.start_listener(ctx);
+                }
+
+                listener
+            } else {
+                let _ = (cloud_objects_client, ctx);
+                Self {}
+            }
         }
-
-        listener
     }
 
     #[cfg(test)]
@@ -129,7 +161,10 @@ impl Listener {
 
         Self::new(ServerApiProvider::new_for_test().get(), ctx)
     }
+}
 
+#[cfg(any(test, feature = "integration_tests"))]
+impl Listener {
     fn is_part_of_some_team(&self, ctx: &ModelContext<Self>) -> bool {
         UserWorkspaces::as_ref(ctx).has_teams()
     }
@@ -377,7 +412,6 @@ impl Listener {
         self.current_subscription_abort_handle = Some(spawn_handle.abort_handle());
     }
 
-    #[allow(dead_code)]
     pub fn has_current_subscription_abort_handle(&self) -> bool {
         self.current_subscription_abort_handle.is_some()
     }

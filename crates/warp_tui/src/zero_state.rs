@@ -34,9 +34,9 @@ use warpui_core::elements::tui::{
 };
 use warpui_core::{AppContext, Entity, ModelHandle, TuiView, ViewContext};
 
-use crate::autoupdate::{
-    HOMEBREW_UPDATE_STATUS, TuiAutoupdateStatus, TuiAutoupdater, TuiAutoupdaterEvent,
-};
+use crate::autoupdate::TuiAutoupdater;
+#[cfg(test)]
+use crate::autoupdate::{HOMEBREW_UPDATE_STATUS, TuiAutoupdateStatus, TuiAutoupdaterEvent};
 use crate::tui_builder::TuiUiBuilder;
 use crate::ui::{abbreviate_home_prefix, append_welcome_capability_section, render_welcome_title};
 use crate::zero_state_animation::{
@@ -133,6 +133,7 @@ impl TuiZeroStateView {
                 }
             },
         );
+        #[cfg(test)]
         ctx.subscribe_to_model(
             &TuiAutoupdater::handle(ctx),
             |_, _, event: &TuiAutoupdaterEvent, ctx| {
@@ -924,6 +925,7 @@ fn login_line_label(signed_in_prefix: &str, user_info: TuiUserInfoSnapshot) -> O
 }
 
 /// User-facing copy for each visible background updater status.
+#[cfg(test)]
 fn autoupdate_status_label(status: TuiAutoupdateStatus) -> Option<&'static str> {
     match status {
         TuiAutoupdateStatus::Idle => None,
@@ -949,34 +951,40 @@ fn render_version_line(builder: &TuiUiBuilder, app: &AppContext) -> Box<dyn TuiE
             .truncate()
             .finish();
     };
-    let status = TuiAutoupdater::as_ref(app).status();
-    let Some(label) = autoupdate_status_label(status) else {
-        return TuiText::new(version).with_style(muted).truncate().finish();
-    };
-    let style = match status {
-        TuiAutoupdateStatus::Idle => unreachable!("idle status has no label"),
-        TuiAutoupdateStatus::Checking
-        | TuiAutoupdateStatus::Updating
-        | TuiAutoupdateStatus::UpToDate
-        | TuiAutoupdateStatus::UpdateAvailable => muted,
-        TuiAutoupdateStatus::Failed => builder.error_text_style(),
-        TuiAutoupdateStatus::PendingRestart => builder.success_glyph_style(),
-    };
-    // Like the bullet rows below: the version reports its natural width and
-    // the suffix wraps against the remaining column width.
-    TuiFlex::row()
-        .child(
-            TuiText::new(format!("{version} "))
-                .with_style(muted)
-                .truncate()
-                .finish(),
-        )
-        .child(
-            TuiText::new(format!("({label})"))
-                .with_style(style)
-                .finish(),
-        )
-        .finish()
+    #[cfg(test)]
+    {
+        let status = TuiAutoupdater::as_ref(app).status();
+        let Some(label) = autoupdate_status_label(status) else {
+            return TuiText::new(version).with_style(muted).truncate().finish();
+        };
+        let style = match status {
+            TuiAutoupdateStatus::Idle => unreachable!("idle status has no label"),
+            TuiAutoupdateStatus::Checking
+            | TuiAutoupdateStatus::Updating
+            | TuiAutoupdateStatus::UpToDate
+            | TuiAutoupdateStatus::UpdateAvailable => muted,
+            TuiAutoupdateStatus::Failed => builder.error_text_style(),
+            TuiAutoupdateStatus::PendingRestart => builder.success_glyph_style(),
+        };
+        // Like the bullet rows below: the version reports its natural width and
+        // the suffix wraps against the remaining column width.
+        return TuiFlex::row()
+            .child(
+                TuiText::new(format!("{version} "))
+                    .with_style(muted)
+                    .truncate()
+                    .finish(),
+            )
+            .child(
+                TuiText::new(format!("({label})"))
+                    .with_style(style)
+                    .finish(),
+            )
+            .finish();
+    }
+    #[cfg(not(test))]
+    let _ = TuiAutoupdater::as_ref(app).status();
+    TuiText::new(version).with_style(muted).truncate().finish()
 }
 
 /// Appends the project context body rows to `column`: the discovered rule files and

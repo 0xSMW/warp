@@ -137,6 +137,8 @@ impl RestoredAgentConversations {
         Some(conversation)
     }
 
+    // Commented out: bulk cloud-conversation restoration is no longer used.
+    /*
     /// Takes and returns AIConversations for the given IDs, sorted by first exchange start time.
     pub fn take_conversations(
         &mut self,
@@ -157,6 +159,7 @@ impl RestoredAgentConversations {
         });
         conversations
     }
+    */
 }
 
 impl Entity for RestoredAgentConversations {

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(feature = "local_fs", test))]
 use anyhow::Context;
 use async_trait::async_trait;
 #[cfg(feature = "local_fs")]
@@ -12,10 +12,13 @@ use crate::language_server_candidate::{LanguageServerCandidate, LanguageServerMe
 #[cfg(feature = "local_fs")]
 use crate::supported_servers::CustomBinaryConfig;
 
-#[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
+#[allow(dead_code)]
 pub struct TypeScriptLanguageServerCandidate {
     client: Arc<http_client::Client>,
 }
+
+#[cfg(all(feature = "local_fs", not(test)))]
+const LOCAL_ONLY_INSTALL_ERROR: &str = "Automatic typescript-language-server installation is disabled in local-only mode; install typescript-language-server and Node.js locally and make them available on PATH or in Warp's data directory.";
 
 impl TypeScriptLanguageServerCandidate {
     /// Path to the new langserver JS file (v4.0.0+) relative to the install directory.
@@ -130,6 +133,7 @@ impl LanguageServerCandidate for TypeScriptLanguageServerCandidate {
             .unwrap_or(false)
     }
 
+    #[cfg(test)]
     async fn install(
         &self,
         metadata: LanguageServerMetadata,
@@ -203,6 +207,16 @@ impl LanguageServerCandidate for TypeScriptLanguageServerCandidate {
         Ok(())
     }
 
+    #[cfg(not(test))]
+    async fn install(
+        &self,
+        _metadata: LanguageServerMetadata,
+        _executor: &CommandBuilder,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!(LOCAL_ONLY_INSTALL_ERROR)
+    }
+
+    #[cfg(test)]
     async fn fetch_latest_server_metadata(&self) -> anyhow::Result<LanguageServerMetadata> {
         let version =
             node_runtime::fetch_npm_package_version(&self.client, "typescript-language-server")
@@ -214,6 +228,11 @@ impl LanguageServerCandidate for TypeScriptLanguageServerCandidate {
             url: None, // npm packages don't have direct download URLs
             digest: None,
         })
+    }
+
+    #[cfg(not(test))]
+    async fn fetch_latest_server_metadata(&self) -> anyhow::Result<LanguageServerMetadata> {
+        anyhow::bail!(LOCAL_ONLY_INSTALL_ERROR)
     }
 }
 

@@ -1,19 +1,35 @@
+#[cfg(test)]
 use futures::future;
-use warp_cli::GlobalOptions;
-use warp_cli::integration::{CreateIntegrationArgs, IntegrationCommand, UpdateIntegrationArgs};
+use warp_cli::integration::IntegrationCommand;
+#[cfg(test)]
+use warp_cli::integration::{CreateIntegrationArgs, UpdateIntegrationArgs};
+#[cfg(test)]
 use warp_cli::provider::ProviderType;
+#[cfg(test)]
 use warp_cli::scope::TeamSelection;
+use warp_cli::GlobalOptions;
+#[cfg(test)]
 use warp_graphql::mutations::create_simple_integration::CreateSimpleIntegrationOutput;
+#[cfg(test)]
 use warp_graphql::queries::get_oauth_connect_tx_status::OauthConnectTxStatus;
+#[cfg(test)]
 use warp_graphql::queries::get_simple_integrations::SimpleIntegrationsOutput;
+#[cfg(test)]
 use warpui::platform::TerminationMode;
-use warpui::{AppContext, ModelContext, SingletonEntity};
+use warpui::AppContext;
+#[cfg(test)]
+use warpui::{ModelContext, SingletonEntity};
 
+#[cfg(test)]
 use super::common::{EnvironmentChoice, ResolveConfigurationError};
+#[cfg(test)]
 use super::integration_output;
+#[cfg(test)]
 use super::oauth_flow::poll_oauth_until_terminal;
+#[cfg(test)]
 use crate::server::server_api::ServerApiProvider;
 
+#[cfg(test)]
 pub fn run(
     ctx: &mut AppContext,
     global_options: GlobalOptions,
@@ -34,8 +50,21 @@ pub fn run(
     Ok(())
 }
 
+#[cfg(not(test))]
+pub fn run(
+    _ctx: &mut AppContext,
+    _global_options: GlobalOptions,
+    _command: IntegrationCommand,
+) -> anyhow::Result<()> {
+    Err(anyhow::anyhow!(
+        "Third-party integrations are disabled in local-only mode"
+    ))
+}
+
+#[cfg(test)]
 struct IntegrationCommandRunner;
 
+#[cfg(test)]
 impl IntegrationCommandRunner {
     fn list(&self, global_options: GlobalOptions, ctx: &mut ModelContext<Self>) {
         // Hardcoded set of providers that this client knows how to render.
@@ -532,7 +561,9 @@ impl IntegrationCommandRunner {
     }
 }
 
+#[cfg(test)]
 impl warpui::Entity for IntegrationCommandRunner {
     type Event = ();
 }
+#[cfg(test)]
 impl SingletonEntity for IntegrationCommandRunner {}

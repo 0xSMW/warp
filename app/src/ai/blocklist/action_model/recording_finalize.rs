@@ -1,8 +1,11 @@
 use std::future::Future;
+#[cfg(test)]
 use std::path::Path;
 use std::time::Duration;
 
-use ai::agent::action_result::{RecordingStopped, StopRecordingResult};
+#[cfg(test)]
+use ai::agent::action_result::RecordingStopped;
+use ai::agent::action_result::StopRecordingResult;
 use futures::channel::oneshot;
 use warpui::r#async::Timer;
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
@@ -12,18 +15,25 @@ use super::recording_controller::{
     ActiveRecording, FinalizationClaim, FinalizedRecording, RecordingController,
     StopRecordingControllerError,
 };
+#[cfg(test)]
 use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent::conversation::AIConversationId;
+#[cfg(test)]
 use crate::ai::agent_sdk::artifact_upload::{FileArtifactUploadRequest, FileArtifactUploader};
+#[cfg(test)]
 use crate::ai::blocklist::BlocklistAIHistoryModel;
+#[cfg(test)]
 use crate::server::server_api::ServerApiProvider;
 
 const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(250);
+#[cfg(not(test))]
+const RECORDING_UPLOAD_DISABLED_MESSAGE: &str =
+    "Recording artifact upload is disabled in local-only mode";
 
 /// A handle to the canonical result owned by `RecordingController`.
 ///
 /// `Pending` subscribes to work already owned by the controller; dropping the
-/// receiver does not cancel stop or upload. `Ready` exposes the retained result
+/// receiver does not cancel finalization. `Ready` exposes the retained result
 /// after that work has completed. Both variants carry the *actual*
 /// [`FinalizeReason`] that drove the work — callers that only joined an
 /// in-progress finalization still learn why it ran, rather than the reason
@@ -51,6 +61,7 @@ impl RecordingFinalization {
     }
 }
 
+#[cfg(test)]
 fn format_upload_error(err: &anyhow::Error) -> String {
     let error_chain = format!("{err:#}");
     if error_chain != err.to_string() {
@@ -71,6 +82,7 @@ fn format_upload_error(err: &anyhow::Error) -> String {
 ///
 /// Any error is returned to the caller, which logs and discards it so the video
 /// upload and PR creation are never blocked by a missing or failed thumbnail.
+#[cfg(test)]
 async fn upload_recording_thumbnail(
     video_path: &Path,
     video_artifact_uid: &str,
@@ -97,14 +109,15 @@ async fn upload_recording_thumbnail(
     Ok(())
 }
 
-/// Stops capture, uploads the finalized file, and produces the result retained
-/// by the controller for all current and future callers.
+/// Stops capture and produces the result retained by the controller for all
+/// current and future callers. Cloud artifact publication is retained for test
+/// builds only; production builds clean up the finalized local files.
 async fn finalize_recording(
     recording: ActiveRecording,
     reason: FinalizeReason,
     should_upload: bool,
-    uploader: FileArtifactUploader,
-    server_conversation_token: Option<crate::ai::agent::api::ServerConversationToken>,
+    #[cfg(test)] uploader: FileArtifactUploader,
+    #[cfg(test)] server_conversation_token: Option<ServerConversationToken>,
 ) -> StopRecordingResult {
     // A no-upload finalization discards the recording without publishing: it
     // drops the whole `ActiveRecording` (kill-on-drops ffmpeg, removes the
@@ -128,7 +141,9 @@ async fn finalize_recording(
     }
     let ActiveRecording {
         handle,
+        #[cfg(test)]
         actions,
+        #[cfg(test)]
         frame_rate,
         ..
     } = recording;
@@ -140,99 +155,113 @@ async fn finalize_recording(
 
     let local_path = output.path.clone();
 
-    // Apply the post-stop smart cut (keep real action windows at 1x, drop
-    // blocked/thinking gaps) and burn the remapped overlay pills into the video
-    // before upload. Best-effort: on any failure the original 1x capture is
-    // uploaded unannotated (a no-cut video beats no video). The cut/overlay
-    // file, when produced, is a sibling of the mp4.
-    let mut upload_path = local_path.clone();
-    let mut overlay_path: Option<std::path::PathBuf> = None;
-    match computer_use::post_process_recording(
-        &local_path,
-        &actions,
-        (output.width, output.height),
-        output.duration,
-        frame_rate,
-    )
-    .await
+    // Cloud artifact publication is disabled in local-only production builds.
+    // Stop capture and clean up the finalized files before returning the same
+    // disabled-operation error used by the other artifact paths.
+    #[cfg(not(test))]
     {
-        Ok(path) if path != local_path => {
-            overlay_path = Some(path.clone());
-            upload_path = path;
-        }
-        Ok(_) => {}
-        Err(error) => {
-            log::warn!("Recording cut/overlay burn-in failed; uploading original: {error}");
-        }
+        let _ = std::fs::remove_file(&local_path);
+        let _ = std::fs::remove_file(local_path.with_extension("log"));
+        return StopRecordingResult::Error(RECORDING_UPLOAD_DISABLED_MESSAGE.to_string());
     }
-    let duration = match computer_use::finalized_video_duration(&upload_path).await {
-        Ok(duration) => duration,
-        Err(error) => {
-            log::warn!(
-                "Failed to inspect finalized recording duration; using capture duration: {error}"
-            );
-            output.duration
-        }
-    };
 
-    // Keep a handle on the finalized video path for thumbnail extraction before
-    // it is moved into the upload request; the thumbnail reads this file with
-    // ffmpeg after the video upload resolves.
-    let thumbnail_source_path = upload_path.clone();
-    let request = FileArtifactUploadRequest {
-        path: upload_path,
-        run_id: None,
-        conversation_id: server_conversation_token.clone(),
-        title: recording.summary.clone(),
-        description: recording.description.clone(),
-    };
-    let upload_result = async {
-        let association = uploader.resolve_upload_association(&request).await?;
-        uploader.upload_with_association(request, association).await
-    }
-    .await;
-    // Best-effort PR video thumbnail: after a successful non-discard video
-    // upload, extract a representative frame, composite a play-button glyph, and
-    // upload it as a separate PNG file artifact linked to the video by the
-    // `{video_uuid}-thumb.png` filename convention. Capture is unconditional; the
-    // team setting and feature flag are consulted only at server render time. A
-    // missing/failed thumbnail must never block the video upload or PR creation,
-    // so any error is logged and dropped.
-    if let Ok(upload) = &upload_result
-        && let Err(error) = upload_recording_thumbnail(
-            &thumbnail_source_path,
-            &upload.artifact.artifact_uid,
-            &uploader,
-            server_conversation_token.clone(),
+    #[cfg(test)]
+    {
+        // Apply the post-stop smart cut (keep real action windows at 1x, drop
+        // blocked/thinking gaps) and burn the remapped overlay pills into the video
+        // before upload. Best-effort: on any failure the original 1x capture is
+        // uploaded unannotated (a no-cut video beats no video). The cut/overlay
+        // file, when produced, is a sibling of the mp4.
+        let mut upload_path = local_path.clone();
+        let mut overlay_path: Option<std::path::PathBuf> = None;
+        match computer_use::post_process_recording(
+            &local_path,
+            &actions,
+            (output.width, output.height),
+            output.duration,
+            frame_rate,
         )
         .await
-    {
-        log::warn!("PR video thumbnail capture failed; video upload unaffected: {error}");
-    }
-    // Local files are ephemeral regardless of upload outcome. Retrying failed
-    // uploads or retaining their files requires a separate persistence policy.
-    let _ = std::fs::remove_file(&local_path);
-    let _ = std::fs::remove_file(local_path.with_extension("log"));
-    if let Some(overlay_path) = overlay_path.as_ref() {
-        let _ = std::fs::remove_file(overlay_path);
-    }
+        {
+            Ok(path) if path != local_path => {
+                overlay_path = Some(path.clone());
+                upload_path = path;
+            }
+            Ok(_) => {}
+            Err(error) => {
+                log::warn!("Recording cut/overlay burn-in failed; uploading original: {error}");
+            }
+        }
+        let duration = match computer_use::finalized_video_duration(&upload_path).await {
+            Ok(duration) => duration,
+            Err(error) => {
+                log::warn!(
+                    "Failed to inspect finalized recording duration; using capture duration: {error}"
+                );
+                output.duration
+            }
+        };
 
-    match upload_result {
-        Ok(upload) => StopRecordingResult::Success(RecordingStopped {
-            artifact_uid: upload.artifact.artifact_uid,
-            duration,
-            width_px: output.width as i32,
-            height_px: output.height as i32,
-            size_bytes: upload.size_bytes,
-            completion_status: output.completion_status,
-            termination_reason: reason.termination_reason(output.completion_status),
-        }),
-        Err(error) => StopRecordingResult::Error(format_upload_error(&error)),
+        // Keep a handle on the finalized video path for thumbnail extraction before
+        // it is moved into the upload request; the thumbnail reads this file with
+        // ffmpeg after the video upload resolves.
+        let thumbnail_source_path = upload_path.clone();
+        let request = FileArtifactUploadRequest {
+            path: upload_path,
+            run_id: None,
+            conversation_id: server_conversation_token.clone(),
+            title: recording.summary.clone(),
+            description: recording.description.clone(),
+        };
+        let upload_result = async {
+            let association = uploader.resolve_upload_association(&request).await?;
+            uploader.upload_with_association(request, association).await
+        }
+        .await;
+        // Best-effort PR video thumbnail: after a successful non-discard video
+        // upload, extract a representative frame, composite a play-button glyph, and
+        // upload it as a separate PNG file artifact linked to the video by the
+        // `{video_uuid}-thumb.png` filename convention. Capture is unconditional; the
+        // team setting and feature flag are consulted only at server render time. A
+        // missing/failed thumbnail must never block the video upload or PR creation,
+        // so any error is logged and dropped.
+        if let Ok(upload) = &upload_result
+            && let Err(error) = upload_recording_thumbnail(
+                &thumbnail_source_path,
+                &upload.artifact.artifact_uid,
+                &uploader,
+                server_conversation_token.clone(),
+            )
+            .await
+        {
+            log::warn!("PR video thumbnail capture failed; video upload unaffected: {error}");
+        }
+        // Local files are ephemeral regardless of upload outcome. Retrying failed
+        // uploads or retaining their files requires a separate persistence policy.
+        let _ = std::fs::remove_file(&local_path);
+        let _ = std::fs::remove_file(local_path.with_extension("log"));
+        if let Some(overlay_path) = overlay_path.as_ref() {
+            let _ = std::fs::remove_file(overlay_path);
+        }
+
+        match upload_result {
+            Ok(upload) => StopRecordingResult::Success(RecordingStopped {
+                artifact_uid: upload.artifact.artifact_uid,
+                duration,
+                width_px: output.width as i32,
+                height_px: output.height as i32,
+                size_bytes: upload.size_bytes,
+                completion_status: output.completion_status,
+                termination_reason: reason.termination_reason(output.completion_status),
+            }),
+            Err(error) => StopRecordingResult::Error(format_upload_error(&error)),
+        }
     }
 }
 
-/// Captures the upload association and clients while the app models are still
-/// available, before stop/upload work moves onto the controller-owned task.
+/// Captures test-only upload clients while the app models are still available,
+/// before finalization moves onto the controller-owned task. Production
+/// local-only finalization does not acquire cloud clients.
 fn build_finalize_future(
     recording: ActiveRecording,
     reason: FinalizeReason,
@@ -242,25 +271,30 @@ fn build_finalize_future(
     String,
     impl Future<Output = StopRecordingResult> + Send + 'static + use<>,
 ) {
+    #[cfg(not(test))]
+    let _ = ctx;
+    #[cfg(test)]
     let server_conversation_token = BlocklistAIHistoryModel::as_ref(ctx)
         .conversation(&recording.conversation_id)
         .and_then(|conversation| conversation.server_conversation_token())
         .cloned();
+    #[cfg(test)]
     let uploader = FileArtifactUploader::new(
         ServerApiProvider::as_ref(ctx).get_ai_client(),
         ServerApiProvider::as_ref(ctx).get(),
     );
     let id = recording.id.clone();
-    (
-        id,
-        finalize_recording(
-            recording,
-            reason,
-            should_upload,
-            uploader,
-            server_conversation_token,
-        ),
-    )
+    #[cfg(test)]
+    let future = finalize_recording(
+        recording,
+        reason,
+        should_upload,
+        uploader,
+        server_conversation_token,
+    );
+    #[cfg(not(test))]
+    let future = finalize_recording(recording, reason, should_upload);
+    (id, future)
 }
 
 /// Runs finalization independently of any action future and stores its result

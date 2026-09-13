@@ -5,6 +5,7 @@ use std::{env, fs, io};
 
 use async_trait::async_trait;
 use serde_json::Value;
+use warp_core::channel::{Channel, ChannelState};
 
 use super::{
     CliAgentPluginManager, PluginInstallError, PluginInstructionStep, PluginInstructions,
@@ -14,6 +15,10 @@ use crate::terminal::model::session::LocalCommandExecutor;
 use crate::terminal::shell::ShellType;
 
 const PLUGIN_KEY: &str = "warp@claude-code-warp";
+
+// External platform-plugin marketplace integration is disabled in production; keep these
+// constants available for focused local tests.
+#[cfg(test)]
 const PLATFORM_PLUGIN_KEY: &str = "oz-harness-support@claude-code-warp";
 
 const MARKETPLACE_REPO: &str = "warpdotdev/claude-code-warp";
@@ -23,6 +28,7 @@ const MARKETPLACE_NAME: &str = "claude-code-warp";
 // (See the Versioning section of that repo's README.)
 const MINIMUM_PLUGIN_VERSION: &str = "2.1.0";
 // Keep in sync with the oz-harness-support plugin version in warpdotdev/claude-code-warp.
+#[cfg(test)]
 const MINIMUM_PLATFORM_PLUGIN_VERSION: &str = "1.1.2";
 
 pub(super) struct ClaudeCodePluginManager {
@@ -59,7 +65,7 @@ impl CliAgentPluginManager for ClaudeCodePluginManager {
     }
 
     fn can_auto_install(&self) -> bool {
-        true
+        !matches!(ChannelState::channel(), Channel::Local)
     }
 
     fn is_installed(&self) -> bool {
@@ -69,6 +75,7 @@ impl CliAgentPluginManager for ClaudeCodePluginManager {
         check_installed(&claude_dir)
     }
 
+    #[cfg(test)]
     fn is_platform_plugin_installed(&self) -> bool {
         let Ok(claude_dir) = claude_home_dir() else {
             return false;
@@ -76,6 +83,7 @@ impl CliAgentPluginManager for ClaudeCodePluginManager {
         check_platform_plugin_installed(&claude_dir)
     }
 
+    #[cfg(test)]
     fn platform_plugin_needs_update(&self) -> bool {
         let Ok(claude_dir) = claude_home_dir() else {
             return false;
@@ -87,6 +95,7 @@ impl CliAgentPluginManager for ClaudeCodePluginManager {
         }
     }
 
+    #[cfg(test)]
     fn has_local_marketplace_override(&self) -> bool {
         let Ok(claude_dir) = claude_home_dir() else {
             return false;
@@ -96,6 +105,12 @@ impl CliAgentPluginManager for ClaudeCodePluginManager {
 
     /// Runs `claude plugin` CLI commands via the session shell.
     async fn install(&self) -> Result<(), PluginInstallError> {
+        if !self.can_auto_install() {
+            return Err(PluginInstallError {
+                message: "Auto-install not supported in the local channel".to_owned(),
+                log: String::new(),
+            });
+        }
         let mut log = String::new();
         self.run_logged(
             &["plugin", "marketplace", "add", MARKETPLACE_REPO],
@@ -108,6 +123,12 @@ impl CliAgentPluginManager for ClaudeCodePluginManager {
     }
 
     async fn update(&self) -> Result<(), PluginInstallError> {
+        if !self.can_auto_install() {
+            return Err(PluginInstallError {
+                message: "Auto-update not supported in the local channel".to_owned(),
+                log: String::new(),
+            });
+        }
         let mut log = String::new();
         // Remove/re-add the marketplace to ensure the local clone is fresh, then
         // reinstall the plugin.
@@ -171,6 +192,7 @@ impl CliAgentPluginManager for ClaudeCodePluginManager {
         }
     }
 
+    #[cfg(test)]
     async fn install_platform_plugin(&self) -> Result<(), PluginInstallError> {
         let mut log = String::new();
         self.run_logged(
@@ -183,6 +205,7 @@ impl CliAgentPluginManager for ClaudeCodePluginManager {
         Ok(())
     }
 
+    #[cfg(test)]
     async fn update_platform_plugin(&self) -> Result<(), PluginInstallError> {
         let mut log = String::new();
         self.run_logged(
@@ -263,6 +286,7 @@ fn check_installed(claude_dir: &Path) -> bool {
     check_plugin_installed(claude_dir, PLUGIN_KEY)
 }
 
+#[cfg(test)]
 fn check_platform_plugin_installed(claude_dir: &Path) -> bool {
     check_plugin_installed(claude_dir, PLATFORM_PLUGIN_KEY)
 }
@@ -289,6 +313,7 @@ fn installed_version(claude_dir: &Path) -> Option<String> {
 }
 
 /// Reads the installed version string for the Oz platform plugin, if present.
+#[cfg(test)]
 fn installed_platform_plugin_version(claude_dir: &Path) -> Option<String> {
     installed_plugin_version(claude_dir, PLATFORM_PLUGIN_KEY)
 }
@@ -307,6 +332,7 @@ fn installed_plugin_version(claude_dir: &Path, plugin_key: &str) -> Option<Strin
         .map(|s| s.to_owned())
 }
 
+#[cfg(test)]
 fn claude_code_marketplace_has_local_override(claude_dir: &Path) -> bool {
     let settings_path = claude_dir.join("settings.json");
     let Ok(contents) = fs::read_to_string(settings_path) else {
@@ -323,6 +349,7 @@ fn claude_code_marketplace_has_local_override(claude_dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn marketplace_entry_has_local_path(entry: &Value) -> bool {
     let Some(source) = entry.get("source") else {
         return false;
@@ -338,6 +365,7 @@ fn marketplace_entry_has_local_path(entry: &Value) -> bool {
     }
 }
 
+#[cfg(test)]
 fn is_local_marketplace_path(source: &str) -> bool {
     source.starts_with('/')
         || source.starts_with("~/")

@@ -1,10 +1,13 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
+
+/*
+use std::collections::VecDeque;
 
 use warp_graphql::ai::AgentTaskState;
-
+use crate::server::server_api::ai::TaskStatusUpdate;
+*/
 use super::LocalTaskUpdate;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::server::server_api::ai::TaskStatusUpdate;
 
 /// Serializes and coalesces model-owned task updates independently per task.
 ///
@@ -18,12 +21,15 @@ pub struct LocalTaskUpdateQueue {
 
 #[derive(Default)]
 struct TaskQueue {
+    /*
     pending_updates: VecDeque<LocalTaskUpdate>,
     in_flight_update: Option<InFlightUpdate>,
     delivered_state: DeliveredTaskState,
+    */
     remove_when_idle: bool,
 }
 
+/*
 /// Tracks confirmed server field values used to deduplicate future updates.
 ///
 /// The queue currently deduplicates only bare `InProgress` states and repeated
@@ -47,11 +53,10 @@ impl InFlightUpdate {
         }
     }
 }
+*/
 
 impl LocalTaskUpdateQueue {
-    /// Enqueues an update and returns it for immediate delivery when the task is
-    /// idle. Otherwise, the update remains queued until the active request
-    /// completes.
+    /// Tracks a task locally while outbound task synchronization is disabled.
     pub fn enqueue(
         &mut self,
         task_id: AmbientAgentTaskId,
@@ -66,50 +71,58 @@ impl LocalTaskUpdateQueue {
             !queue.remove_when_idle,
             "updates must not be enqueued while final task cleanup is pending"
         );
+        // Outbound task-sync delivery is disabled in local-only mode.
+        /*
         queue.enqueue(update);
-        self.take_next_update(task_id)
+        return self.take_next_update(task_id);
+        */
+        None
     }
 
-    /// Records the active request's result and returns the next non-redundant
-    /// update for the task, if one is ready.
+    /// Retained as a no-op compatibility point for the disabled outbound path.
     pub fn record_result(
         &mut self,
         task_id: AmbientAgentTaskId,
         succeeded: bool,
     ) -> Option<LocalTaskUpdate> {
+        /*
         let queue = self.task_queues.get_mut(&task_id)?;
         let in_flight_update = queue.in_flight_update.take()?;
         queue
             .delivered_state
             .record_result(in_flight_update, succeeded);
 
-        self.take_next_update(task_id)
+        return self.take_next_update(task_id);
+        */
+        let _ = (task_id, succeeded);
+        None
     }
 
-    /// Whether the task has no queued or in-flight updates.
+    /*
+    /// Local-only tasks do not have outbound updates in flight.
     pub fn is_idle(&self, task_id: &AmbientAgentTaskId) -> bool {
-        self.task_queues.get(task_id).is_none_or(|queue| {
+        /*
+        return self.task_queues.get(task_id).is_none_or(|queue| {
             queue.in_flight_update.is_none() && queue.pending_updates.is_empty()
-        })
+        });
+        */
+        let _ = (self, task_id);
+        true
     }
+    */
 
-    /// Marks a task for final cleanup and removes its queue after updates
-    /// already accepted by the queue finish.
-    ///
-    /// Callers must not enqueue another update for the same task after cleanup.
+    /// Removes a task from local tracking.
     pub fn remove_task(&mut self, task_id: &AmbientAgentTaskId) {
-        let should_remove = if let Some(queue) = self.task_queues.get_mut(task_id) {
+        if let Some(queue) = self.task_queues.get_mut(task_id) {
             queue.remove_when_idle = true;
-            queue.in_flight_update.is_none() && queue.pending_updates.is_empty()
-        } else {
-            false
-        };
-
-        if should_remove {
-            self.task_queues.remove(task_id);
         }
+        self.task_queues.remove(task_id);
     }
+}
 
+// Commented out: outbound task-sync queueing, deduplication, and coalescing
+// are disabled in local-only mode. The task map above remains local tracking.
+/*
     fn take_next_update(&mut self, task_id: AmbientAgentTaskId) -> Option<LocalTaskUpdate> {
         let should_remove = {
             let queue = self.task_queues.get_mut(&task_id)?;
@@ -253,3 +266,4 @@ fn status_messages_compatible(
         (Some(_), None) | (None, Some(_)) | (None, None) => true,
     }
 }
+*/

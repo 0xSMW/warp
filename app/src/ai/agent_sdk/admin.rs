@@ -71,19 +71,6 @@ pub fn login(ctx: &mut AppContext) -> Result<()> {
                     );
                 }
             }
-            AuthManagerEvent::ReceivedDeviceAuthorizationCode {
-                verification_url,
-                verification_url_complete,
-                user_code,
-            } => {
-                if let Some(url) = verification_url_complete {
-                    println!("To log in, open this URL in your browser:\n{url}");
-                } else {
-                    println!(
-                        "To log in, visit {verification_url} and enter this code: {user_code}"
-                    );
-                }
-            }
             _ => {}
         },
     );

@@ -1,13 +1,19 @@
-//! [`RootTuiView`]: the login-gated root view of the `warp-tui` front-end.
+//! [`RootTuiView`]: the root view of the `warp-tui` front-end.
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
 
+#[cfg(test)]
 use anyhow::Result;
 use warp::tui_export::{ServerId, TeamUpdateManager, UserWorkspaces};
+#[cfg(test)]
 use warp::{TuiLoginModel, TuiLoginPhase};
 use warp_core::user_preferences::GetUserPreferences as _;
 use warpui::SingletonEntity as _;
+#[cfg(test)]
 use warpui_core::elements::MouseStateHandle;
+#[cfg(test)]
 use warpui_core::elements::animation::AnimationClock;
 use warpui_core::elements::tui::{TuiChildView, TuiElement};
 use warpui_core::keymap::FixedBinding;
@@ -18,14 +24,19 @@ use warpui_core::{
     keymap,
 };
 
+#[cfg(test)]
 use crate::clipboard::copy_to_clipboard;
 use crate::keybindings::TUI_BINDING_GROUP;
 use crate::session_registry::{TuiSessionView, TuiSessions};
+#[cfg(test)]
 use crate::transient_hint::TransientHint;
+use crate::ui::terminal_starting;
+#[cfg(test)]
 use crate::ui::{
     LoginBrowserOpenFailedParams, LoginFailedParams, LoginWaitingParams, login_browser_open_failed,
-    login_failed, login_waiting, signed_out_welcome, terminal_starting,
+    login_failed, login_waiting, signed_out_welcome,
 };
+#[cfg(test)]
 use crate::zero_state_animation::ZeroStateAnimationConfig;
 const LAST_TEAM_STORAGE_KEY: &str = "TuiLastTeamUid";
 
@@ -35,17 +46,22 @@ pub enum RootTuiAction {
     /// Exits the app while no terminal session is focused.
     ExitApp,
     /// Starts or retries browser device authorization from a signed-out screen.
+    #[cfg(test)]
     StartDeviceLogin,
     /// Starts device authorization and copies its exact URL once generated.
+    #[cfg(test)]
     StartDeviceLoginAndCopyUrl,
     /// Opens the current device-authorization URL.
+    #[cfg(test)]
     OpenLoginUrl(String),
     /// Copies the manual browser fallback shown while authorization is pending.
+    #[cfg(test)]
     CopyLoginUrl(String),
 }
 
-/// Whether the root is presenting authentication or the live session container.
+/// Whether the root is presenting the live session container.
 enum RootTuiState {
+    #[cfg(test)]
     Auth,
     Terminal,
 }
@@ -53,15 +69,25 @@ enum RootTuiState {
 /// The app-level TUI shell, projecting only the focused full session view.
 pub struct RootTuiView {
     state: RootTuiState,
+    #[cfg(test)]
     auth_animation_clock: AnimationClock,
+    #[cfg(test)]
     auth_animation_config: Arc<ZeroStateAnimationConfig>,
+    #[cfg(test)]
     welcome_login_mouse: MouseStateHandle,
+    #[cfg(test)]
     welcome_copy_mouse: MouseStateHandle,
+    #[cfg(test)]
     waiting_login_mouse: MouseStateHandle,
+    #[cfg(test)]
     waiting_login_copy_mouse: MouseStateHandle,
+    #[cfg(test)]
     waiting_login_retry_mouse: MouseStateHandle,
+    #[cfg(test)]
     failed_login_retry_mouse: MouseStateHandle,
+    #[cfg(test)]
     copy_login_url_when_available: bool,
+    #[cfg(test)]
     login_copy_hint: TransientHint,
 }
 
@@ -76,7 +102,7 @@ pub fn init(app: &mut AppContext) {
 }
 
 impl RootTuiView {
-    /// Creates the login-gated root view.
+    /// Creates the root view.
     pub(crate) fn new(ctx: &mut ViewContext<Self>) -> Self {
         let window_id = ctx.window_id();
         let team_uid = Self::restore_last_team_uid(ctx)
@@ -84,17 +110,31 @@ impl RootTuiView {
         UserWorkspaces::handle(ctx).update(ctx, |user_workspaces, ctx| {
             user_workspaces.register_window(window_id, team_uid, ctx);
         });
+        #[cfg(test)]
+        let state = RootTuiState::Auth;
+        #[cfg(not(test))]
+        let state = RootTuiState::Terminal;
         Self {
-            state: RootTuiState::Auth,
+            state,
+            #[cfg(test)]
             auth_animation_clock: AnimationClock::starting_at(Duration::ZERO),
+            #[cfg(test)]
             auth_animation_config: Arc::new(ZeroStateAnimationConfig::default()),
+            #[cfg(test)]
             welcome_login_mouse: MouseStateHandle::default(),
+            #[cfg(test)]
             welcome_copy_mouse: MouseStateHandle::default(),
+            #[cfg(test)]
             waiting_login_mouse: MouseStateHandle::default(),
+            #[cfg(test)]
             waiting_login_copy_mouse: MouseStateHandle::default(),
+            #[cfg(test)]
             waiting_login_retry_mouse: MouseStateHandle::default(),
+            #[cfg(test)]
             failed_login_retry_mouse: MouseStateHandle::default(),
+            #[cfg(test)]
             copy_login_url_when_available: false,
+            #[cfg(test)]
             login_copy_hint: TransientHint::default(),
         }
     }
@@ -133,14 +173,16 @@ impl RootTuiView {
             .write_value(LAST_TEAM_STORAGE_KEY, serialized);
     }
 
-    /// Transitions from the authentication gate to the live session container.
+    /// Transitions to the live session container.
     pub(crate) fn show_terminal(&mut self, ctx: &mut ViewContext<Self>) {
+        #[cfg(test)]
         self.reset_login_copy_state();
         self.state = RootTuiState::Terminal;
         ctx.notify();
     }
 
     /// Returns to the authentication gate after the current user logs out.
+    #[cfg(test)]
     pub(crate) fn show_auth(&mut self, ctx: &mut ViewContext<Self>) {
         self.reset_login_copy_state();
         self.state = RootTuiState::Auth;
@@ -158,11 +200,13 @@ impl RootTuiView {
             .map(|session| session.view().clone())
     }
 
+    #[cfg(test)]
     fn reset_login_copy_state(&mut self) {
         self.copy_login_url_when_available = false;
         self.login_copy_hint.clear();
     }
 
+    #[cfg(test)]
     pub(crate) fn handle_login_phase_changed(
         &mut self,
         ctx: &mut ViewContext<Self>,
@@ -193,6 +237,7 @@ impl RootTuiView {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn copy_login_url_with(
         &mut self,
         url: &str,
@@ -247,6 +292,7 @@ impl TuiView for RootTuiView {
 
     fn child_view_ids(&self, ctx: &AppContext) -> Vec<EntityId> {
         match self.state {
+            #[cfg(test)]
             RootTuiState::Auth => Vec::new(),
             RootTuiState::Terminal => self
                 .focused_session_view(ctx)
@@ -265,6 +311,7 @@ impl TuiView for RootTuiView {
     }
     fn render(&self, ctx: &AppContext) -> Box<dyn TuiElement> {
         match self.state {
+            #[cfg(test)]
             RootTuiState::Auth => match TuiLoginModel::as_ref(ctx).phase() {
                 TuiLoginPhase::SignedOutWelcome => signed_out_welcome(
                     self.auth_animation_clock,
@@ -356,6 +403,7 @@ impl TuiView for RootTuiView {
                 .focused_session_view(ctx)
                 .map(|view| match view {
                     TuiSessionView::Terminal(view) => TuiChildView::new(&view).finish(),
+                    #[cfg(test)]
                     TuiSessionView::Cloud(view) => TuiChildView::new(&view).finish(),
                 })
                 .unwrap_or_else(terminal_starting),
@@ -375,11 +423,13 @@ impl TypedActionView for RootTuiView {
     fn handle_action(&mut self, action: &RootTuiAction, ctx: &mut ViewContext<Self>) {
         match action {
             RootTuiAction::ExitApp => {
+                #[cfg(test)]
                 if matches!(self.state, RootTuiState::Auth) {
                     TuiLoginModel::record_authentication_abandoned(ctx);
                 }
                 ctx.terminate_app(TerminationMode::ForceTerminate, None);
             }
+            #[cfg(test)]
             RootTuiAction::StartDeviceLogin => {
                 if matches!(
                     TuiLoginModel::as_ref(ctx).phase(),
@@ -389,6 +439,7 @@ impl TypedActionView for RootTuiView {
                     TuiLoginModel::start_device_login(ctx);
                 }
             }
+            #[cfg(test)]
             RootTuiAction::StartDeviceLoginAndCopyUrl => {
                 if matches!(
                     TuiLoginModel::as_ref(ctx).phase(),
@@ -399,9 +450,11 @@ impl TypedActionView for RootTuiView {
                     TuiLoginModel::start_device_login_and_copy_url(ctx);
                 }
             }
+            #[cfg(test)]
             RootTuiAction::OpenLoginUrl(url) => {
                 TuiLoginModel::open_login_url(url, ctx);
             }
+            #[cfg(test)]
             RootTuiAction::CopyLoginUrl(url) => {
                 self.copy_login_url_with(url, ctx, copy_to_clipboard);
             }

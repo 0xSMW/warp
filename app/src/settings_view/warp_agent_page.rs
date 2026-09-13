@@ -1767,6 +1767,10 @@ impl WarpAgentPageView {
     /// reach the loopback callback.
     #[cfg(not(target_family = "wasm"))]
     fn start_grok_oauth(&mut self, ctx: &mut ViewContext<Self>) {
+        if crate::is_local_mode() {
+            return;
+        }
+
         use warp_core::safe_error;
 
         use crate::ToastStack;
@@ -1997,6 +2001,10 @@ impl WarpAgentPageView {
     /// attempt's PKCE verifier.
     #[cfg(not(target_family = "wasm"))]
     fn submit_grok_code(&mut self, code: String, ctx: &mut ViewContext<Self>) {
+        if crate::is_local_mode() {
+            return;
+        }
+
         use warp_core::safe_error;
 
         use crate::ToastStack;
@@ -2919,14 +2927,23 @@ impl TypedActionView for WarpAgentPageView {
                 ctx.notify();
             }
             WarpAgentPageAction::ConnectGrokSubscription => {
+                if crate::is_local_mode() {
+                    return;
+                }
                 #[cfg(not(target_family = "wasm"))]
                 self.start_grok_oauth(ctx);
             }
             WarpAgentPageAction::CancelGrokSubscriptionConnect => {
+                if crate::is_local_mode() {
+                    return;
+                }
                 #[cfg(not(target_family = "wasm"))]
                 self.cancel_grok_oauth(ctx);
             }
             WarpAgentPageAction::DisconnectGrokSubscription => {
+                if crate::is_local_mode() {
+                    return;
+                }
                 // A live attempt shouldn't be possible alongside stored
                 // tokens in normal use, but route it through the same
                 // cancel path defensively rather than clearing it inline.
@@ -5608,8 +5625,8 @@ impl SettingsWidget for ApiKeysWidget {
             }
         }
 
-        // Entrypoint for connecting a SuperGrok (xAI) subscription via OAuth.
-        if FeatureFlag::SuperGrok.is_enabled() && show_provider_keys {
+        // SuperGrok OAuth is unavailable in local-only mode.
+        if !crate::is_local_mode() && FeatureFlag::SuperGrok.is_enabled() && show_provider_keys {
             #[cfg(not(target_family = "wasm"))]
             let grok_oauth_phase = view
                 .grok_oauth_attempt

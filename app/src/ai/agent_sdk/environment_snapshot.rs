@@ -1,3 +1,6 @@
+// Disabled for local-only runs: environment snapshots are not reported to the cloud.
+// The local filesystem snapshot pipeline remains in the driver snapshot module.
+/*
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -139,3 +142,4 @@ async fn publish_with_retry(
 #[cfg(test)]
 #[path = "environment_snapshot_tests.rs"]
 mod tests;
+*/

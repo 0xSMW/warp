@@ -1,62 +1,79 @@
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+#[cfg(test)]
 use cynic::{MutationBuilder, QueryBuilder};
 #[cfg(test)]
 use mockall::{automock, predicate::*};
+#[cfg(test)]
 use warp_graphql::mutations::add_invite_link_domain_restriction::{
     AddInviteLinkDomainRestriction, AddInviteLinkDomainRestrictionInput,
     AddInviteLinkDomainRestrictionResult, AddInviteLinkDomainRestrictionVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::create_team::{
     CreateTeam, CreateTeamInput, CreateTeamResult, CreateTeamVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::delete_invite_link_domain_restriction::{
     DeleteInviteLinkDomainRestriction, DeleteInviteLinkDomainRestrictionInput,
     DeleteInviteLinkDomainRestrictionResult, DeleteInviteLinkDomainRestrictionVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::delete_team_invite::{
     DeleteTeamInvite, DeleteTeamInviteInput, DeleteTeamInviteResult, DeleteTeamInviteVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::join_team_in_workspace::{
     JoinTeamInWorkspace, JoinTeamInWorkspaceInput, JoinTeamInWorkspaceResult,
     JoinTeamInWorkspaceVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::join_team_with_team_discovery::{
     JoinTeamWithTeamDiscovery, JoinTeamWithTeamDiscoveryInput, JoinTeamWithTeamDiscoveryResult,
     JoinTeamWithTeamDiscoveryVariables, TeamDiscoveryEntrypoint,
 };
+#[cfg(test)]
 use warp_graphql::mutations::remove_user_from_team::{
     RemoveUserFromTeam, RemoveUserFromTeamInput, RemoveUserFromTeamResult,
     RemoveUserFromTeamVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::rename_team::{
     RenameTeam, RenameTeamInput, RenameTeamResult, RenameTeamVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::reset_invite_links::{
     ResetInviteLinks, ResetInviteLinksInput, ResetInviteLinksResult, ResetInviteLinksVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::send_team_invite_email::{
     SendTeamInviteEmail, SendTeamInviteEmailInput, SendTeamInviteEmailResult,
     SendTeamInviteEmailVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::set_is_invite_link_enabled::{
     SetIsInviteLinkEnabled, SetIsInviteLinkEnabledInput, SetIsInviteLinkEnabledResult,
     SetIsInviteLinkEnabledVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::set_team_discoverability::{
     SetTeamDiscoverability, SetTeamDiscoverabilityInput, SetTeamDiscoverabilityResult,
     SetTeamDiscoverabilityVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::set_team_member_role::{
     SetTeamMemberRole, SetTeamMemberRoleInput, SetTeamMemberRoleResult, SetTeamMemberRoleVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::transfer_team_ownership::{
     TransferTeamOwnership, TransferTeamOwnershipInput, TransferTeamOwnershipResult,
     TransferTeamOwnershipVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_discoverable_teams::{
     GetDiscoverableTeams, GetDiscoverableTeamsVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_workspaces_metadata_for_user::{
     GetWorkspacesMetadataForUser, GetWorkspacesMetadataForUserVariables, PricingInfoResult,
 };
@@ -64,12 +81,24 @@ use warp_graphql::queries::get_workspaces_metadata_for_user::{
 use super::ServerApi;
 use crate::auth::UserUid;
 use crate::cloud_object::CloudObjectEventEntrypoint;
+#[cfg(test)]
 use crate::server::graphql::{get_request_context, get_user_facing_error_message};
 use crate::server::ids::ServerId;
+#[cfg(test)]
 use crate::workspaces::gql_convert::workspaces_metadata_response_from_gql;
 use crate::workspaces::team::{DiscoverableTeam, MembershipRole};
 use crate::workspaces::user_workspaces::{CreateTeamResponse, WorkspacesMetadataWithPricing};
+#[cfg(test)]
 use crate::workspaces::workspace::Workspace;
+
+#[cfg(not(test))]
+const LOCAL_ONLY_TEAM_ERROR: &str =
+    "Team and workspace server operations are disabled in local-only mode";
+
+#[cfg(not(test))]
+fn local_only_team_error<T>() -> Result<T> {
+    Err(anyhow!(LOCAL_ONLY_TEAM_ERROR))
+}
 
 #[cfg_attr(test, automock)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
@@ -174,6 +203,7 @@ pub trait TeamClient: 'static + Send + Sync {
 
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg(test)]
 impl TeamClient for ServerApi {
     #[tracing::instrument(skip_all, err, fields(tags.cloud_agent = true))]
     async fn workspaces_metadata(&self) -> Result<WorkspacesMetadataWithPricing> {
@@ -764,5 +794,125 @@ impl TeamClient for ServerApi {
                 Err(anyhow!("unknown error while setting team member role"))
             }
         }
+    }
+}
+
+#[cfg(not(test))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+impl TeamClient for ServerApi {
+    async fn workspaces_metadata(&self) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn add_invite_link_domain_restriction(
+        &self,
+        _: ServerId,
+        _: String,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn delete_invite_link_domain_restriction(
+        &self,
+        _: ServerId,
+        _: ServerId,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn create_team(
+        &self,
+        _: String,
+        _: CloudObjectEventEntrypoint,
+        _: Option<bool>,
+    ) -> Result<CreateTeamResponse> {
+        local_only_team_error()
+    }
+
+    async fn remove_user_from_team(
+        &self,
+        _: UserUid,
+        _: ServerId,
+        _: CloudObjectEventEntrypoint,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn leave_team(
+        &self,
+        _: UserUid,
+        _: ServerId,
+        _: CloudObjectEventEntrypoint,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn join_team_with_team_discovery(
+        &self,
+        _: ServerId,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn join_team_in_workspace(&self, _: ServerId) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn send_team_invite_email(
+        &self,
+        _: ServerId,
+        _: String,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn delete_team_invite(
+        &self,
+        _: ServerId,
+        _: String,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn get_discoverable_teams(&self) -> Result<Vec<DiscoverableTeam>> {
+        local_only_team_error()
+    }
+
+    async fn rename_team(&self, _: String, _: ServerId) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn reset_invite_links(&self, _: ServerId) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn set_is_invite_link_enabled(
+        &self,
+        _: ServerId,
+        _: bool,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn set_team_discoverability(
+        &self,
+        _: ServerId,
+        _: bool,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn transfer_team_ownership(&self, _: String) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
+    }
+
+    async fn set_team_member_role(
+        &self,
+        _: UserUid,
+        _: ServerId,
+        _: MembershipRole,
+    ) -> Result<WorkspacesMetadataWithPricing> {
+        local_only_team_error()
     }
 }

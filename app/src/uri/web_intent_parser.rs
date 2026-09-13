@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use url::Url;
+#[cfg(test)]
 use uuid::Uuid;
 #[cfg(target_family = "wasm")]
 use warp_core::context_flag::ContextFlag;
@@ -11,11 +12,15 @@ use crate::uri::browser_url_handler::parse_current_url;
 #[derive(Debug)]
 /// Represents an intent parsed from a web url
 pub enum WebIntent {
+    #[cfg(any(target_family = "wasm", test))]
     SessionView(Url),
+    #[cfg(any(target_family = "wasm", test))]
     ConversationView(Url),
+    #[cfg(any(target_family = "wasm", test))]
     DriveObject(Url),
     SettingsView(Url),
     Home(Url),
+    #[cfg(any(target_family = "wasm", test))]
     CloudAgentHome(Url),
     Action(Url),
 }
@@ -43,12 +48,14 @@ impl WebIntent {
                 ))?));
             } else {
                 match segments[0] {
+                    #[cfg(test)]
                     "app" => {
                         return Ok(WebIntent::CloudAgentHome(Url::parse(&format!(
                             "{url_scheme}://action/new_cloud_agent_conversation?source=web_home"
                         ))?));
                     }
                     // For sessions, we expect the URL to be in the format: {scheme}/session/{session_id}
+                    #[cfg(test)]
                     "session" => {
                         if segments.len() != 2 {
                             return Err(anyhow!("Attempting to parse invalid url: {}", url));
@@ -76,6 +83,7 @@ impl WebIntent {
                         return Ok(WebIntent::SessionView(session_intent));
                     }
                     // For conversations, we expect the URL to be in the format: {scheme}/conversation/{conversation_id}
+                    #[cfg(test)]
                     "conversation" => {
                         if segments.len() != 2 {
                             return Err(anyhow!("Attempting to parse invalid url: {}", url));
@@ -91,6 +99,7 @@ impl WebIntent {
                     }
                     // For drive objects, we expect the URL to be of the format: {scheme}/drive/{object-type}/{object-name}-{object-id}?focused_folder_id={focused_folder_id}
                     // The focused_folder_id is optional, and if it is not provided, we will not include it in the intent url.
+                    #[cfg(test)]
                     "drive" => {
                         if segments.len() != 3 {
                             return Err(anyhow!("Attempting to parse invalid url: {}", url));
@@ -130,7 +139,10 @@ impl WebIntent {
                         let action_type = segments[1];
                         // Allowlist of valid actions,
                         // since we shouldn't expose all Warp actions as web URLs.
-                        const ALLOWED_ACTIONS: &[&str] = &["open-repo", "focus_cloud_mode"];
+                        const ALLOWED_ACTIONS: &[&str] = &[
+                            "open-repo",
+                            // "focus_cloud_mode",
+                        ];
                         if !ALLOWED_ACTIONS.contains(&action_type) {
                             return Err(anyhow!("Unknown action type in url: {}", action_type));
                         }
@@ -150,18 +162,21 @@ impl WebIntent {
     /// Convert this web intent into the underlying native desktop URL.
     pub fn into_intent_url(self) -> Url {
         match self {
+            #[cfg(any(target_family = "wasm", test))]
             WebIntent::SessionView(url) => url,
+            #[cfg(any(target_family = "wasm", test))]
             WebIntent::ConversationView(url) => url,
+            #[cfg(any(target_family = "wasm", test))]
             WebIntent::DriveObject(url) => url,
             WebIntent::SettingsView(url) => url,
             WebIntent::Home(url) => url,
+            #[cfg(any(target_family = "wasm", test))]
             WebIntent::CloudAgentHome(url) => url,
             WebIntent::Action(url) => url,
         }
     }
 
-    /// True when `url` resolves to a `ConversationView` or `SessionView` —
-    /// the two routes that anchor the web session viewer.
+    /// Retained for callers that inspect web session routes. Cloud routes are disabled here.
     #[cfg(any(target_family = "wasm", test))]
     pub fn is_conversation_or_session_view(url: &Url) -> bool {
         matches!(
@@ -172,7 +187,7 @@ impl WebIntent {
 }
 
 /// Attempts to rewrite a Warp web URL into a native desktop intent URL (warp://...).
-/// Returns `None` if the URL is not a recognized Warp web intent.
+/// Returns `None` if the URL is not a recognized local Warp web intent.
 pub fn maybe_rewrite_web_url_to_intent(url: &Url) -> Option<Url> {
     WebIntent::try_from_url(url)
         .ok()
@@ -183,11 +198,18 @@ pub fn maybe_rewrite_web_url_to_intent(url: &Url) -> Option<Url> {
 #[cfg(target_family = "wasm")]
 pub fn open_url_on_desktop(url: &Url) {
     match WebIntent::try_from_url(url) {
+        // Commented out: cloud web intents must not emit OpenOnNative events.
+        /*
         Ok(WebIntent::ConversationView(intent))
         | Ok(WebIntent::DriveObject(intent))
         | Ok(WebIntent::SessionView(intent))
-        | Ok(WebIntent::CloudAgentHome(intent))
-        | Ok(WebIntent::Action(intent)) => {
+        | Ok(WebIntent::CloudAgentHome(intent)) => {
+            crate::platform::wasm::emit_event(crate::platform::wasm::WarpEvent::OpenOnNative {
+                url: intent.into(),
+            });
+        }
+        */
+        Ok(WebIntent::Action(intent)) => {
             crate::platform::wasm::emit_event(crate::platform::wasm::WarpEvent::OpenOnNative {
                 url: intent.into(),
             });
@@ -201,9 +223,12 @@ pub fn open_url_on_desktop(url: &Url) {
 #[cfg(target_family = "wasm")]
 fn set_context_flags_from_url(url: Url) {
     match WebIntent::try_from_url(&url) {
+        // Commented out: cloud-only web routes must not set cloud context flags.
+        /*
         Ok(WebIntent::SessionView(_)) => ContextFlag::set_shared_session_only(),
         Ok(WebIntent::ConversationView(_)) => ContextFlag::set_conversation_only(),
         Ok(WebIntent::DriveObject(_)) => ContextFlag::set_warp_drive_link_only(),
+        */
         Ok(WebIntent::SettingsView(_)) => ContextFlag::set_settings_link_only(),
         Ok(WebIntent::Home(_)) => ContextFlag::set_warp_home_link_only(),
         Ok(WebIntent::CloudAgentHome(_)) => {}

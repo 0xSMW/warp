@@ -8,7 +8,8 @@ use ::settings::{Setting, ToggleableSetting};
 use lazy_static::lazy_static;
 use strum::IntoEnumIterator;
 use warp_core::channel::ChannelState;
-use warp_core::context_flag::ContextFlag;
+// Commented out with the shared-session settings registration.
+// use warp_core::context_flag::ContextFlag;
 use warp_core::semantic_selection::{
     SemanticSelection, SemanticSelectionChangedEvent, SmartSelectEnabled,
 };
@@ -96,7 +97,7 @@ use crate::terminal::session_settings::StartupShellOverride;
 use crate::terminal::session_settings::WorkingDirectoryConfig;
 use crate::terminal::session_settings::{
     Notifications, NotificationsMode, NotificationsSettings, SessionSettings,
-    SessionSettingsChangedEvent, ShouldConfirmCloseSession,
+    SessionSettingsChangedEvent,
 };
 use crate::terminal::settings::{
     AsyncFindEnabled, MaximumGridSize, Osc52ClipboardAccess, Osc52ClipboardAccessSetting,
@@ -355,36 +356,37 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                 .is_supported_on_current_platform(),
         ),
     );
-    toggle_binding_pairs.push(
-        ToggleSettingActionPair::new(
-            "agent task completion notifications",
-            builder(SettingsAction::FeaturesPageToggle(
-                FeaturesPageAction::ToggleAgentTaskCompletedNotifications,
-            )),
-            &(context.to_owned() & id!(flags::NOTIFICATIONS_CONTEXT_FLAG)),
-            flags::AGENT_TASK_COMPLETED_NOTIFICATIONS_FLAG,
-        )
-        .is_supported_on_current_platform(
-            SessionSettings::as_ref(app)
-                .notifications
-                .is_supported_on_current_platform(),
-        ),
-    );
-    toggle_binding_pairs.push(
-        ToggleSettingActionPair::new(
-            "needs-attention notifications",
-            builder(SettingsAction::FeaturesPageToggle(
-                FeaturesPageAction::ToggleNeedsAttentionNotifications,
-            )),
-            &(context.to_owned() & id!(flags::NOTIFICATIONS_CONTEXT_FLAG)),
-            flags::NEEDS_ATTENTION_NOTIFICATIONS_FLAG,
-        )
-        .is_supported_on_current_platform(
-            SessionSettings::as_ref(app)
-                .notifications
-                .is_supported_on_current_platform(),
-        ),
-    );
+    // Commented out: Agent notification command bindings.
+    // toggle_binding_pairs.push(
+    //     ToggleSettingActionPair::new(
+    //         "agent task completion notifications",
+    //         builder(SettingsAction::FeaturesPageToggle(
+    //             FeaturesPageAction::ToggleAgentTaskCompletedNotifications,
+    //         )),
+    //         &(context.to_owned() & id!(flags::NOTIFICATIONS_CONTEXT_FLAG)),
+    //         flags::AGENT_TASK_COMPLETED_NOTIFICATIONS_FLAG,
+    //     )
+    //     .is_supported_on_current_platform(
+    //         SessionSettings::as_ref(app)
+    //             .notifications
+    //             .is_supported_on_current_platform(),
+    //     ),
+    // );
+    // toggle_binding_pairs.push(
+    //     ToggleSettingActionPair::new(
+    //         "needs-attention notifications",
+    //         builder(SettingsAction::FeaturesPageToggle(
+    //             FeaturesPageAction::ToggleNeedsAttentionNotifications,
+    //         )),
+    //         &(context.to_owned() & id!(flags::NOTIFICATIONS_CONTEXT_FLAG)),
+    //         flags::NEEDS_ATTENTION_NOTIFICATIONS_FLAG,
+    //     )
+    //     .is_supported_on_current_platform(
+    //         SessionSettings::as_ref(app)
+    //             .notifications
+    //             .is_supported_on_current_platform(),
+    //     ),
+    // );
     #[cfg(target_os = "macos")]
     toggle_binding_pairs.push(
         ToggleSettingActionPair::new(
@@ -401,17 +403,18 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
                 .is_supported_on_current_platform(),
         ),
     );
-    toggle_binding_pairs.push(
-        ToggleSettingActionPair::new(
-            "in-app agent notifications",
-            builder(SettingsAction::FeaturesPageToggle(
-                FeaturesPageAction::ToggleAgentInAppNotifications,
-            )),
-            context,
-            flags::AGENT_IN_APP_NOTIFICATIONS_FLAG,
-        )
-        .with_enabled(|| FeatureFlag::HOANotifications.is_enabled()),
-    );
+    // Commented out: In-app agent notification command binding.
+    // toggle_binding_pairs.push(
+    //     ToggleSettingActionPair::new(
+    //         "in-app agent notifications",
+    //         builder(SettingsAction::FeaturesPageToggle(
+    //             FeaturesPageAction::ToggleAgentInAppNotifications,
+    //         )),
+    //         context,
+    //         flags::AGENT_IN_APP_NOTIFICATIONS_FLAG,
+    //     )
+    //     .with_enabled(|| FeatureFlag::HOANotifications.is_enabled()),
+    // );
 
     toggle_binding_pairs.push(
         ToggleSettingActionPair::new(
@@ -580,35 +583,36 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
         context,
         flags::SMART_SELECT_FLAG,
     ));
-    if FeatureFlag::AgentView.is_enabled() && AISettings::as_ref(app).is_any_ai_enabled(app) {
-        toggle_binding_pairs.push(
-            ToggleSettingActionPair::new(
-                "help block in new sessions",
-                builder(SettingsAction::FeaturesPageToggle(
-                    FeaturesPageAction::ToggleShowTerminalZeroStateBlock,
-                )),
-                context,
-                flags::SHOW_TERMINAL_ZERO_STATE_BLOCK_FLAG,
-            )
-            .is_supported_on_current_platform(
-                TerminalSettings::as_ref(app)
-                    .show_terminal_zero_state_block
-                    .is_supported_on_current_platform(),
-            ),
-        );
-    }
+    // Commented out: Agent command bindings.
+    // if FeatureFlag::AgentView.is_enabled() && AISettings::as_ref(app).is_any_ai_enabled(app) {
+    //     toggle_binding_pairs.push(
+    //         ToggleSettingActionPair::new(
+    //             "help block in new sessions",
+    //             builder(SettingsAction::FeaturesPageToggle(
+    //                 FeaturesPageAction::ToggleShowTerminalZeroStateBlock,
+    //             )),
+    //             context,
+    //             flags::SHOW_TERMINAL_ZERO_STATE_BLOCK_FLAG,
+    //         )
+    //         .is_supported_on_current_platform(
+    //             TerminalSettings::as_ref(app)
+    //                 .show_terminal_zero_state_block
+    //                 .is_supported_on_current_platform(),
+    //         ),
+    //     );
+    // }
 
-    toggle_binding_pairs.push(
-        ToggleSettingActionPair::new(
-            "terminal input message line",
-            builder(SettingsAction::FeaturesPageToggle(
-                FeaturesPageAction::ToggleShowTerminalInputMessageLine,
-            )),
-            context,
-            flags::SHOW_TERMINAL_INPUT_MESSAGE_LINE_FLAG,
-        )
-        .with_enabled(|| FeatureFlag::AgentView.is_enabled()),
-    );
+    // toggle_binding_pairs.push(
+    //     ToggleSettingActionPair::new(
+    //         "terminal input message line",
+    //         builder(SettingsAction::FeaturesPageToggle(
+    //             FeaturesPageAction::ToggleShowTerminalInputMessageLine,
+    //         )),
+    //         context,
+    //         flags::SHOW_TERMINAL_INPUT_MESSAGE_LINE_FLAG,
+    //     )
+    //     .with_enabled(|| FeatureFlag::AgentView.is_enabled()),
+    // );
     toggle_binding_pairs.push(
         ToggleSettingActionPair::new(
             "'@' context menu in terminal mode",
@@ -634,40 +638,41 @@ pub fn init_actions_from_parent_view<T: Action + Clone>(
         flags::PRESERVE_INPUT_FOCUS_ON_BLOCK_SELECTION_FLAG,
     ));
 
-    if FeatureFlag::AgentView.is_enabled() && AISettings::as_ref(app).is_any_ai_enabled(app) {
-        toggle_binding_pairs.push(
-            ToggleSettingActionPair::new(
-                "slash commands in terminal mode",
-                builder(SettingsAction::FeaturesPageToggle(
-                    FeaturesPageAction::ToggleSlashCommandsInTerminalMode,
-                )),
-                context,
-                flags::SLASH_COMMANDS_IN_TERMINAL_FLAG,
-            )
-            .is_supported_on_current_platform(
-                InputSettings::as_ref(app)
-                    .enable_slash_commands_in_terminal
-                    .is_supported_on_current_platform(),
-            ),
-        );
-    }
-    if FeatureFlag::AIContextMenuCode.is_enabled() {
-        toggle_binding_pairs.push(
-            ToggleSettingActionPair::new(
-                "codebase symbols in the '@' context menu",
-                builder(SettingsAction::FeaturesPageToggle(
-                    FeaturesPageAction::ToggleOutlineCodebaseSymbolsForAtContextMenu,
-                )),
-                context,
-                flags::OUTLINE_CODEBASE_SYMBOLS_FOR_AT_CONTEXT_MENU_FLAG,
-            )
-            .is_supported_on_current_platform(
-                InputSettings::as_ref(app)
-                    .outline_codebase_symbols_for_at_context_menu
-                    .is_supported_on_current_platform(),
-            ),
-        );
-    }
+    // Commented out: Slash-command and codebase-indexing command bindings.
+    // if FeatureFlag::AgentView.is_enabled() && AISettings::as_ref(app).is_any_ai_enabled(app) {
+    //     toggle_binding_pairs.push(
+    //         ToggleSettingActionPair::new(
+    //             "slash commands in terminal mode",
+    //             builder(SettingsAction::FeaturesPageToggle(
+    //                 FeaturesPageAction::ToggleSlashCommandsInTerminalMode,
+    //             )),
+    //             context,
+    //             flags::SLASH_COMMANDS_IN_TERMINAL_FLAG,
+    //         )
+    //         .is_supported_on_current_platform(
+    //             InputSettings::as_ref(app)
+    //                 .enable_slash_commands_in_terminal
+    //                 .is_supported_on_current_platform(),
+    //         ),
+    //     );
+    // }
+    // if FeatureFlag::AIContextMenuCode.is_enabled() {
+    //     toggle_binding_pairs.push(
+    //         ToggleSettingActionPair::new(
+    //             "codebase symbols in the '@' context menu",
+    //             builder(SettingsAction::FeaturesPageToggle(
+    //                 FeaturesPageAction::ToggleOutlineCodebaseSymbolsForAtContextMenu,
+    //             )),
+    //             context,
+    //             flags::OUTLINE_CODEBASE_SYMBOLS_FOR_AT_CONTEXT_MENU_FLAG,
+    //         )
+    //         .is_supported_on_current_platform(
+    //             InputSettings::as_ref(app)
+    //                 .outline_codebase_symbols_for_at_context_menu
+    //                 .is_supported_on_current_platform(),
+    //         ),
+    //     );
+    // }
     toggle_binding_pairs.push(
         ToggleSettingActionPair::new(
             "global workflows in Command Search",
@@ -1391,9 +1396,6 @@ struct MouseStateHandles {
     quake_mode_width_height_reset: MouseStateHandle,
     quake_mode_pin_window_check: MouseStateHandle,
     long_running_notifications_checkbox: MouseStateHandle,
-    agent_task_completed_notifications_checkbox: MouseStateHandle,
-    agent_needs_attention_notifications_checkbox: MouseStateHandle,
-    agent_in_app_notifications_switch: SwitchStateHandle,
     #[cfg(target_os = "macos")]
     notification_sound_checkbox: MouseStateHandle,
     change_keybinding: MouseStateHandle,
@@ -2877,14 +2879,15 @@ impl FeaturesPageView {
             session_widgets.push(Box::new(UndoCloseWidget::default()));
         }
 
-        if FeatureFlag::CreatingSharedSessions.is_enabled()
-            && ContextFlag::CreateSharedSession.is_enabled()
-            && session_settings
-                .should_confirm_close_session
-                .is_supported_on_current_platform()
-        {
-            session_widgets.push(Box::new(ConfirmCloseSharedSessionWidget::default()));
-        }
+        // Commented out: Shared-session settings are unavailable in local-only builds.
+        // if FeatureFlag::CreatingSharedSessions.is_enabled()
+        //     && ContextFlag::CreateSharedSession.is_enabled()
+        //     && session_settings
+        //         .should_confirm_close_session
+        //         .is_supported_on_current_platform()
+        // {
+        //     session_widgets.push(Box::new(ConfirmCloseSharedSessionWidget::default()));
+        // }
 
         let mut keys_widgets: Vec<Box<dyn SettingsWidget<View = Self>>> = vec![];
         let keys_settings = KeysSettings::as_ref(ctx);
@@ -3729,7 +3732,7 @@ impl FeaturesPageView {
                 }
 
                 let ai_settings = AISettings::as_ref(ctx);
-                let current_mode = ai_settings.default_session_mode(ctx);
+                let current_mode = ai_settings.default_session_mode();
                 let current_tab_config_path = ai_settings.default_tab_config_path().to_string();
 
                 // Build items: built-in modes (skip TabConfig since configs are listed individually,
@@ -5271,31 +5274,34 @@ impl SettingsWidget for DesktopNotificationsWidget {
             session_settings.notifications.mode,
             NotificationsMode::Enabled
         ) {
-            let toggles = vec![
-                view.render_notification_toggle(
-                    session_settings
-                        .notifications
-                        .is_agent_task_completed_enabled,
-                    "Notify when an agent completes a task",
-                    FeaturesPageAction::ToggleAgentTaskCompletedNotifications,
-                    view.button_mouse_states
-                        .agent_task_completed_notifications_checkbox
-                        .clone(),
-                    appearance,
-                ),
+            #[allow(unused_mut)]
+            let mut toggles = vec![
+                // Commented out: Notify when an agent completes a task
+                // view.render_notification_toggle(
+                //     session_settings
+                //         .notifications
+                //         .is_agent_task_completed_enabled,
+                //     "Notify when an agent completes a task",
+                //     FeaturesPageAction::ToggleAgentTaskCompletedNotifications,
+                //     view.button_mouse_states
+                //         .agent_task_completed_notifications_checkbox
+                //         .clone(),
+                //     appearance,
+                // ),
                 view.render_long_running_notifications_setting(
                     &session_settings.notifications,
                     appearance,
                 ),
-                view.render_notification_toggle(
-                    session_settings.notifications.is_needs_attention_enabled,
-                    "Notify when a command or agent needs your attention to continue",
-                    FeaturesPageAction::ToggleNeedsAttentionNotifications,
-                    view.button_mouse_states
-                        .agent_needs_attention_notifications_checkbox
-                        .clone(),
-                    appearance,
-                ),
+                // Commented out: Notify when a command or agent needs your attention to continue
+                // view.render_notification_toggle(
+                //     session_settings.notifications.is_needs_attention_enabled,
+                //     "Notify when a command or agent needs your attention to continue",
+                //     FeaturesPageAction::ToggleNeedsAttentionNotifications,
+                //     view.button_mouse_states
+                //         .agent_needs_attention_notifications_checkbox
+                //         .clone(),
+                //     appearance,
+                // ),
                 // Add notification sound toggle only on macOS
                 #[cfg(target_os = "macos")]
                 {
@@ -5312,87 +5318,89 @@ impl SettingsWidget for DesktopNotificationsWidget {
             column.add_child(render_group(toggles, appearance));
         }
 
-        if FeatureFlag::HOANotifications.is_enabled() {
-            let ai_settings = AISettings::as_ref(app);
-            let show_agent_notifications = *ai_settings.show_agent_notifications;
-            column.add_child(render_body_item::<FeaturesPageAction>(
-                "Show in-app agent notifications".into(),
-                None,
-                LocalOnlyIconState::Hidden,
-                ToggleState::Enabled,
-                appearance,
-                ui_builder
-                    .switch(
-                        view.button_mouse_states
-                            .agent_in_app_notifications_switch
-                            .clone(),
-                    )
-                    .check(show_agent_notifications)
-                    .build()
-                    .on_click(move |ctx, _, _| {
-                        ctx.dispatch_typed_action(
-                            FeaturesPageAction::ToggleAgentInAppNotifications,
-                        );
-                    })
-                    .finish(),
-                None,
-            ));
+        // Commented out: In-app agent notifications
+        // if FeatureFlag::HOANotifications.is_enabled() {
+        //     let ai_settings = AISettings::as_ref(app);
+        //     let show_agent_notifications = *ai_settings.show_agent_notifications;
+        //     column.add_child(render_body_item::<FeaturesPageAction>(
+        //         "Show in-app agent notifications".into(),
+        //         None,
+        //         LocalOnlyIconState::Hidden,
+        //         ToggleState::Enabled,
+        //         appearance,
+        //         ui_builder
+        //             .switch(
+        //                 view.button_mouse_states
+        //                     .agent_in_app_notifications_switch
+        //                     .clone(),
+        //             )
+        //             .check(show_agent_notifications)
+        //             .build()
+        //             .on_click(move |ctx, _, _| {
+        //                 ctx.dispatch_typed_action(
+        //                     FeaturesPageAction::ToggleAgentInAppNotifications,
+        //                 );
+        //             })
+        //             .finish(),
+        //         None,
+        //     ));
+        // }
 
-            if show_agent_notifications {
-                let theme = appearance.theme();
-                let font_size = appearance.ui_font_size() - 2.;
-                let font_color = theme.active_ui_text_color();
+        //     if show_agent_notifications {
+        //         let theme = appearance.theme();
+        //         let font_size = appearance.ui_font_size() - 2.;
+        //         let font_color = theme.active_ui_text_color();
 
-                let editor_style = UiComponentStyles {
-                    width: Some(appearance.ui_font_size() * 3.),
-                    height: Some(appearance.ui_font_size() * 2.),
-                    padding: Some(Coords::uniform(5.)),
-                    background: Some(theme.surface_2().into()),
-                    ..Default::default()
-                };
+        //         let editor_style = UiComponentStyles {
+        //             width: Some(appearance.ui_font_size() * 3.),
+        //             height: Some(appearance.ui_font_size() * 2.),
+        //             padding: Some(Coords::uniform(5.)),
+        //             background: Some(theme.surface_2().into()),
+        //             ..Default::default()
+        //         };
 
-                let toast_duration_row = Flex::row()
-                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                    .with_child(
-                        Text::new_inline(
-                            "Toast notifications stay visible for",
-                            appearance.ui_font_family(),
-                            font_size,
-                        )
-                        .with_color(font_color.into())
-                        .finish(),
-                    )
-                    .with_child(
-                        Container::new(
-                            Dismiss::new(
-                                appearance
-                                    .ui_builder()
-                                    .text_input(view.notification_toast_duration_editor.clone())
-                                    .with_style(editor_style)
-                                    .build()
-                                    .finish(),
-                            )
-                            .on_dismiss(|ctx, _app| {
-                                ctx.dispatch_typed_action(
-                                    FeaturesPageAction::SetNotificationToastDuration,
-                                )
-                            })
-                            .finish(),
-                        )
-                        .with_margin_right(NOTIFICATION_EDITOR_MARGIN)
-                        .with_margin_left(NOTIFICATION_EDITOR_MARGIN)
-                        .finish(),
-                    )
-                    .with_child(
-                        Text::new_inline("seconds", appearance.ui_font_family(), font_size)
-                            .with_color(font_color.into())
-                            .finish(),
-                    )
-                    .finish();
+        //         let toast_duration_row = Flex::row()
+        //             .with_cross_axis_alignment(CrossAxisAlignment::Center)
+        //             .with_child(
+        //                 Text::new_inline(
+        //                     "Toast notifications stay visible for",
+        //                     appearance.ui_font_family(),
+        //                     font_size,
+        //                 )
+        //                 .with_color(font_color.into())
+        //                 .finish(),
+        //             )
+        //             .with_child(
+        //                 Container::new(
+        //                     Dismiss::new(
+        //                         appearance
+        //                             .ui_builder()
+        //                             .text_input(view.notification_toast_duration_editor.clone())
+        //                             .with_style(editor_style)
+        //                             .build()
+        //                             .finish(),
+        //                     )
+        //                     .on_dismiss(|ctx, _app| {
+        //                         ctx.dispatch_typed_action(
+        //                             FeaturesPageAction::SetNotificationToastDuration,
+        //                         )
+        //                     })
+        //                     .finish(),
+        //                 )
+        //                 .with_margin_right(NOTIFICATION_EDITOR_MARGIN)
+        //                 .with_margin_left(NOTIFICATION_EDITOR_MARGIN)
+        //                 .finish(),
+        //             )
+        //             .with_child(
+        //                 Text::new_inline("seconds", appearance.ui_font_family(), font_size)
+        //                     .with_color(font_color.into())
+        //                     .finish(),
+        //             )
+        //             .finish();
 
-                column.add_child(render_group(vec![toast_duration_row], appearance));
-            }
-        }
+        //         column.add_child(render_group(vec![toast_duration_row], appearance));
+        //     }
+        // }
 
         column.finish()
     }
@@ -5496,6 +5504,7 @@ impl SettingsWidget for UndoCloseWidget {
     }
 }
 
+/* Shared-session settings are disabled in local-only builds.
 #[derive(Default)]
 struct ConfirmCloseSharedSessionWidget {
     switch_state: SwitchStateHandle,
@@ -5542,6 +5551,7 @@ impl SettingsWidget for ConfirmCloseSharedSessionWidget {
         )
     }
 }
+*/
 
 #[derive(Default)]
 struct ExtraMetaKeysWidget {
@@ -7451,6 +7461,11 @@ impl SettingsWidget for DefaultSessionModeWidget {
 
     fn search_terms(&self) -> &str {
         "default session mode agent terminal new pane tab open config"
+    }
+
+    fn should_render(&self, _app: &AppContext) -> bool {
+        // Commented out: Default session mode setting
+        false
     }
 
     fn render(

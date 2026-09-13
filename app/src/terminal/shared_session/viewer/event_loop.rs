@@ -1,29 +1,48 @@
+#[cfg(test)]
 use std::collections::HashMap;
+#[cfg(test)]
 use std::io::{Sink, sink};
+#[cfg(test)]
 use std::sync::Arc;
 
+#[cfg(test)]
 use parking_lot::FairMutex;
+#[cfg(test)]
 use session_sharing_protocol::common::{
     OrderedTerminalEvent, OrderedTerminalEventType, Scrollback, WindowSize,
 };
+#[cfg(test)]
 use warpui::{Entity, ModelContext, SingletonEntity, WeakViewHandle};
 
+#[cfg(test)]
 use crate::ai::agent::AIAgentActionId;
+#[cfg(test)]
 use crate::ai::blocklist::block::cli_controller::LongRunningCommandControlState;
+#[cfg(test)]
 use crate::ai::blocklist::history_model::BlocklistAIHistoryModel;
+#[cfg(test)]
 use crate::features::FeatureFlag;
+#[cfg(test)]
 use crate::terminal::event_listener::ChannelEventListener;
+#[cfg(test)]
 use crate::terminal::model::ansi::{self};
+#[cfg(test)]
 use crate::terminal::model::block::AgentInteractionMetadata;
+#[cfg(test)]
 use crate::terminal::shared_session::ai_agent::decode_agent_response_event;
+#[cfg(test)]
 use crate::terminal::shared_session::shared_handlers::RemoteUpdateGuard;
+#[cfg(test)]
 use crate::terminal::shared_session::{SharedSessionStatus, decode_scrollback};
+#[cfg(test)]
 use crate::terminal::view::ambient_agent::is_cloud_agent_pre_first_exchange;
+#[cfg(test)]
 use crate::terminal::{TerminalModel, TerminalView};
 
 /// If we end up buffering more than this many events,
 /// this is an indication that we're too far ahead and
 /// could indicate an issue.
+#[cfg(test)]
 const TOO_MANY_BUFFERED_EVENTS: usize = 50;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,6 +57,7 @@ pub enum SharedSessionInitialLoadMode {
 
 /// The event loop is used to process a stream of events
 /// originating from the sender.
+#[cfg(test)]
 pub struct EventLoop {
     terminal_model: Arc<FairMutex<TerminalModel>>,
 
@@ -48,7 +68,6 @@ pub struct EventLoop {
     /// If we just dispatched an event, we could potentially
     /// have other [`OrderedTerminalEvent`]s race which would
     /// break the invariant of the event loop.
-    #[allow(dead_code)]
     terminal_view: WeakViewHandle<TerminalView>,
 
     parser: ansi::Processor,
@@ -73,6 +92,7 @@ pub struct EventLoop {
     should_suppress_existing_agent_conversation_replay: bool,
 }
 
+#[cfg(test)]
 impl EventLoop {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -442,6 +462,7 @@ impl EventLoop {
     }
 }
 
+#[cfg(test)]
 impl Entity for EventLoop {
     type Event = ();
 }

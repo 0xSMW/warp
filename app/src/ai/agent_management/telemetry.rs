@@ -114,7 +114,7 @@ pub enum AgentManagementTelemetryEvent {
     #[cfg(not(target_family = "wasm"))]
     DetailsPanelContinueLocally,
     /// User invoked the /continue-locally slash command
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(test, not(target_family = "wasm")))]
     SlashCommandContinueLocally,
     /// User clicked "Open in Warp" in the tombstone (wasm)
     #[cfg(target_family = "wasm")]
@@ -200,7 +200,7 @@ impl TelemetryEvent for AgentManagementTelemetryEvent {
             })),
             #[cfg(not(target_family = "wasm"))]
             AgentManagementTelemetryEvent::DetailsPanelContinueLocally => None,
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(all(test, not(target_family = "wasm")))]
             AgentManagementTelemetryEvent::SlashCommandContinueLocally => None,
             #[cfg(target_family = "wasm")]
             AgentManagementTelemetryEvent::TombstoneOpenInWarp => None,
@@ -255,7 +255,7 @@ impl TelemetryEventDesc for AgentManagementTelemetryEventDiscriminants {
             Self::TombstoneContinueInCloud => "AgentManagement.TombstoneContinueInCloud",
             #[cfg(not(target_family = "wasm"))]
             Self::DetailsPanelContinueLocally => "AgentManagement.DetailsPanelContinueLocally",
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(all(test, not(target_family = "wasm")))]
             Self::SlashCommandContinueLocally => "AgentManagement.SlashCommandContinueLocally",
             #[cfg(target_family = "wasm")]
             Self::TombstoneOpenInWarp => "AgentManagement.TombstoneOpenInWarp",
@@ -294,7 +294,7 @@ impl TelemetryEventDesc for AgentManagementTelemetryEventDiscriminants {
             Self::DetailsPanelContinueLocally => {
                 "User clicked Continue locally in the details panel"
             }
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(all(test, not(target_family = "wasm")))]
             Self::SlashCommandContinueLocally => {
                 "User invoked /continue-locally to fork a cloud conversation locally"
             }

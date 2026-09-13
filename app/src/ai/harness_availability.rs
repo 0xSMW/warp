@@ -13,6 +13,7 @@ use warpui::{Entity, ModelContext, RequestState, SingletonEntity};
 
 use crate::ai::harness_display;
 use crate::auth::AuthStateProvider;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::server::ids::ServerId;
@@ -26,12 +27,14 @@ use crate::workspaces::user_workspaces::{TeamScope, UserWorkspaces, UserWorkspac
 
 const CACHE_KEY: &str = "AvailableHarnesses";
 const AUTH_SECRET_FETCH_FAILURE_COOLDOWN: Duration = Duration::from_secs(60);
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CloudAgentStartBlocker {
     TeamRequired,
     NoEnabledHarnesses,
 }
 
+#[cfg(test)]
 pub(crate) fn cloud_agent_start_blocker(
     team_required: bool,
     has_enabled_harness: bool,
@@ -144,6 +147,7 @@ impl HarnessAvailabilityModel {
             }
         });
 
+        #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
         ctx.subscribe_to_model(&AuthManager::handle(ctx), |me, _, event, ctx| {
             if let AuthManagerEvent::AuthComplete = event {
                 me.invalidate_auth_secrets();
@@ -185,6 +189,7 @@ impl HarnessAvailabilityModel {
     }
 
     /// Whether any harness is available at all (at least one enabled).
+    #[cfg(test)]
     pub fn has_any_enabled_harness(&self) -> bool {
         self.harnesses.iter().any(|h| h.enabled)
     }

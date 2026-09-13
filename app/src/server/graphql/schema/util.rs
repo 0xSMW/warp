@@ -1,8 +1,12 @@
+#[cfg(test)]
 use crate::anyhow;
+#[cfg(test)]
 use crate::cloud_object::model::actions::{
     ObjectAction, ObjectActionHistory, ObjectActionSubtype, ObjectActionType,
 };
+#[cfg(test)]
 use crate::server::ids::{HashedSqliteId, ObjectUid, ServerId, SyncId};
+#[cfg(test)]
 pub fn action_type_to_gql_action_type(
     action: ObjectActionType,
 ) -> warp_graphql::object_actions::ActionType {
@@ -11,6 +15,7 @@ pub fn action_type_to_gql_action_type(
     }
 }
 
+#[cfg(test)]
 /// Converts the graphql action type ("EXECUTED", etc) to ObjectActionType.
 fn try_into_object_action_type(
     action_type: warp_graphql::object_actions::ActionType,
@@ -20,6 +25,7 @@ fn try_into_object_action_type(
     }
 }
 
+#[cfg(test)]
 /// Converts the graphql action entry (SingleAction, BundledActions) into its ObjectAction corollary.
 fn try_into_object_action(
     record: &warp_graphql::object_actions::ActionRecord,
@@ -55,6 +61,7 @@ fn try_into_object_action(
     }
 }
 
+#[cfg(test)]
 /// Converts the graphql action history type into an ObjectActionHistory, requires converting
 /// the individual actions, action types, and action subtypes.
 pub fn object_action_history_from_gql(

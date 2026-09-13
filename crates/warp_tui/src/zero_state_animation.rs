@@ -432,6 +432,7 @@ impl ZeroStateInteractionHandle {
     /// the login screen. It is permanently hidden, so those surfaces keep the
     /// ordinary idle animation and keep forwarding mouse events to their own
     /// handlers instead of becoming a drag target.
+    #[cfg(test)]
     pub(crate) fn non_interactive() -> Self {
         Self(Arc::new(Mutex::new(ZeroStateInteractionState {
             visible: false,

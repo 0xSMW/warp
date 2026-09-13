@@ -2,44 +2,71 @@
 //! them, and bounding how long the first turn waits on file-based servers discovered during
 //! setup.
 use std::collections::{HashMap, HashSet};
+#[cfg(test)]
 use std::future::Future;
+#[cfg(test)]
 use std::mem;
+#[cfg(test)]
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
+#[cfg(test)]
 use std::time::Duration;
 
+#[cfg(test)]
 use futures::channel::oneshot;
+#[cfg(test)]
 use futures::future::{self, Either};
 use handlebars::get_arguments;
+#[cfg(test)]
 use instant::Instant;
+#[cfg(test)]
 use itertools::Itertools as _;
+#[cfg(test)]
 use oneshot::Canceled;
 use uuid::Uuid;
 use warp_cli::mcp::MCPSpec;
+#[cfg(test)]
 use warp_core::execution_mode::AppExecutionMode;
 use warp_core::features::FeatureFlag;
 use warp_managed_secrets::ManagedSecretValue;
+#[cfg(test)]
 use warpui::r#async::{FutureExt as _, TimeoutError};
-use warpui::{Entity, ModelContext, ModelHandle, ModelSpawner, SingletonEntity};
+#[cfg(test)]
+use warpui::{Entity, ModelContext, ModelHandle};
+use warpui::{ModelSpawner, SingletonEntity};
 
 use super::{AgentDriver, AgentDriverError};
 use crate::ai::agent_sdk::retry::{is_transient_graphql_or_http_error, with_bounded_retry_using};
+#[cfg(test)]
 use crate::ai::agent_sdk::setup_observability::{SetupClientEventReporter, SetupStep};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
+#[cfg(test)]
 use crate::ai::blocklist::BlocklistAIPermissions;
+#[cfg(not(test))]
+use crate::ai::mcp::JSONTransportType;
+#[cfg(test)]
+use crate::ai::mcp::MCPServerState;
+#[cfg(test)]
 use crate::ai::mcp::file_based_manager::{FileBasedMCPManager, FileBasedMCPManagerEvent};
 use crate::ai::mcp::parsing::{ParsedTemplatableMCPServerResult, normalize_mcp_json, resolve_json};
+#[cfg(test)]
 use crate::ai::mcp::templatable_manager::TemplatableMCPServerManagerEvent;
 use crate::ai::mcp::{
-    JSONMCPServer, MCPServerState, TemplatableMCPServerInstallation, TemplatableMCPServerManager,
-    VariableType, VariableValue, builtin,
+    JSONMCPServer, TemplatableMCPServerInstallation, TemplatableMCPServerManager, VariableType,
+    VariableValue, builtin,
 };
 use crate::auth::AuthStateProvider;
+#[cfg(test)]
 use crate::auth::credentials::Credentials;
+#[cfg(test)]
 use crate::server::server_api::ServerApiProvider;
+#[cfg(test)]
 use crate::server::server_api::ai::TaskStatusUpdate;
 use crate::server::server_api::managed_mcp::ManagedMcpClient;
 
+#[cfg(test)]
 pub(super) const MCP_SERVER_STARTUP_TIMEOUT: Duration = Duration::from_secs(20);
 /// Attempt budget for resolving one managed MCP server's client config
 /// (`ManagedMcpClient::create_managed_mcp_client_config`) in
@@ -87,8 +114,41 @@ fn ephemeral_mcp_installation_id(
     }
 }
 
+#[cfg(not(test))]
+fn is_local_mcp_url(url: &str) -> bool {
+    let Ok(url) = url::Url::parse(url) else {
+        return false;
+    };
+
+    match url.scheme() {
+        "data" => true,
+        "file" => url.host_str().is_none_or(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        }),
+        "http" | "https" => url.host_str().is_some_and(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        }),
+        _ => false,
+    }
+}
+
+#[cfg(not(test))]
+fn is_local_mcp_server(server: &JSONMCPServer) -> bool {
+    match &server.transport_type {
+        JSONTransportType::CLIServer { .. } => true,
+        JSONTransportType::SSEServer { url, .. } => is_local_mcp_url(url),
+    }
+}
+
 /// Warn that an MCP server's `{{secret_name}}` references resolved to nothing.
 /// Logs secret names only; resolved values must never reach a log line.
+#[cfg(test)]
 fn log_unresolved_secret_refs(
     installation: &TemplatableMCPServerInstallation,
     unresolved_secret_names: &[String],
@@ -112,6 +172,7 @@ struct ResolvedMcpSpecs {
 
 /// Why an [`AgentDriver::await_model_event`] wait resolved without a value.
 #[derive(Debug)]
+#[cfg(test)]
 enum ModelEventWaitError {
     /// The subscription was torn down before the predicate matched.
     SubscriptionDropped,
@@ -132,6 +193,7 @@ impl AgentDriver {
     /// The timeout clock starts when the returned future is first polled, not when it is
     /// created, so a caller may subscribe ahead of the work that emits the event and only
     /// start the clock afterwards.
+    #[cfg(test)]
     fn await_model_event<S, T, F>(
         handle: &ModelHandle<S>,
         timeout: Duration,
@@ -239,12 +301,20 @@ impl AgentDriver {
             let resolved = resolve_json(installation);
             let servers: HashMap<String, JSONMCPServer> = serde_json::from_str(&resolved)
                 .map_err(|e| AgentDriverError::MCPJsonParseError(e.to_string()))?;
-            result.extend(servers);
+            for (name, server) in servers {
+                #[cfg(not(test))]
+                if !is_local_mcp_server(&server) {
+                    log::warn!("Skipping non-local MCP server '{name}' in local-only mode");
+                    continue;
+                }
+                result.insert(name, server);
+            }
         }
 
         Ok(result)
     }
 
+    #[cfg(test)]
     fn apply_secrets_to_ephemeral_mcp_installations(
         installations: Vec<TemplatableMCPServerInstallation>,
         secrets: &HashMap<String, ManagedSecretValue>,
@@ -406,6 +476,7 @@ impl AgentDriver {
     /// refreshed mid-run: cloud runs authenticate with API keys, which do not
     /// rotate, so only Firebase-authenticated local runs that outlive their
     /// token would see factory tool calls start failing.
+    #[cfg(test)]
     fn builtin_factory_mcp_for_run(
         credentials: Option<&Credentials>,
         taken_server_names: &HashSet<String>,
@@ -504,6 +575,9 @@ impl AgentDriver {
             .collect()
     }
 
+    // Cloud/managed-MCP task startup is disabled in local-only production. Keep it for the
+    // focused startup tests while local production continues to use the resolver above.
+    #[cfg(test)]
     /// Starts the MCP servers requested for the run (`--mcp` specs plus the built-in Factory
     /// server) and waits for them to settle. Both startup phases run even when one degrades,
     /// collecting degradation details so non-strict runs can continue with whichever servers
@@ -596,6 +670,7 @@ impl AgentDriver {
     }
 
     /// Start MCP servers from profile allowlist for the terminal.
+    #[cfg(test)]
     pub(super) fn start_profile_mcp_servers(
         &self,
         ctx: &mut ModelContext<Self>,
@@ -613,6 +688,7 @@ impl AgentDriver {
         self.start_mcp_servers(&profile_allowlist, ctx)
     }
 
+    #[cfg(test)]
     fn get_mcp_servers_to_start(
         &self,
         uuids: &[Uuid],
@@ -653,6 +729,7 @@ impl AgentDriver {
     ///
     /// Must be called before the servers are spawned so no state changes are missed. See
     /// [`Self::await_model_event`] for why waits on the manager must not overlap.
+    #[cfg(test)]
     fn wait_for_mcp_servers_started(
         &self,
         servers: HashMap<Uuid, String>,
@@ -743,6 +820,7 @@ impl AgentDriver {
 
     /// Fold an MCP startup result into `degraded`, propagating any error that
     /// is fatal regardless of the strict MCP startup setting.
+    #[cfg(test)]
     fn collect_mcp_degradation(
         result: Result<(), AgentDriverError>,
         degraded: &mut Vec<String>,
@@ -762,6 +840,7 @@ impl AgentDriver {
     /// Degraded startup (`MCPStartupFailed`) is fatal only in strict mode.
     /// Otherwise the run continues without the unavailable servers: the
     /// degradation is logged and reported as a run status message.
+    #[cfg(test)]
     pub(super) async fn handle_mcp_startup_result(
         result: Result<(), AgentDriverError>,
         foreground: &ModelSpawner<Self>,
@@ -816,6 +895,7 @@ impl AgentDriver {
         Ok(())
     }
 
+    #[cfg(test)]
     fn spawn_inactive_servers(
         &self,
         servers_to_start: HashSet<Uuid>,
@@ -829,6 +909,7 @@ impl AgentDriver {
         });
     }
 
+    #[cfg(test)]
     fn start_mcp_servers(
         &self,
         uuids: &[Uuid],
@@ -870,6 +951,7 @@ impl AgentDriver {
 
     /// Start ephemeral MCP servers from inline JSON specifications.
     /// These servers are not persisted and exist only for the duration of the agent run.
+    #[cfg(test)]
     fn start_ephemeral_mcp_servers(
         &self,
         installations: Vec<TemplatableMCPServerInstallation>,
@@ -924,6 +1006,7 @@ impl AgentDriver {
     /// one shared `timeout`: the readiness wait only ever gets what the scan left of it, so
     /// the two phases can't compound into two full timeouts. `scan` is expected to bound
     /// itself by the same `timeout`.
+    #[cfg(test)]
     pub(super) async fn await_file_based_mcp_startup(
         scan_step: SetupStep,
         readiness_step: SetupStep,
@@ -962,6 +1045,7 @@ impl AgentDriver {
     /// repos were scanned. Must be called **before** `prepare_environment` so no events are
     /// missed; the `timeout` clock only starts once the returned future is polled. Non-fatal:
     /// resolves with an empty set on timeout or cancellation.
+    #[cfg(test)]
     pub(super) fn wait_for_cloud_env_file_based_mcp_scan(
         &self,
         expected_repos: Vec<PathBuf>,
@@ -1028,6 +1112,7 @@ impl AgentDriver {
     /// `NotRunning`). A config removed before or during the wait despawns its installation and
     /// reports `NotRunning`, which settles the wait rather than blocking it: later file changes
     /// must stay dynamic and never delay the first request.
+    #[cfg(test)]
     fn is_file_based_mcp_pending(
         templatable_manager: &TemplatableMCPServerManager,
         file_based_manager: &FileBasedMCPManager,
@@ -1053,6 +1138,7 @@ impl AgentDriver {
     ///
     /// See [`Self::await_model_event`] for why this must never run concurrently with
     /// [`Self::start_mcp_servers`] or [`Self::start_ephemeral_mcp_servers`].
+    #[cfg(test)]
     fn wait_for_file_based_mcps_running(
         &self,
         uuids: Vec<Uuid>,
@@ -1186,6 +1272,7 @@ impl AgentDriver {
     /// Checks [`FileBasedMCPManager::initial_global_scan_result`] before subscribing for the
     /// transient completion event. Non-fatal: resolves with an empty snapshot on timeout or
     /// cancellation.
+    #[cfg(test)]
     pub(super) fn wait_for_initial_global_file_based_mcp_scan(
         &self,
         timeout: Duration,

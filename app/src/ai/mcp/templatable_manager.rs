@@ -118,6 +118,7 @@ pub struct TemplatableMCPServerManager {
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 struct SpawnedServerInfo {
     abort_handle: AbortHandle,
+    #[cfg(test)]
     #[cfg(not(target_family = "wasm"))]
     oauth_result_tx: async_channel::Sender<oauth::CallbackResult>,
 }
@@ -285,11 +286,11 @@ impl TemplatableMCPServerManager {
             .map(|server| server.resources().clone())
             .unwrap_or_default()
     }
-    #[cfg(all(not(target_family = "wasm"), feature = "tui"))]
+    #[cfg(all(not(target_family = "wasm"), test))]
     pub fn authorization_url(&self, uuid: Uuid) -> Option<&str> {
         self.authorization_urls.get(&uuid).map(String::as_str)
     }
-    #[cfg(all(not(target_family = "wasm"), feature = "tui"))]
+    #[cfg(all(not(target_family = "wasm"), test))]
     pub fn has_credentials(&self, installation_uuid: Uuid, app: &warpui::AppContext) -> bool {
         if let Some(hash) = FileBasedMCPManager::as_ref(app).get_hash_by_uuid(installation_uuid) {
             return self.file_based_server_credentials.contains_key(&hash);
@@ -297,7 +298,7 @@ impl TemplatableMCPServerManager {
         self.get_template_uuid(installation_uuid)
             .is_some_and(|uuid| self.server_credentials.contains_key(&uuid))
     }
-    #[cfg(all(not(target_family = "wasm"), feature = "tui"))]
+    #[cfg(all(not(target_family = "wasm"), test))]
     pub fn can_log_out(&self, installation_uuid: Uuid, app: &warpui::AppContext) -> bool {
         self.has_credentials(installation_uuid, app)
             || self
@@ -390,7 +391,6 @@ impl TemplatableMCPServerManager {
     }
 }
 
-#[derive(Debug)]
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub enum TemplatableMCPServerManagerEvent {
     StateChanged {
@@ -399,8 +399,8 @@ pub enum TemplatableMCPServerManagerEvent {
     },
     /// A server managed by this shared runtime needs interactive OAuth.
     /// Frontends choose how to present and receive the authorization flow.
+    #[cfg(test)]
     AuthenticationRequired {
-        #[cfg_attr(not(feature = "tui"), allow(dead_code))]
         uuid: Uuid,
     },
     /// The shared secure credential cache changed for an installation.
@@ -417,6 +417,37 @@ pub enum TemplatableMCPServerManagerEvent {
     ServerInstallationDeleted(Uuid),
     TemplatableMCPServersUpdated,
     LegacyServerConverted,
+}
+
+impl std::fmt::Debug for TemplatableMCPServerManagerEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StateChanged { uuid, state } => f
+                .debug_struct("StateChanged")
+                .field("uuid", uuid)
+                .field("state", state)
+                .finish(),
+            #[cfg(test)]
+            Self::AuthenticationRequired { uuid } => f
+                .debug_struct("AuthenticationRequired")
+                .field("uuid", uuid)
+                .finish(),
+            Self::CredentialsChanged { uuid } => f
+                .debug_struct("CredentialsChanged")
+                .field("uuid", uuid)
+                .finish(),
+            Self::ServerInstallationAdded(uuid) => f
+                .debug_tuple("ServerInstallationAdded")
+                .field(uuid)
+                .finish(),
+            Self::ServerInstallationDeleted(uuid) => f
+                .debug_tuple("ServerInstallationDeleted")
+                .field(uuid)
+                .finish(),
+            Self::TemplatableMCPServersUpdated => f.write_str("TemplatableMCPServersUpdated"),
+            Self::LegacyServerConverted => f.write_str("LegacyServerConverted"),
+        }
+    }
 }
 
 impl Entity for TemplatableMCPServerManager {

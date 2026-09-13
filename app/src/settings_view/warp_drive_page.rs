@@ -1,3 +1,5 @@
+#![cfg(any(test, all(feature = "tui", feature = "test-util")))]
+
 use warp_core::features::FeatureFlag;
 use warp_core::settings::ToggleableSetting as _;
 use warp_errors::report_if_error;
@@ -23,6 +25,7 @@ use super::{
 };
 use crate::appearance::Appearance;
 use crate::auth::AuthStateProvider;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::drive::settings::WarpDriveSettings;
 
@@ -64,11 +67,14 @@ pub struct WarpDriveSettingsPageView {
 
 impl WarpDriveSettingsPageView {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
+        #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
         ctx.subscribe_to_model(&AuthManager::handle(ctx), |_, _, event, ctx| {
             if matches!(event, AuthManagerEvent::AuthComplete) {
                 ctx.notify();
             }
         });
+        #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+        let _ = ctx;
         Self {
             page: PageType::new_uncategorized(
                 vec![

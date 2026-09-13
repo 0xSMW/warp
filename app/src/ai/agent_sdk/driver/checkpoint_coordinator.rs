@@ -1,3 +1,5 @@
+// Disabled for local-only runs: handoff snapshots are never uploaded.
+/*
 //! Periodic workspace-handoff checkpoint coordinator.
 //!
 //! Drives a five-state machine: `Idle -> Due -> InFlight -> Idle` on the periodic path,
@@ -632,3 +634,4 @@ async fn coordinator_loop(
 #[cfg(test)]
 #[path = "checkpoint_coordinator_tests.rs"]
 mod tests;
+*/

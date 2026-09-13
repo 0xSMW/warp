@@ -42,7 +42,7 @@ pub(crate) fn default_download_filename(artifact: &ArtifactDownloadResponse) -> 
     format!("artifact-{}{}", artifact.artifact_uid(), extension)
 }
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(feature = "local_fs", test))]
 pub(crate) fn download_destination(
     artifact: &ArtifactDownloadResponse,
     explicit_path: Option<PathBuf>,
@@ -55,7 +55,16 @@ pub(crate) fn default_download_directory() -> Option<PathBuf> {
     dirs::download_dir()
 }
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(feature = "local_fs", not(test)))]
+pub(crate) async fn download_artifact_bytes(
+    _: &http_client::Client,
+    _: &ArtifactDownloadResponse,
+    _: &Path,
+) -> anyhow::Result<()> {
+    anyhow::bail!("Artifact downloads are disabled in local-only mode");
+}
+
+#[cfg(all(feature = "local_fs", test))]
 pub(crate) async fn download_artifact_bytes(
     http_client: &http_client::Client,
     artifact: &ArtifactDownloadResponse,

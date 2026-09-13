@@ -48,12 +48,23 @@ use crate::ai::request_usage_model::AIRequestUsageModelEvent;
 use crate::app_state::{AppState, PaneUuid, WindowSnapshot};
 use crate::appearance::Appearance;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
 use crate::auth::auth_override_warning_modal::{
     AuthOverrideWarningModal, AuthOverrideWarningModalEvent, AuthOverrideWarningModalVariant,
 };
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::auth::auth_state::AuthState;
 use crate::auth::auth_view_modal::{AuthRedirectPayload, AuthView, AuthViewVariant};
 use crate::auth::login_slide::{LoginSlideEvent, LoginSlideSource, LoginSlideView};
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
 use crate::auth::needs_sso_link_view::NeedsSsoLinkView;
 use crate::auth::paste_auth_token_modal::{PasteAuthTokenModalEvent, PasteAuthTokenModalView};
 #[cfg(target_family = "wasm")]
@@ -61,11 +72,18 @@ use crate::auth::web_handoff::{WebHandoffEvent, WebHandoffView};
 use crate::auth::{AuthStateProvider, LoginFailureReason};
 use crate::autoupdate::{AutoupdateState, AutoupdateStateEvent, RequestType, UpdateReady};
 use crate::changelog_model::ChangelogRequestType;
+use crate::channel::Channel;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{GenericStringObjectFormat, JsonObjectType, ObjectType};
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
 use crate::drive::export::ExportManager;
 use crate::drive::items::WarpDriveItemId;
 use crate::drive::{CloudObjectTypeAndId, OpenWarpDriveObjectArgs, OpenWarpDriveObjectSettings};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::experiments::{BlockOnboarding, Experiment};
 use crate::features::FeatureFlag;
 use crate::interval_timer::IntervalTimer;
@@ -96,7 +114,13 @@ use crate::terminal::shell::ShellType;
 use crate::terminal::view::{TerminalAction, cell_size_and_padding};
 use crate::themes::onboarding_theme_picker_themes;
 use crate::themes::theme::{AnsiColorIdentifier, Blend, Fill, ThemeKind, WarpThemeConfig};
-use crate::uri::{OpenMCPSettingsArgs, OpenSettingsArgs, url_reports_checkout_success};
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
+use crate::uri::url_reports_checkout_success;
+use crate::uri::{OpenMCPSettingsArgs, OpenSettingsArgs};
 use crate::util::bindings::{self, is_binding_pty_compliant};
 use crate::util::traffic_lights::{TrafficLightData, TrafficLightMouseStates, traffic_light_data};
 use crate::view_components::DismissibleToast;
@@ -136,6 +160,11 @@ pub(crate) fn unthemed_window_border() -> Border {
     }
 }
 
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
 fn offer_variant_for_account_class(account_class: FtueAccountClass) -> Option<OfferVariant> {
     match account_class {
         FtueAccountClass::Paid => None,
@@ -160,6 +189,10 @@ fn team_enforces_autonomy(ctx: &ViewContext<RootView>) -> bool {
 /// advances off, so every path that could follow a purchase goes through here
 /// rather than refreshing its own subset.
 fn refresh_onboarding_account_state(ctx: &mut ViewContext<RootView>) {
+    if ChannelState::channel() == Channel::Local {
+        return;
+    }
+
     let scope = ResolvedTeamScope::from_scope(
         &UserWorkspaces::as_ref(ctx).team_context(&ctx.handle(), ctx),
     );
@@ -1734,14 +1767,19 @@ enum AuthOnboardingTarget {
 
 #[derive(Clone)]
 struct AccountFirstLoginContext {
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     login_slide_view: ViewHandle<LoginSlideView>,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     onboarding_view: ViewHandle<AgentOnboardingView>,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     target: AuthOnboardingTarget,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AccountFirstCompletion {
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     AccountSkipped,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     PaidTeam,
     FreeIcpSetupLater,
     FreeStandardSetupLater,
@@ -1754,7 +1792,9 @@ enum AccountFirstCompletion {
 impl AccountFirstCompletion {
     fn completion_type(self) -> &'static str {
         match self {
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AccountFirstCompletion::AccountSkipped => "account_skipped",
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AccountFirstCompletion::PaidTeam => "paid_team",
             AccountFirstCompletion::FreeIcpSetupLater => "free_icp_setup_later",
             AccountFirstCompletion::FreeStandardSetupLater => "free_standard_setup_later",
@@ -1767,10 +1807,11 @@ impl AccountFirstCompletion {
 
     fn account_class(self) -> Option<FtueAccountClass> {
         match self {
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AccountFirstCompletion::AccountSkipped => None,
-            AccountFirstCompletion::PaidTeam | AccountFirstCompletion::UpgradeCompleted => {
-                Some(FtueAccountClass::Paid)
-            }
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            AccountFirstCompletion::PaidTeam => Some(FtueAccountClass::Paid),
+            AccountFirstCompletion::UpgradeCompleted => Some(FtueAccountClass::Paid),
             AccountFirstCompletion::FreeIcpSetupLater => Some(FtueAccountClass::FreeIcp),
             AccountFirstCompletion::FreeStandardSetupLater
             | AccountFirstCompletion::FreeStandardCreditsPurchased => {
@@ -1780,10 +1821,14 @@ impl AccountFirstCompletion {
     }
 
     fn starts_agent_tutorial(self) -> bool {
+        #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+        if matches!(self, AccountFirstCompletion::PaidTeam) {
+            return true;
+        }
+
         matches!(
             self,
-            AccountFirstCompletion::PaidTeam
-                | AccountFirstCompletion::FreeIcpSetupLater
+            AccountFirstCompletion::FreeIcpSetupLater
                 | AccountFirstCompletion::FreeStandardSetupLater
                 | AccountFirstCompletion::FreeStandardCreditsPurchased
                 | AccountFirstCompletion::UpgradeCompleted
@@ -1816,10 +1861,20 @@ fn mark_local_onboarding_completed(ctx: &AppContext) {
 /// Whether auth and onboarding have completed and we should render the `Workspace`.
 enum AuthOnboardingState {
     Auth(Box<WorkspaceArgs>),
+    #[cfg(any(
+        test,
+        all(feature = "tui", feature = "test-util"),
+        target_family = "wasm"
+    ))]
     ConfirmIncomingAuth(Box<WorkspaceArgs>),
     /// The client is importing auth state from the host application.
     #[cfg(target_family = "wasm")]
     WebImport(AuthOnboardingTarget),
+    #[cfg(any(
+        test,
+        all(feature = "tui", feature = "test-util"),
+        target_family = "wasm"
+    ))]
     NeedsSsoLink(AuthOnboardingTarget),
     Onboarding {
         onboarding_view: ViewHandle<AgentOnboardingView>,
@@ -1831,6 +1886,11 @@ enum AuthOnboardingState {
         onboarding_view: ViewHandle<AgentOnboardingView>,
         target: AuthOnboardingTarget,
     },
+    #[cfg(any(
+        test,
+        all(feature = "tui", feature = "test-util"),
+        target_family = "wasm"
+    ))]
     PostAuthOnboarding {
         onboarding_view: ViewHandle<AgentOnboardingView>,
         target: AuthOnboardingTarget,
@@ -1844,7 +1904,17 @@ pub struct RootView {
     auth_onboarding_state: AuthOnboardingState,
     server_time: Option<Arc<ServerTime>>,
     auth_view: ViewHandle<AuthView>,
+    #[cfg(any(
+        test,
+        all(feature = "tui", feature = "test-util"),
+        target_family = "wasm"
+    ))]
     auth_override_view: ViewHandle<AuthOverrideWarningModal>,
+    #[cfg(any(
+        test,
+        all(feature = "tui", feature = "test-util"),
+        target_family = "wasm"
+    ))]
     needs_sso_link_view: ViewHandle<NeedsSsoLinkView>,
     #[cfg(target_family = "wasm")]
     web_handoff_view: ViewHandle<WebHandoffView>,
@@ -1893,6 +1963,7 @@ impl RootView {
             me.handle_cloud_preferences_syncer_event(event, ctx);
         });
 
+        #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
         ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |me, _, event, ctx| {
             me.handle_account_first_workspaces_event(event, ctx);
         });
@@ -1900,10 +1971,20 @@ impl RootView {
         let auth_view =
             ctx.add_typed_action_view(|ctx| AuthView::new(AuthViewVariant::Initial, ctx));
 
+        #[cfg(any(
+            test,
+            all(feature = "tui", feature = "test-util"),
+            target_family = "wasm"
+        ))]
         let auth_override_view: ViewHandle<_> = ctx.add_typed_action_view(|ctx| {
             AuthOverrideWarningModal::new(ctx, AuthOverrideWarningModalVariant::OnboardingView)
         });
 
+        #[cfg(any(
+            test,
+            all(feature = "tui", feature = "test-util"),
+            target_family = "wasm"
+        ))]
         ctx.subscribe_to_view(&auth_override_view, |me, _, event, ctx| {
             me.handle_auth_override_warning_modal_event(event, ctx);
         });
@@ -1927,6 +2008,7 @@ impl RootView {
                         // ForceLogin is true for Preview
                         AuthOnboardingState::Auth(workspace_args.into())
                     } else if FeatureFlag::AgentOnboarding.is_enabled()
+                        && ChannelState::channel() != Channel::Local
                         && !has_completed_local_onboarding(ctx)
                         && !workspace_args.workspace_setting.is_content_deep_link()
                     {
@@ -1950,6 +2032,11 @@ impl RootView {
             }
         };
 
+        #[cfg(any(
+            test,
+            all(feature = "tui", feature = "test-util"),
+            target_family = "wasm"
+        ))]
         let needs_sso_link_view = ctx.add_typed_action_view(|_| NeedsSsoLinkView::new());
 
         #[cfg(target_family = "wasm")]
@@ -1963,7 +2050,17 @@ impl RootView {
             auth_onboarding_state,
             server_time: None,
             auth_view,
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             auth_override_view,
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             needs_sso_link_view,
             #[cfg(target_family = "wasm")]
             web_handoff_view,
@@ -2122,6 +2219,7 @@ impl RootView {
         true
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn show_needs_sso_link_view(&mut self, email: String, ctx: &mut ViewContext<Self>) -> bool {
         self.needs_sso_link_view.update(ctx, |view, _| {
             view.set_email(email);
@@ -2273,16 +2371,22 @@ impl RootView {
         let onboarding_view_for_auth = onboarding_view.clone();
         ctx.subscribe_to_model(
             &AuthManager::handle(ctx),
-            move |_, _auth_manager, event, ctx| {
-                if matches!(
-                    event,
-                    AuthManagerEvent::AuthComplete | AuthManagerEvent::SkippedLogin
-                ) {
+            move |_, _auth_manager, _event, ctx| {
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+                let should_update_auth_state = matches!(_event, AuthManagerEvent::SkippedLogin);
+                #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+                let should_update_auth_state = false;
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+                let should_update_auth_state =
+                    should_update_auth_state || matches!(_event, AuthManagerEvent::AuthComplete);
+
+                if should_update_auth_state {
                     let auth_state = current_onboarding_auth_state(ctx);
                     onboarding_view_for_auth.update(ctx, |onboarding_view, ctx| {
                         onboarding_view.set_auth_state(auth_state, ctx);
                     });
-                    if matches!(event, AuthManagerEvent::AuthComplete) {
+                    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+                    if matches!(_event, AuthManagerEvent::AuthComplete) {
                         refresh_onboarding_account_state(ctx);
                     }
                 }
@@ -2322,6 +2426,7 @@ impl RootView {
             })
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn account_first_login_context(&self, ctx: &AppContext) -> Option<AccountFirstLoginContext> {
         let AuthOnboardingState::LoginSlide {
             login_slide_view,
@@ -2347,6 +2452,7 @@ impl RootView {
             .is_some_and(|workspace| workspace.billing_metadata.is_user_on_paid_plan())
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn account_first_class(is_paid: bool, fresh_request_limit: Option<usize>) -> FtueAccountClass {
         if is_paid {
             FtueAccountClass::Paid
@@ -2357,6 +2463,7 @@ impl RootView {
         }
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn begin_account_first_post_auth_refresh(
         &mut self,
         context: AccountFirstLoginContext,
@@ -2390,6 +2497,7 @@ impl RootView {
         ctx.notify();
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn resolve_account_first_post_auth(
         &mut self,
         fresh_request_limit: Option<usize>,
@@ -2434,6 +2542,7 @@ impl RootView {
         }
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn handle_account_first_workspaces_event(
         &mut self,
         event: &UserWorkspacesEvent,
@@ -2484,6 +2593,11 @@ impl RootView {
                 target,
                 ..
             } if login_slide_view.as_ref(ctx).is_account_first_onboarding() => target.clone(),
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOnboardingState::PostAuthOnboarding { target, .. } => target.clone(),
             _ => return,
         };
@@ -2572,6 +2686,7 @@ impl RootView {
                 ctx.notify();
             }
             LoginSlideEvent::LoginLaterConfirmed => {
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
                 if self.account_first_login_context(ctx).is_some() {
                     self.complete_account_first(AccountFirstCompletion::AccountSkipped, ctx);
                     return;
@@ -2621,6 +2736,11 @@ impl RootView {
                 });
             }
             AgentOnboardingEvent::OnboardingCompleted(selected_settings) => {
+                #[cfg(any(
+                    test,
+                    all(feature = "tui", feature = "test-util"),
+                    target_family = "wasm"
+                ))]
                 if let AuthOnboardingState::PostAuthOnboarding {
                     onboarding_view,
                     account_class,
@@ -2778,6 +2898,11 @@ impl RootView {
             }
             AgentOnboardingEvent::UpgradeRequested => {
                 let upgrade_started = match &mut self.auth_onboarding_state {
+                    #[cfg(any(
+                        test,
+                        all(feature = "tui", feature = "test-util"),
+                        target_family = "wasm"
+                    ))]
                     AuthOnboardingState::PostAuthOnboarding {
                         account_class,
                         upgrade_started,
@@ -2786,11 +2911,26 @@ impl RootView {
                         *upgrade_started = true;
                         Some(*account_class)
                     }
-                    AuthOnboardingState::PostAuthOnboarding { .. }
-                    | AuthOnboardingState::Auth(_)
-                    | AuthOnboardingState::ConfirmIncomingAuth(_)
-                    | AuthOnboardingState::NeedsSsoLink(_)
-                    | AuthOnboardingState::Onboarding { .. }
+                    #[cfg(any(
+                        test,
+                        all(feature = "tui", feature = "test-util"),
+                        target_family = "wasm"
+                    ))]
+                    AuthOnboardingState::PostAuthOnboarding { .. } => None,
+                    AuthOnboardingState::Auth(_) => None,
+                    #[cfg(any(
+                        test,
+                        all(feature = "tui", feature = "test-util"),
+                        target_family = "wasm"
+                    ))]
+                    AuthOnboardingState::ConfirmIncomingAuth(_) => None,
+                    #[cfg(any(
+                        test,
+                        all(feature = "tui", feature = "test-util"),
+                        target_family = "wasm"
+                    ))]
+                    AuthOnboardingState::NeedsSsoLink(_) => None,
+                    AuthOnboardingState::Onboarding { .. }
                     | AuthOnboardingState::LoginSlide { .. }
                     | AuthOnboardingState::Terminal(_) => None,
                     #[cfg(target_family = "wasm")]
@@ -3055,6 +3195,11 @@ impl RootView {
         // The web checkout confirmation hands the user back through the same
         // desktop redirect it uses for auth, so the success flag rides along on
         // a URL that may also have failed to parse as an auth payload.
+        #[cfg(any(
+            test,
+            all(feature = "tui", feature = "test-util"),
+            target_family = "wasm"
+        ))]
         if url_reports_checkout_success(url) {
             self.notify_onboarding_checkout_succeeded(ctx);
         }
@@ -3063,6 +3208,11 @@ impl RootView {
 
     /// Routes a completed web checkout to onboarding. Returns whether an
     /// AI-sell onboarding screen consumed the signal and advanced.
+    #[cfg(any(
+        test,
+        all(feature = "tui", feature = "test-util"),
+        target_family = "wasm"
+    ))]
     fn notify_onboarding_checkout_succeeded(&mut self, ctx: &mut ViewContext<Self>) -> bool {
         let AuthOnboardingState::PostAuthOnboarding {
             onboarding_view, ..
@@ -3434,6 +3584,11 @@ impl RootView {
         // still returns the user through the Billing & Usage deeplink. Landing
         // it mid-onboarding would interrupt the flow, so onboarding takes it as
         // the purchase succeeding and moves on instead.
+        #[cfg(any(
+            test,
+            all(feature = "tui", feature = "test-util"),
+            target_family = "wasm"
+        ))]
         if *section == SettingsSection::BillingAndUsage
             && self.notify_onboarding_checkout_succeeded(ctx)
         {
@@ -3528,6 +3683,7 @@ impl RootView {
     /// `AuthComplete`, so it also covers users who skipped login during onboarding
     /// and later signed up through a different entrypoint (e.g. login modal,
     /// settings, command palette) while already in the `Terminal` state.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn sync_local_onboarding_to_server(auth_state: &AuthState, ctx: &mut AppContext) {
         let is_onboarded = auth_state.is_onboarded().unwrap_or(true);
         let is_anonymous = auth_state.is_user_anonymous().unwrap_or(false);
@@ -3539,10 +3695,10 @@ impl RootView {
     }
 
     fn handle_auth_manager_event(&mut self, event: &AuthManagerEvent, ctx: &mut ViewContext<Self>) {
-        let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
-
         match event {
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AuthManagerEvent::AuthComplete => {
+                let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
                 self.paste_auth_token_modal = None;
                 let login_context = self.account_first_login_context(ctx);
                 let resumed_sso_context = if matches!(
@@ -3654,6 +3810,7 @@ impl RootView {
                 UserAuthenticationError::InvalidStateParameter => {}
                 UserAuthenticationError::MissingStateParameter => {}
             },
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AuthManagerEvent::SkippedLogin => {
                 if self.account_first_login_context(ctx).is_some() {
                     self.complete_account_first(AccountFirstCompletion::AccountSkipped, ctx);
@@ -3683,6 +3840,7 @@ impl RootView {
                 self.start_autoupdate_polling(ctx);
                 self.focus(ctx);
             }
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AuthManagerEvent::LoginOverrideDetected(interrupted_auth_payload) => {
                 match &self.auth_onboarding_state {
                     AuthOnboardingState::Auth(workspace_args)
@@ -3700,6 +3858,11 @@ impl RootView {
         }
     }
 
+    #[cfg(any(
+        test,
+        all(feature = "tui", feature = "test-util"),
+        target_family = "wasm"
+    ))]
     fn handle_auth_override_warning_modal_event(
         &mut self,
         event: &AuthOverrideWarningModalEvent,
@@ -3707,6 +3870,11 @@ impl RootView {
     ) {
         match event {
             AuthOverrideWarningModalEvent::Close => {
+                #[cfg(any(
+                    test,
+                    all(feature = "tui", feature = "test-util"),
+                    target_family = "wasm"
+                ))]
                 if matches!(
                     self.auth_onboarding_state,
                     AuthOnboardingState::ConfirmIncomingAuth(_)
@@ -3720,6 +3888,7 @@ impl RootView {
         }
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn open_auth_override_warning_modal(
         &mut self,
         workspace_args: Box<WorkspaceArgs>,
@@ -3735,6 +3904,11 @@ impl RootView {
         ctx.notify();
     }
 
+    #[cfg(any(
+        test,
+        all(feature = "tui", feature = "test-util"),
+        target_family = "wasm"
+    ))]
     fn export_all_warp_drive_objects(&mut self, ctx: &mut ViewContext<Self>) {
         let window_id = ctx.window_id();
         let cloud_model = CloudModel::as_ref(ctx);
@@ -3789,6 +3963,11 @@ impl RootView {
             AuthOnboardingState::Auth(_) => {
                 ctx.focus(&self.auth_view);
             }
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOnboardingState::ConfirmIncomingAuth(_) => {
                 ctx.focus(&self.auth_override_view);
             }
@@ -3796,6 +3975,11 @@ impl RootView {
             AuthOnboardingState::WebImport(_) => {
                 ctx.focus(&self.web_handoff_view);
             }
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOnboardingState::NeedsSsoLink { .. } => {
                 ctx.focus(&self.needs_sso_link_view);
             }
@@ -3804,6 +3988,11 @@ impl RootView {
             } => {
                 ctx.focus(onboarding_view);
             }
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOnboardingState::PostAuthOnboarding {
                 onboarding_view, ..
             } => {
@@ -3896,6 +4085,7 @@ impl RootView {
             }
             return;
         }
+        #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
         if self.account_first_login_context(ctx).is_some()
             || self.pending_account_first_sso_login.is_some()
             || matches!(
@@ -3975,8 +4165,28 @@ impl View for RootView {
             // Modal is open — focus belongs to the editor inside it.
         } else if matches!(
             self.auth_onboarding_state,
-            AuthOnboardingState::Onboarding { .. } | AuthOnboardingState::PostAuthOnboarding { .. }
-        ) {
+            AuthOnboardingState::Onboarding { .. }
+        ) || {
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
+            {
+                matches!(
+                    self.auth_onboarding_state,
+                    AuthOnboardingState::PostAuthOnboarding { .. }
+                )
+            }
+            #[cfg(not(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            )))]
+            {
+                false
+            }
+        } {
             // During onboarding, aggressively redirect focus.
             // This ensures keystrokes (Enter) are handled by the correct view rather
             // than something hidden like the input editor.
@@ -3996,17 +4206,32 @@ impl View for RootView {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let child = match &self.auth_onboarding_state {
             AuthOnboardingState::Auth(_) => ChildView::new(&self.auth_view).finish(),
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOnboardingState::ConfirmIncomingAuth(_) => {
                 ChildView::new(&self.auth_override_view).finish()
             }
             #[cfg(target_family = "wasm")]
             AuthOnboardingState::WebImport(_) => ChildView::new(&self.web_handoff_view).finish(),
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOnboardingState::NeedsSsoLink { .. } => {
                 ChildView::new(&self.needs_sso_link_view).finish()
             }
             AuthOnboardingState::Onboarding {
                 onboarding_view, ..
             } => ChildView::new(onboarding_view).finish(),
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOnboardingState::PostAuthOnboarding {
                 onboarding_view, ..
             } => ChildView::new(onboarding_view).finish(),
@@ -4120,6 +4345,7 @@ impl WorkspaceArgs {
 }
 
 impl AuthOnboardingState {
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn complete_auth_and_create_workspace(&mut self, ctx: &mut ViewContext<RootView>) {
         // Check if we should show onboarding (only for users who are not yet onboarded).
         // The server-side `is_onboarded` flag is synced separately by
@@ -4157,7 +4383,18 @@ impl AuthOnboardingState {
 
     fn try_open_onboarding_slides(&mut self, ctx: &mut ViewContext<RootView>) {
         let target = match self {
-            AuthOnboardingState::Auth(args) | AuthOnboardingState::ConfirmIncomingAuth(args) => {
+            AuthOnboardingState::Auth(args) => {
+                if args.workspace_setting.is_content_deep_link() {
+                    return;
+                }
+                AuthOnboardingTarget::Workspace(args.clone())
+            }
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
+            AuthOnboardingState::ConfirmIncomingAuth(args) => {
                 if args.workspace_setting.is_content_deep_link() {
                     return;
                 }
@@ -4185,6 +4422,7 @@ impl AuthOnboardingState {
         };
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn complete_sso_link(&mut self, ctx: &mut ViewContext<RootView>) {
         if let AuthOnboardingState::NeedsSsoLink(needs_sso_link_mode) = self {
             *self = AuthOnboardingState::Terminal(needs_sso_link_mode.to_workspace(ctx));
@@ -4223,6 +4461,7 @@ impl AuthOnboardingState {
         }
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn show_needs_sso_link_view(&mut self) {
         match self {
             AuthOnboardingState::Auth(workspace_args)
@@ -4254,6 +4493,11 @@ impl AuthOnboardingState {
     fn log_out(&mut self, ctx: &mut ViewContext<RootView>) {
         match self {
             AuthOnboardingState::Auth(_) => (),
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOnboardingState::ConfirmIncomingAuth(workspace_args) => {
                 *self = AuthOnboardingState::Auth(workspace_args.clone());
                 ctx.emit(RootViewEvent::AuthOnboardingStateChanged);
@@ -4263,6 +4507,11 @@ impl AuthOnboardingState {
                 // TODO(ben): Eventually, we could support logout here by logging out of the JS
                 // Firebase client.
             }
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
             AuthOnboardingState::NeedsSsoLink(needs_sso_link_mode) => match needs_sso_link_mode {
                 AuthOnboardingTarget::Workspace(args) => {
                     *self = AuthOnboardingState::Auth(args.clone());
@@ -4270,9 +4519,15 @@ impl AuthOnboardingState {
                 }
                 AuthOnboardingTarget::Terminal(_) => {}
             },
-            AuthOnboardingState::Onboarding { .. }
-            | AuthOnboardingState::LoginSlide { .. }
-            | AuthOnboardingState::PostAuthOnboarding { .. } => {
+            AuthOnboardingState::Onboarding { .. } | AuthOnboardingState::LoginSlide { .. } => {
+                // No workspace to clean up for onboarding/login slide state
+            }
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
+            AuthOnboardingState::PostAuthOnboarding { .. } => {
                 // No workspace to clean up for onboarding/login slide state
             }
             AuthOnboardingState::Terminal(workspace) => {
@@ -4307,12 +4562,26 @@ impl AuthOnboardingState {
     /// Redirects a workspace that has not yet been created to join `session_id`.
     fn retarget_pending_workspace_for_shared_session(&mut self, session_id: SessionId) -> bool {
         let workspace_args = match self {
-            AuthOnboardingState::Auth(args) | AuthOnboardingState::ConfirmIncomingAuth(args) => {
+            AuthOnboardingState::Auth(args) => args,
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
+            AuthOnboardingState::ConfirmIncomingAuth(args) => args,
+            AuthOnboardingState::Onboarding { target, .. }
+            | AuthOnboardingState::LoginSlide { target, .. } => {
+                let AuthOnboardingTarget::Workspace(args) = target else {
+                    return false;
+                };
                 args
             }
-            AuthOnboardingState::Onboarding { target, .. }
-            | AuthOnboardingState::LoginSlide { target, .. }
-            | AuthOnboardingState::PostAuthOnboarding { target, .. }
+            #[cfg(any(
+                test,
+                all(feature = "tui", feature = "test-util"),
+                target_family = "wasm"
+            ))]
+            AuthOnboardingState::PostAuthOnboarding { target, .. }
             | AuthOnboardingState::NeedsSsoLink(target) => {
                 let AuthOnboardingTarget::Workspace(args) = target else {
                     return false;

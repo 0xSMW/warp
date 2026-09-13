@@ -1,163 +1,225 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::Result;
+#[cfg(test)]
+use anyhow::{Context, anyhow};
 use async_channel::Sender;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-// #[cfg(any(test, feature = "test-util"))]
-// pub use cloud_object_client::MockObjectClient;
 use cloud_object_client::{
     GetCloudObjectResponse, InitialLoadResponse, ObjectActionHistory, ObjectActionType,
     ObjectDeleteResult, ObjectMetadataUpdateResult, ObjectPermissionUpdateResult,
     ObjectPermissionsUpdateData, ObjectUpdateMessage,
 };
 pub use cloud_object_client::{GuestIdentifier, ObjectClient};
+#[cfg(test)]
 use cloud_object_models::JsonSerializer;
+#[cfg(test)]
 use cynic::{MutationBuilder, QueryBuilder, SubscriptionBuilder};
+#[cfg(test)]
 use warp_errors::report_error;
+#[cfg(test)]
 use warp_graphql::error::UserFacingErrorInterface;
+#[cfg(test)]
 use warp_graphql::generic_string_object::GenericStringObjectInput;
+#[cfg(test)]
 use warp_graphql::mutations::add_object_guests::{
     AddObjectGuests, AddObjectGuestsInput, AddObjectGuestsResult, AddObjectGuestsVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::bulk_create_objects::{
     BulkCreateGenericStringObjectsInput, BulkCreateObjects, BulkCreateObjectsInput,
     BulkCreateObjectsResult, BulkCreateObjectsVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::create_folder::{
     CreateFolder, CreateFolderInput, CreateFolderResult, CreateFolderVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::create_generic_string_object::{
     CreateGenericStringObject, CreateGenericStringObjectInput, CreateGenericStringObjectResult,
     CreateGenericStringObjectVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::create_notebook::{
     CreateNotebook, CreateNotebookInput, CreateNotebookResult, CreateNotebookVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::create_workflow::{
     CreateWorkflow, CreateWorkflowInput, CreateWorkflowResult, CreateWorkflowVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::delete_object::{
     DeleteObject, DeleteObjectInput, DeleteObjectResult, DeleteObjectVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::empty_trash::{
     EmptyTrash, EmptyTrashInput, EmptyTrashResult, EmptyTrashVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::give_up_notebook_edit_access::{
     GiveUpNotebookEditAccess, GiveUpNotebookEditAccessVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::grab_notebook_edit_access::{
     GrabNotebookEditAccess, GrabNotebookEditAccessVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::leave_object::{
     LeaveObject, LeaveObjectInput, LeaveObjectResult, LeaveObjectVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::move_object::{
     MoveObject, MoveObjectInput, MoveObjectResult, MoveObjectVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::record_object_action::{
     RecordObjectAction, RecordObjectActionInput, RecordObjectActionResult,
     RecordObjectActionVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::remove_object_guest::{
     RemoveObjectGuest, RemoveObjectGuestInput, RemoveObjectGuestResult, RemoveObjectGuestVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::remove_object_link_permissions::{
     RemoveObjectLinkPermissions, RemoveObjectLinkPermissionsInput,
     RemoveObjectLinkPermissionsResult, RemoveObjectLinkPermissionsVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::set_object_link_permissions::{
     SetObjectLinkPermissions, SetObjectLinkPermissionsInput, SetObjectLinkPermissionsResult,
     SetObjectLinkPermissionsVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::transfer_generic_string_object_owner::{
     TransferGenericStringObjectOwner, TransferGenericStringObjectOwnerInput,
     TransferGenericStringObjectOwnerResult, TransferGenericStringObjectOwnerVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::transfer_notebook_owner::{
     TransferNotebookOwner, TransferNotebookOwnerInput, TransferNotebookOwnerResult,
     TransferNotebookOwnerVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::transfer_workflow_owner::{
     TransferWorkflowOwner, TransferWorkflowOwnerInput, TransferWorkflowOwnerResult,
     TransferWorkflowOwnerVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::trash_object::{
     TrashObject, TrashObjectInput, TrashObjectResult, TrashObjectVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::untrash_object::{
     UntrashObject, UntrashObjectInput, UntrashObjectVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::update_folder::{
     UpdateFolder, UpdateFolderInput, UpdateFolderResult, UpdateFolderVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::update_generic_string_object::{
     UpdateGenericStringObject, UpdateGenericStringObjectInput, UpdateGenericStringObjectVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::update_notebook::{
     NotebookUpdate, UpdateNotebook, UpdateNotebookInput, UpdateNotebookResult,
     UpdateNotebookVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::update_object_guests::{
     UpdateObjectGuests, UpdateObjectGuestsInput, UpdateObjectGuestsResult,
     UpdateObjectGuestsVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::update_workflow::{
     UpdateWorkflow, UpdateWorkflowInput, UpdateWorkflowResult, UpdateWorkflowVariables,
     WorkflowUpdate,
 };
+#[cfg(test)]
 use warp_graphql::notebook::{UpdateNotebookEditAccessInput, UpdateNotebookEditAccessResult};
+#[cfg(test)]
 use warp_graphql::object::CloudObjectWithDescendants;
 use warp_graphql::object_permissions::AccessLevel;
+#[cfg(test)]
 use warp_graphql::queries::get_cloud_environments::{
     GetCloudEnvironmentsQuery, GetCloudEnvironmentsQueryVariables, GetCloudEnvironmentsResult,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_cloud_object::{
     CloudObjectInput, CloudObjectResult, GetCloudObject, GetCloudObjectVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_updated_cloud_objects::{
     GetUpdatedCloudObjects, GetUpdatedCloudObjectsVariables, UpdatedCloudObjectsInput,
     UpdatedCloudObjectsResult,
 };
+#[cfg(test)]
 use warp_graphql::subscriptions::get_warp_drive_updates::GetWarpDriveUpdates;
+#[cfg(test)]
 use warp_graphql::subscriptions::start_graphql_streaming_operation;
 
+#[cfg(test)]
 use crate::ai::ambient_agents::scheduled::ScheduledAmbientAgent;
+#[cfg(test)]
 use crate::ai::cloud_environments::AmbientAgentEnvironment;
+#[cfg(test)]
 use crate::ai::document::ai_document_model::AIDocumentId;
+#[cfg(test)]
 use crate::ai::execution_profiles::AIExecutionProfile;
+#[cfg(test)]
 use crate::ai::facts::AIFact;
+#[cfg(test)]
 use crate::ai::mcp::{MCPServer, TemplatableMCPServer};
+#[cfg(test)]
 use crate::channel::ChannelState;
+use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
+#[cfg(test)]
 use crate::cloud_object::model::generic_string_model::{
-    GenericStringModel, GenericStringObjectId, Serializer, StringModel,
+    GenericStringModel, Serializer, StringModel,
 };
 use crate::cloud_object::{
     BulkCreateCloudObjectResult, BulkCreateGenericStringObjectsRequest, CreateCloudObjectResult,
-    CreateObjectRequest, CreatedCloudObject, GenericCloudObject, GenericServerObject,
-    GenericStringObjectFormat, GenericStringObjectUniqueKey, JsonObjectType, ObjectIdType,
-    ObjectType, ObjectsToUpdate, Owner, Revision, RevisionAndLastEditor, ServerCloudObject,
-    ServerFolder, ServerMetadata, ServerNotebook, ServerObject, ServerPermissions, ServerWorkflow,
-    TryFromGql as _, UpdateCloudObjectResult,
+    CreateObjectRequest, GenericStringObjectFormat, GenericStringObjectUniqueKey, ObjectType,
+    ObjectsToUpdate, Owner, Revision, ServerFolder, ServerMetadata, ServerNotebook, ServerObject,
+    ServerPermissions, ServerWorkflow, UpdateCloudObjectResult,
+};
+#[cfg(test)]
+use crate::cloud_object::{
+    CreatedCloudObject, GenericCloudObject, GenericServerObject, JsonObjectType, ObjectIdType,
+    RevisionAndLastEditor, ServerCloudObject, TryFromGql as _,
 };
 use crate::drive::folders::FolderId;
 use crate::drive::sharing::SharingAccessLevel;
+#[cfg(test)]
 use crate::env_vars::EnvVarCollection;
-use crate::notebooks::{NotebookId, SerializedNotebook};
+use crate::notebooks::NotebookId;
+#[cfg(test)]
+use crate::notebooks::SerializedNotebook;
+#[cfg(test)]
 use crate::server::graphql::schema::{
     action_type_to_gql_action_type, object_action_history_from_gql,
     object_update_success_to_update_result, update_generic_string_object_result_to_update_result,
 };
+#[cfg(test)]
 use crate::server::graphql::{get_request_context, get_user_facing_error_message};
-use crate::server::ids::{ClientId, HashableId, ServerId, ServerIdAndType, SyncId, ToServerId};
+use crate::server::ids::ServerId;
+#[cfg(test)]
+use crate::server::ids::{ClientId, HashableId, ServerIdAndType, SyncId, ToServerId};
 use crate::server::server_api::ServerApi;
 use crate::server::sync_queue::SerializedModel;
+#[cfg(test)]
 use crate::settings::Preference;
 use crate::workflows::WorkflowId;
+#[cfg(test)]
 use crate::workflows::workflow_enum::WorkflowEnum;
+#[cfg(test)]
 use crate::workspaces::gql_convert::object_update_message_from_gql;
+#[cfg(test)]
 use crate::workspaces::user_profiles::UserProfileWithUID;
 
+#[cfg(test)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl ObjectClient for ServerApi {
@@ -1393,6 +1455,7 @@ impl ObjectClient for ServerApi {
     }
 }
 
+#[cfg(test)]
 /// Parse the serialized model for a GSO and add it to the format-specific entry in `map`,
 /// or report an error if parsing fails.
 fn parse_server_gso<T, S>(
@@ -1415,5 +1478,214 @@ fn parse_server_gso<T, S>(
             err.context(format!("Failed to convert {format:?}")),
             extra: { "uid" => %uid }
         ),
+    }
+}
+
+#[cfg(not(test))]
+fn local_only_error() -> anyhow::Error {
+    anyhow::anyhow!("Warp Drive cloud object operations are disabled in local-only mode")
+}
+
+// Keep the ObjectClient surface available to local callers while excluding all production cloud
+// GraphQL requests.
+#[cfg(not(test))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+impl ObjectClient for ServerApi {
+    async fn create_workflow(&self, _: CreateObjectRequest) -> Result<CreateCloudObjectResult> {
+        Err(local_only_error())
+    }
+
+    async fn update_workflow(
+        &self,
+        _: WorkflowId,
+        _: SerializedModel,
+        _: Option<Revision>,
+    ) -> Result<UpdateCloudObjectResult<ServerWorkflow>> {
+        Err(local_only_error())
+    }
+
+    async fn bulk_create_generic_string_objects(
+        &self,
+        _: Owner,
+        _: &[BulkCreateGenericStringObjectsRequest],
+    ) -> Result<BulkCreateCloudObjectResult> {
+        Err(local_only_error())
+    }
+
+    async fn create_generic_string_object(
+        &self,
+        _: GenericStringObjectFormat,
+        _: Option<GenericStringObjectUniqueKey>,
+        _: CreateObjectRequest,
+    ) -> Result<CreateCloudObjectResult> {
+        Err(local_only_error())
+    }
+
+    async fn create_notebook(&self, _: CreateObjectRequest) -> Result<CreateCloudObjectResult> {
+        Err(local_only_error())
+    }
+
+    async fn update_notebook(
+        &self,
+        _: NotebookId,
+        _: Option<String>,
+        _: Option<SerializedModel>,
+        _: Option<Revision>,
+    ) -> Result<UpdateCloudObjectResult<ServerNotebook>> {
+        Err(local_only_error())
+    }
+
+    async fn create_folder(&self, _: CreateObjectRequest) -> Result<CreateCloudObjectResult> {
+        Err(local_only_error())
+    }
+
+    async fn update_folder(
+        &self,
+        _: FolderId,
+        _: SerializedModel,
+    ) -> Result<UpdateCloudObjectResult<ServerFolder>> {
+        Err(local_only_error())
+    }
+
+    async fn update_generic_string_object(
+        &self,
+        _: GenericStringObjectId,
+        _: SerializedModel,
+        _: Option<Revision>,
+    ) -> Result<UpdateCloudObjectResult<Box<dyn ServerObject>>> {
+        Err(local_only_error())
+    }
+
+    async fn grab_notebook_edit_access(&self, _: NotebookId) -> Result<ServerMetadata> {
+        Err(local_only_error())
+    }
+
+    async fn give_up_notebook_edit_access(&self, _: NotebookId) -> Result<ServerMetadata> {
+        Err(local_only_error())
+    }
+
+    async fn get_warp_drive_updates(
+        &self,
+        _: Sender<ObjectUpdateMessage>,
+        stream_ready_sender: Sender<()>,
+    ) -> Result<()> {
+        let _ = stream_ready_sender.try_send(());
+        Ok(())
+    }
+
+    async fn fetch_changed_objects(
+        &self,
+        _: ObjectsToUpdate,
+        _: bool,
+    ) -> Result<InitialLoadResponse> {
+        Ok(InitialLoadResponse::default())
+    }
+
+    async fn fetch_single_cloud_object(&self, _: ServerId) -> Result<GetCloudObjectResponse> {
+        Err(local_only_error())
+    }
+
+    async fn transfer_notebook_owner(&self, _: NotebookId, _: Owner) -> Result<bool> {
+        Err(local_only_error())
+    }
+
+    async fn transfer_workflow_owner(&self, _: WorkflowId, _: Owner) -> Result<bool> {
+        Err(local_only_error())
+    }
+
+    async fn transfer_generic_string_object_owner(
+        &self,
+        _: GenericStringObjectId,
+        _: Owner,
+    ) -> Result<bool> {
+        Err(local_only_error())
+    }
+
+    async fn trash_object(&self, _: ServerId) -> Result<bool> {
+        Err(local_only_error())
+    }
+
+    async fn untrash_object(&self, _: ServerId) -> Result<ObjectMetadataUpdateResult> {
+        Err(local_only_error())
+    }
+
+    async fn delete_object(&self, _: ServerId) -> Result<ObjectDeleteResult> {
+        Err(local_only_error())
+    }
+
+    async fn empty_trash(&self, _: Owner) -> Result<ObjectDeleteResult> {
+        Err(local_only_error())
+    }
+
+    async fn move_object(
+        &self,
+        _: ServerId,
+        _: Option<FolderId>,
+        _: Owner,
+        _: ObjectType,
+    ) -> Result<bool> {
+        Err(local_only_error())
+    }
+
+    async fn record_object_action(
+        &self,
+        _: ServerId,
+        _: ObjectActionType,
+        _: DateTime<Utc>,
+        _: Option<String>,
+    ) -> Result<ObjectActionHistory> {
+        Err(local_only_error())
+    }
+
+    async fn leave_object(&self, _: ServerId) -> Result<ObjectDeleteResult> {
+        Err(local_only_error())
+    }
+
+    async fn set_object_link_permissions(
+        &self,
+        _: ServerId,
+        _: SharingAccessLevel,
+    ) -> Result<ObjectPermissionUpdateResult> {
+        Err(local_only_error())
+    }
+
+    async fn remove_object_link_permissions(
+        &self,
+        _: ServerId,
+    ) -> Result<ObjectPermissionUpdateResult> {
+        Err(local_only_error())
+    }
+
+    async fn add_object_guests(
+        &self,
+        _: ServerId,
+        _: Vec<String>,
+        _: AccessLevel,
+    ) -> Result<ObjectPermissionsUpdateData> {
+        Err(local_only_error())
+    }
+
+    async fn update_object_guests(
+        &self,
+        _: ServerId,
+        _: Vec<String>,
+        _: AccessLevel,
+    ) -> Result<ServerPermissions> {
+        Err(local_only_error())
+    }
+
+    async fn remove_object_guest(
+        &self,
+        _: ServerId,
+        _: GuestIdentifier,
+    ) -> Result<ServerPermissions> {
+        Err(local_only_error())
+    }
+
+    async fn fetch_environment_last_task_run_timestamps(
+        &self,
+    ) -> Result<HashMap<String, DateTime<Utc>>> {
+        Ok(HashMap::new())
     }
 }

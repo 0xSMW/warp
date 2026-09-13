@@ -1,25 +1,30 @@
 //! A reusable warning callout component with optional action button.
 use markdown_parser::{FormattedText, FormattedTextInline, FormattedTextLine};
 use warp_core::ui::color::blend::Blend;
+#[cfg(test)]
 use warpui::EventContext;
 use warpui::color::ColorU;
 use warpui::elements::{
     Border, ConstrainedBox, Container, CornerRadius, CrossAxisAlignment, Element, Expanded, Flex,
-    FormattedTextElement, Hoverable, HyperlinkLens, MainAxisSize, MouseStateHandle, ParentElement,
-    Radius, Text,
+    FormattedTextElement, HyperlinkLens, MainAxisSize, ParentElement, Radius, Text,
 };
+#[cfg(test)]
+use warpui::elements::{Hoverable, MouseStateHandle};
+#[cfg(test)]
 use warpui::platform::Cursor;
 
 use crate::appearance::Appearance;
 use crate::themes::theme::Fill as ThemeFill;
 use crate::ui_components::icons::Icon;
 
+#[cfg(test)]
 pub struct WarningBoxButtonConfig {
     pub label: String,
     pub mouse_state: MouseStateHandle,
     pub on_click: Box<dyn Fn(&mut EventContext) + 'static>,
 }
 
+#[cfg(test)]
 impl WarningBoxButtonConfig {
     pub fn new(
         label: impl Into<String>,
@@ -34,6 +39,7 @@ impl WarningBoxButtonConfig {
     }
 }
 pub enum WarningBoxTitle {
+    #[cfg(test)]
     Text(String),
     Formatted(FormattedTextInline),
 }
@@ -49,10 +55,12 @@ pub struct WarningBoxConfig {
 
     pub margin_top: f32,
 
+    #[cfg(test)]
     pub button: Option<WarningBoxButtonConfig>,
 }
 
 impl WarningBoxConfig {
+    #[cfg(test)]
     pub fn new(title: impl Into<String>) -> Self {
         Self::from_title(WarningBoxTitle::Text(title.into()))
     }
@@ -68,25 +76,30 @@ impl WarningBoxConfig {
             description: None,
             width: None,
             margin_top: 8.,
+            #[cfg(test)]
             button: None,
         }
     }
 
+    #[cfg(test)]
     pub fn with_description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
     }
 
+    #[cfg(test)]
     pub fn with_icon(mut self, icon: Icon) -> Self {
         self.icon = icon;
         self
     }
 
+    #[cfg(test)]
     pub fn with_width(mut self, width: f32) -> Self {
         self.width = Some(width);
         self
     }
 
+    #[cfg(test)]
     pub fn with_button(mut self, button: WarningBoxButtonConfig) -> Self {
         self.button = Some(button);
         self
@@ -109,6 +122,7 @@ pub fn render_warning_box(config: WarningBoxConfig, appearance: &Appearance) -> 
     let background = theme.surface_2().blend(&warning_fill.with_opacity(15));
 
     let title = match config.title {
+        #[cfg(test)]
         WarningBoxTitle::Text(title) => Text::new(
             title,
             appearance.ui_font_family(),
@@ -154,6 +168,7 @@ pub fn render_warning_box(config: WarningBoxConfig, appearance: &Appearance) -> 
 
     // Treat warning boxes as flexible by default so they wrap and shrink with their container.
     let should_use_flex = true;
+    #[cfg(test)]
     let has_action_button = config.button.is_some();
 
     let left = if should_use_flex {
@@ -182,6 +197,7 @@ pub fn render_warning_box(config: WarningBoxConfig, appearance: &Appearance) -> 
             .finish()
     };
 
+    #[cfg(test)]
     let action_button = config.button.map(|button| {
         let WarningBoxButtonConfig {
             label,
@@ -220,10 +236,19 @@ pub fn render_warning_box(config: WarningBoxConfig, appearance: &Appearance) -> 
     });
 
     let mut row = Flex::row()
-        .with_cross_axis_alignment(if has_action_button {
-            CrossAxisAlignment::Center
-        } else {
-            CrossAxisAlignment::Start
+        .with_cross_axis_alignment({
+            #[cfg(test)]
+            {
+                if has_action_button {
+                    CrossAxisAlignment::Center
+                } else {
+                    CrossAxisAlignment::Start
+                }
+            }
+            #[cfg(not(test))]
+            {
+                CrossAxisAlignment::Start
+            }
         })
         .with_spacing(12.);
 
@@ -234,6 +259,7 @@ pub fn render_warning_box(config: WarningBoxConfig, appearance: &Appearance) -> 
         row.add_child(left);
     }
 
+    #[cfg(test)]
     if let Some(action_button) = action_button {
         row.add_child(action_button);
     }

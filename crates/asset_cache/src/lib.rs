@@ -144,16 +144,56 @@ impl AssetCacheExt for AssetCache {
 async fn fetch_file_to_memory(url: Url) -> Result<Bytes, anyhow::Error> {
     cfg_if::cfg_if! {
         if #[cfg(target_family = "wasm")] {
-            let response = reqwest::get(url).await?;
+            let response = fetch_asset_response(url).await?;
         } else {
             // On non-web platforms, reqwest expects that it is operating within
             // a Tokio-compatible runtime, so use async-compat to wrap the call
             // so reqwest's expectations are met.
-            let response = async_compat::Compat::new(async move { reqwest::get(url).await }).await?;
+            let response = async_compat::Compat::new(fetch_asset_response(url)).await?;
         }
     }
     let content = response.error_for_status()?.bytes().await?;
     Ok(content)
+}
+
+#[cfg(not(test))]
+fn is_allowed_asset_url(url: &Url) -> bool {
+    match url.scheme() {
+        "data" => true,
+        "http" | "https" => url.host_str().is_some_and(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        }),
+        _ => false,
+    }
+}
+
+async fn fetch_asset_response(url: Url) -> Result<reqwest::Response> {
+    #[cfg(not(test))]
+    {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if is_allowed_asset_url(attempt.url()) {
+                    attempt.follow()
+                } else {
+                    attempt.stop()
+                }
+            }))
+            .build()?;
+        if !is_allowed_asset_url(&url) {
+            return Err(anyhow::anyhow!(
+                "External asset URLs are disabled in local-only mode"
+            ));
+        }
+        return Ok(client.get(url).send().await?);
+    }
+
+    #[cfg(test)]
+    {
+        Ok(reqwest::get(url).await?)
+    }
 }
 
 /// Given a url and a directory where cached artifacts are stored, returns a unique

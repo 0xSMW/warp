@@ -222,6 +222,7 @@ impl TerminalView {
     /// A failed run whose environment is retained for debugging leaves the pane read-only with an
     /// ended-conversation tombstone even though its session is still reachable; reattaching must
     /// produce a writable terminal rather than that ended-run view.
+    #[cfg(test)]
     pub(crate) fn prepare_for_live_session_reattach(&mut self, ctx: &mut ViewContext<Self>) {
         self.remove_conversation_ended_tombstone(ctx);
 
@@ -2067,7 +2068,7 @@ impl TerminalView {
 
     /// Resizes the sharer's terminal to match the viewer's reported size,
     /// going through the normal view/model/PTY resize pipeline.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), any(test, feature = "integration_tests")))]
     pub(crate) fn resize_from_viewer_report(
         &mut self,
         viewer_size: WindowSize,

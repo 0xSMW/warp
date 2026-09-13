@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use ai::skills::{
     ParsedSkill, SKILL_PROVIDER_DEFINITIONS, SkillProvider, home_skills_path, parse_skill,
 };
-use command::r#async::Command as AsyncCommand;
+// use command::r#async::Command as AsyncCommand;
 use command::blocking::Command;
 use warp_cli::skill::SkillSpec;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
@@ -29,8 +29,11 @@ const SKILL_FILE_NAME: &str = "SKILL.md";
 
 #[derive(Debug, Clone)]
 pub struct ResolvedSkill {
+    #[cfg(test)]
     pub skill_path: PathBuf,
+    #[cfg(test)]
     pub name: String,
+    #[cfg(test)]
     pub instructions: String,
     /// The full parsed skill, used for proto conversion when sending to server.
     pub parsed_skill: ParsedSkill,
@@ -99,12 +102,14 @@ pub enum ResolveSkillError {
     },
     #[error("Failed to parse skill file {path}: {message}")]
     ParseFailed { path: PathBuf, message: String },
+    /*
     #[error("Failed to clone repository '{org}/{repo}': {message}")]
     CloneFailed {
         org: String,
         repo: String,
         message: String,
     },
+    */
 }
 
 /// Resolve a `SkillSpec` (from the `--skill` CLI arg) into a concrete SKILL.md file.
@@ -136,6 +141,8 @@ pub fn resolve_skill_spec(
     }
 }
 
+// Cloud-only repository cloning is disabled in local-only mode.
+/*
 /// Clone a repository from GitHub into the working directory for skill resolution.
 ///
 /// Uses HTTPS format: `https://github.com/org/repo.git`
@@ -202,6 +209,7 @@ pub async fn clone_repo_for_skill(
     log::info!("Successfully cloned {org}/{repo}");
     Ok(())
 }
+*/
 
 fn resolve_repo_qualified(
     spec: &SkillSpec,
@@ -470,15 +478,23 @@ fn parsed_skill_from_manager_or_disk(
 }
 
 fn to_resolved_skill(skill_path: PathBuf, parsed: ParsedSkill) -> ResolvedSkill {
+    #[cfg(test)]
     let instructions = instructions_body(&parsed);
+    #[cfg(not(test))]
+    let _ = skill_path;
+
     ResolvedSkill {
+        #[cfg(test)]
         name: parsed.name.clone(),
+        #[cfg(test)]
         instructions,
+        #[cfg(test)]
         skill_path,
         parsed_skill: parsed,
     }
 }
 
+#[cfg(test)]
 fn instructions_body(skill: &ParsedSkill) -> String {
     let Some(line_range) = &skill.line_range else {
         return skill.content.clone();

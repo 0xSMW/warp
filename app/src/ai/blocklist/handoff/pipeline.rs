@@ -36,6 +36,7 @@ use super::touched_repos::extract_paths_from_conversation;
 use super::{HandoffLaunchAttachments, PendingCloudLaunch};
 use crate::ai::agent::conversation::{AIConversation, AIConversationId};
 use crate::ai::agent::{CancellationReason, extract_user_query_mode};
+#[cfg(any(test, feature = "tui"))]
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::ambient_agents::telemetry::{
     CloudAgentTelemetryEvent, HandoffEntryPoint, HandoffInjectionPath, HandoffSurface,
@@ -47,10 +48,13 @@ use crate::ai::blocklist::{
 use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
 use crate::ai::execution_profiles::resolve_cloud_agent_computer_use_state;
 use crate::ai::llms::{LLMId, LLMPreferences};
+#[cfg(any(test, feature = "tui"))]
 use crate::ai::orchestration::{
     CloudAgentStartupBlocker, CloudAgentStartupFailure, CloudAgentStartupIssue,
-    classify_cloud_agent_startup_error, oz_run_url, resolve_default_environment_id,
-    resolve_default_host_slug, should_disable_snapshot,
+    classify_cloud_agent_startup_error, oz_run_url,
+};
+use crate::ai::orchestration::{
+    resolve_default_environment_id, resolve_default_host_slug, should_disable_snapshot,
 };
 use crate::cloud_object::CloudObjectLookup as _;
 use crate::server::ids::{ServerId, SyncId};
@@ -609,13 +613,19 @@ pub fn prepare_handoff(
 /// The frontend uses the task/run identity to begin monitoring the already
 /// spawned run and the snapshot fields for telemetry and degraded-upload UI.
 pub struct HandoffCreated {
+    #[cfg(any(test, feature = "tui"))]
     pub task_id: AmbientAgentTaskId,
+    #[cfg(any(test, feature = "tui"))]
     pub run_id: String,
-    #[cfg_attr(not(feature = "tui"), allow(dead_code))]
+    #[cfg(any(test, feature = "tui"))]
     pub url: String,
+    #[cfg(any(test, feature = "tui"))]
     pub at_capacity: bool,
+    #[cfg(any(test, feature = "tui"))]
     pub request: SpawnAgentRequest,
+    #[cfg(any(test, feature = "tui"))]
     pub derived_workspace_had_content: bool,
+    #[cfg(any(test, feature = "tui"))]
     pub snapshot_failed: bool,
 }
 
@@ -625,10 +635,14 @@ pub struct HandoffCreated {
 /// for existing retry UI and source-input restoration state for a frontend
 /// that has not yet materialized its destination.
 pub struct HandoffCommitFailure {
+    #[cfg(any(test, feature = "tui"))]
     pub issue: CloudAgentStartupIssue,
+    #[cfg(any(test, feature = "tui"))]
     pub request: Option<SpawnAgentRequest>,
     pub restoration: Option<HandoffRestoration>,
+    #[cfg(any(test, feature = "tui"))]
     pub derived_workspace_had_content: Option<bool>,
+    #[cfg(any(test, feature = "tui"))]
     pub snapshot_failed: bool,
 }
 
@@ -647,6 +661,7 @@ pub enum HandoffCommitOutcome {
     Created(HandoffCreated),
 }
 
+#[cfg(any(test, feature = "tui"))]
 pub fn handoff_dispatch_error(issue: &CloudAgentStartupIssue) -> String {
     match issue {
         CloudAgentStartupIssue::Blocked(CloudAgentStartupBlocker::GitHubAuthRequired {
@@ -662,6 +677,10 @@ pub fn handoff_dispatch_error(issue: &CloudAgentStartupIssue) -> String {
     }
 }
 
+#[cfg(all(not(test), not(feature = "tui")))]
+/// Cloud dispatch diagnostics are retired while cloud handoff is disabled.
+pub mod handoff_dispatch_error {}
+
 /// State after selecting or creating the server-side conversation fork.
 struct ForkedHandoff {
     pending: PendingHandoff,
@@ -674,7 +693,9 @@ struct SnapshotSettledHandoff {
     forked_conversation_id: Option<String>,
     initial_snapshot_token: Option<InitialSnapshotToken>,
     restoration: Option<HandoffRestoration>,
+    #[cfg(any(test, feature = "tui"))]
     derived_workspace_had_content: bool,
+    #[cfg(any(test, feature = "tui"))]
     snapshot_failed: bool,
     team_scope: RequestTeamScope,
 }
@@ -767,11 +788,17 @@ async fn execute_validated_handoff(
             .await
             .context("Failed to materialize handoff target")
         {
+            #[cfg(not(any(test, feature = "tui")))]
+            let _ = error;
             return HandoffCommitOutcome::Failed(HandoffCommitFailure {
+                #[cfg(any(test, feature = "tui"))]
                 issue: classify_cloud_agent_startup_error(&error),
+                #[cfg(any(test, feature = "tui"))]
                 request: None,
                 restoration: forked.pending.take_restoration(),
+                #[cfg(any(test, feature = "tui"))]
                 derived_workspace_had_content: None,
+                #[cfg(any(test, feature = "tui"))]
                 snapshot_failed: false,
             });
         }
@@ -827,23 +854,38 @@ async fn execute_validated_handoff(
     let response = match response {
         Ok(response) => response,
         Err(error) => {
+            #[cfg(not(any(test, feature = "tui")))]
+            let _ = error;
             return HandoffCommitOutcome::Failed(HandoffCommitFailure {
+                #[cfg(any(test, feature = "tui"))]
                 issue: classify_cloud_agent_startup_error(&error),
+                #[cfg(any(test, feature = "tui"))]
                 request: Some(request),
                 restoration: settled.restoration.take(),
+                #[cfg(any(test, feature = "tui"))]
                 derived_workspace_had_content: Some(settled.derived_workspace_had_content),
+                #[cfg(any(test, feature = "tui"))]
                 snapshot_failed: settled.snapshot_failed,
             });
         }
     };
+    #[cfg(not(any(test, feature = "tui")))]
+    let _ = response;
 
     HandoffCommitOutcome::Created(HandoffCreated {
+        #[cfg(any(test, feature = "tui"))]
         task_id: response.task_id,
+        #[cfg(any(test, feature = "tui"))]
         run_id: response.run_id.clone(),
+        #[cfg(any(test, feature = "tui"))]
         url: oz_run_url(&response.run_id),
+        #[cfg(any(test, feature = "tui"))]
         at_capacity: response.at_capacity,
+        #[cfg(any(test, feature = "tui"))]
         request,
+        #[cfg(any(test, feature = "tui"))]
         derived_workspace_had_content: settled.derived_workspace_had_content,
+        #[cfg(any(test, feature = "tui"))]
         snapshot_failed: settled.snapshot_failed,
     })
 }
@@ -870,11 +912,17 @@ async fn fork_source_conversation(
         {
             Ok(response) => Some(response.forked_conversation_id),
             Err(error) => {
+                #[cfg(not(any(test, feature = "tui")))]
+                let _ = error;
                 return Err(HandoffCommitFailure {
+                    #[cfg(any(test, feature = "tui"))]
                     issue: classify_cloud_agent_startup_error(&error),
+                    #[cfg(any(test, feature = "tui"))]
                     request: None,
                     restoration: pending.take_restoration(),
+                    #[cfg(any(test, feature = "tui"))]
                     derived_workspace_had_content: None,
+                    #[cfg(any(test, feature = "tui"))]
                     snapshot_failed: false,
                 });
             }
@@ -917,7 +965,10 @@ async fn prepare_snapshot_for_spawn(forked: ForkedHandoff) -> SnapshotSettledHan
     let (workspace, snapshot_result) = upload_handoff_snapshot(source_paths, snapshot_target).await;
     let derived_workspace_had_content =
         !workspace.repos.is_empty() || !workspace.orphan_files.is_empty();
+    #[cfg(not(any(test, feature = "tui")))]
+    let _ = derived_workspace_had_content;
     let (initial_snapshot_token, snapshot_failed) = match snapshot_result {
+        #[cfg(test)]
         Ok(HandoffUploadResult::Uploaded(token)) => (Some(token), false),
         Ok(HandoffUploadResult::EmptyWorkspace) => (None, false),
         Err(error) => {
@@ -926,6 +977,8 @@ async fn prepare_snapshot_for_spawn(forked: ForkedHandoff) -> SnapshotSettledHan
             (None, true)
         }
     };
+    #[cfg(not(any(test, feature = "tui")))]
+    let _ = snapshot_failed;
     SnapshotSettledHandoff {
         spawn_ready: SpawnReadyHandoff {
             prompt,
@@ -939,7 +992,9 @@ async fn prepare_snapshot_for_spawn(forked: ForkedHandoff) -> SnapshotSettledHan
         forked_conversation_id: forked.forked_conversation_id,
         initial_snapshot_token,
         restoration,
+        #[cfg(any(test, feature = "tui"))]
         derived_workspace_had_content,
+        #[cfg(any(test, feature = "tui"))]
         snapshot_failed,
         team_scope,
     }

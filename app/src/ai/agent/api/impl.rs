@@ -142,6 +142,17 @@ pub async fn generate_multi_agent_output(
         mcp_context: params.mcp_context.map(Into::into),
     };
 
+    #[cfg(not(test))]
+    if crate::is_local_mode() {
+        let (tx, rx) = async_channel::unbounded();
+        let _ = tx
+            .send(Err(Arc::new(AIApiError::Other(anyhow::anyhow!(
+                "AI server access is disabled in local-only mode"
+            )))))
+            .await;
+        return Ok(Box::pin(rx));
+    }
+
     let response_stream = warp_multi_agent_client::generate_multi_agent_output(
         server_api.as_ref(),
         &request,

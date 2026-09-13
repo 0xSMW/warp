@@ -315,6 +315,7 @@ where
     /// [`Self::render_menu_as_overlay`] to obtain the popup and attach it
     /// to an outer [`Stack`] as a positioned overlay child, ensuring the
     /// popup paints on top of all subsequent sibling form content.
+    #[cfg(test)]
     pub fn set_render_popup_externally(&mut self, value: bool, ctx: &mut ViewContext<Self>) {
         self.render_popup_externally = value;
         ctx.notify();
@@ -323,6 +324,7 @@ where
     /// Returns the open menu element and its positioning for external
     /// rendering, or `None` when the dropdown is closed or
     /// `render_popup_externally` is not set.
+    #[cfg(test)]
     pub fn render_menu_as_overlay(&self) -> Option<(Box<dyn Element>, OffsetPositioning)> {
         if !self.is_expanded || !self.render_popup_externally {
             return None;
@@ -558,6 +560,7 @@ where
     /// externally via [`Self::set_render_popup_externally`], where the
     /// selection action does not bubble through this view's own element
     /// subtree to fire the item action.
+    #[cfg(test)]
     pub fn selected_action(&self) -> Option<A>
     where
         A: Clone,

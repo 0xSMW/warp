@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use command::r#async::Command;
 
 use crate::CommandBuilder;
-#[cfg(feature = "local_fs")]
+#[cfg(all(feature = "local_fs", test))]
 use crate::install::{
     AssetKind, fetch_latest_metadata_from_github_dynamic_asset, install_from_github,
 };
@@ -16,8 +16,10 @@ use crate::language_server_candidate::{LanguageServerCandidate, LanguageServerMe
 
 #[cfg(feature = "local_fs")]
 const SERVER_NAME: &str = "clangd";
+#[cfg(all(feature = "local_fs", not(test)))]
+const LOCAL_ONLY_INSTALL_ERROR: &str = "Automatic clangd installation is disabled in local-only mode; install clangd locally and make it available on PATH or in Warp's data directory";
 
-#[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
+#[allow(dead_code)]
 pub struct ClangdCandidate {
     client: Arc<http_client::Client>,
 }
@@ -57,7 +59,7 @@ impl ClangdCandidate {
     }
 }
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(feature = "local_fs", test))]
 fn asset_os_suffix() -> anyhow::Result<&'static str> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("macos", _) => Ok("mac"),
@@ -176,6 +178,7 @@ impl LanguageServerCandidate for ClangdCandidate {
             .unwrap_or(false)
     }
 
+    #[cfg(test)]
     async fn install(
         &self,
         metadata: LanguageServerMetadata,
@@ -201,6 +204,16 @@ impl LanguageServerCandidate for ClangdCandidate {
         Ok(())
     }
 
+    #[cfg(not(test))]
+    async fn install(
+        &self,
+        _metadata: LanguageServerMetadata,
+        _executor: &CommandBuilder,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!(LOCAL_ONLY_INSTALL_ERROR)
+    }
+
+    #[cfg(test)]
     async fn fetch_latest_server_metadata(&self) -> anyhow::Result<LanguageServerMetadata> {
         let os_suffix = asset_os_suffix()?;
 
@@ -211,6 +224,11 @@ impl LanguageServerCandidate for ClangdCandidate {
             move |tag| format!("clangd-{os_suffix}-{tag}.zip"),
         )
         .await
+    }
+
+    #[cfg(not(test))]
+    async fn fetch_latest_server_metadata(&self) -> anyhow::Result<LanguageServerMetadata> {
+        anyhow::bail!(LOCAL_ONLY_INSTALL_ERROR)
     }
 }
 

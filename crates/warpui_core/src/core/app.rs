@@ -4815,6 +4815,9 @@ impl AppContext {
     /// Opens the given URL and returns whether the platform accepted the launch request.
     pub fn try_open_url(&self, url: &str) -> bool {
         let effective_url = (self.before_open_url_callback)(url, self);
+        if effective_url.trim().is_empty() {
+            return false;
+        }
         self.platform_delegate.open_url(&effective_url)
     }
 

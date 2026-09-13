@@ -6,7 +6,6 @@ use std::{env, fmt};
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use url::Url;
 use warp_core::channel::ChannelState;
-use warp_core::features::FeatureFlag;
 
 use crate::agent::OutputFormat;
 
@@ -119,21 +118,19 @@ pub struct GlobalOptions {
 
 /// Normal argument parser for the shared Warp executable across all channels.
 ///
-/// Oz commands are subcommands of this parser, so invoking an `oz` symlink does
+/// Warp CLI commands are subcommands of this parser, so invoking an `oz` symlink does
 /// not require a mode flag. Warp Control uses its separate [`local_control::ControlArgs`]
 /// parser, selected before this parser sees the arguments.
 #[derive(Debug, Default, Parser, Clone)]
 #[command(
     name = "oz",
     display_name = "Oz",
-    about = r#"The orchestration platform for cloud agents
+    about = r#"Warp's local terminal and agent CLI
 
-The Oz CLI is a tool for running, managing, and orchestrating coding agents at scale.
 Use the CLI to:
-* Launch and inspect cloud agents
-* Schedule cloud agents to run in the future
-* Manage the environments that cloud agents run in
-* Upload secrets to Oz's secure storage"#
+* Run a local Warp Agent
+* Load local MCP and agent configuration files
+* Generate shell completions and inspect local settings"#
 )]
 #[clap(subcommand_precedence_over_arg = true)]
 pub struct Args {
@@ -211,100 +208,120 @@ impl Args {
             } else {
                 use clap::FromArgMatches as _;
 
-                // Check for disabled commands before parsing to prevent help from showing (e.g.
-                // `warp environment` should not return help text)
-                if !FeatureFlag::CloudEnvironments.is_enabled() {
-                    let args: Vec<String> = env::args().collect();
-                    if args.len() > 1 && args[1] == "environment" {
-                        eprintln!("error: unrecognized subcommand 'environment'\n");
-                        eprintln!("For more information, try '--help'");
-                        std::process::exit(2);
-                    }
-                }
-
-                if !FeatureFlag::ProviderCommand.is_enabled() {
-                    let args: Vec<String> = env::args().collect();
-                    if args.len() > 1 && args[1] == "provider" {
-                        eprintln!("error: unrecognized subcommand 'provider'\n");
-                        eprintln!("For more information, try '--help'");
-                        std::process::exit(2);
-                    }
-                }
-
-                if !FeatureFlag::IntegrationCommand.is_enabled() {
-                    let args: Vec<String> = env::args().collect();
-                    if args.len() > 1 && args[1] == "integration" {
-                        eprintln!("error: unrecognized subcommand 'integration'\n");
-                        eprintln!("For more information, try '--help'");
-                        std::process::exit(2);
-                    }
-                }
-
-                if !FeatureFlag::ScheduledAmbientAgents.is_enabled() {
-                    let args: Vec<String> = env::args().collect();
-                    if args.len() > 1 && args[1] == "schedule" {
-                        eprintln!("error: unrecognized subcommand 'schedule'\n");
-                        eprintln!("For more information, try '--help'");
-                        std::process::exit(2);
-                    }
-                }
-
-                if !FeatureFlag::WarpManagedSecrets.is_enabled() {
-                    let args: Vec<String> = env::args().collect();
-                    if args.len() > 1 && args[1] == "secret" {
-                        eprintln!("error: unrecognized subcommand 'secret'\n");
-                        eprintln!("For more information, try '--help'");
-                        std::process::exit(2);
-                    }
-                }
-
-                if !FeatureFlag::OzIdentityFederation.is_enabled() {
-                    let args: Vec<String> = env::args().collect();
-                    if args.len() > 1 && args[1] == "federate" {
-                        eprintln!("error: unrecognized subcommand 'federate'\n");
-                        eprintln!("For more information, try '--help'");
-                        std::process::exit(2);
-                    }
-                }
-
-                if !FeatureFlag::ArtifactCommand.is_enabled() {
-                    let args: Vec<String> = env::args().collect();
-                    if args.len() > 1 && args[1] == "artifact" {
-                        eprintln!("error: unrecognized subcommand 'artifact'\n");
-                        eprintln!("For more information, try '--help'");
-                        std::process::exit(2);
-                    }
-                }
-
-                if !FeatureFlag::APIKeyManagement.is_enabled() {
-                    let args: Vec<String> = env::args().collect();
-                    if args.len() > 1 && args[1] == "api-key" {
-                        eprintln!("error: unrecognized subcommand 'api-key'\n");
-                        eprintln!("For more information, try '--help'");
-                        std::process::exit(2);
-                    }
-                }
-
-                if !FeatureFlag::CloudAgentRunners.is_enabled() {
-                    let args: Vec<String> = env::args().collect();
-                    if args.len() > 1 && args[1] == "runner" {
-                        eprintln!("error: unrecognized subcommand 'runner'\n");
-                        eprintln!("For more information, try '--help'");
-                        std::process::exit(2);
-                    }
-                }
+                // Commented out: Cloud-only command pre-parse guards. These commands are no
+                // longer registered in [`CliCommand`], so clap rejects them during parsing.
+                // if !FeatureFlag::CloudEnvironments.is_enabled() {
+                //     let args: Vec<String> = env::args().collect();
+                //     if args.len() > 1 && args[1] == "environment" {
+                //         eprintln!("error: unrecognized subcommand 'environment'\n");
+                //         eprintln!("For more information, try '--help'");
+                //         std::process::exit(2);
+                //     }
+                // }
+                // if !FeatureFlag::ProviderCommand.is_enabled() {
+                //     let args: Vec<String> = env::args().collect();
+                //     if args.len() > 1 && args[1] == "provider" {
+                //         eprintln!("error: unrecognized subcommand 'provider'\n");
+                //         eprintln!("For more information, try '--help'");
+                //         std::process::exit(2);
+                //     }
+                // }
+                // if !FeatureFlag::IntegrationCommand.is_enabled() {
+                //     let args: Vec<String> = env::args().collect();
+                //     if args.len() > 1 && args[1] == "integration" {
+                //         eprintln!("error: unrecognized subcommand 'integration'\n");
+                //         eprintln!("For more information, try '--help'");
+                //         std::process::exit(2);
+                //     }
+                // }
+                // if !FeatureFlag::ScheduledAmbientAgents.is_enabled() {
+                //     let args: Vec<String> = env::args().collect();
+                //     if args.len() > 1 && args[1] == "schedule" {
+                //         eprintln!("error: unrecognized subcommand 'schedule'\n");
+                //         eprintln!("For more information, try '--help'");
+                //         std::process::exit(2);
+                //     }
+                // }
+                // if !FeatureFlag::WarpManagedSecrets.is_enabled() {
+                //     let args: Vec<String> = env::args().collect();
+                //     if args.len() > 1 && args[1] == "secret" {
+                //         eprintln!("error: unrecognized subcommand 'secret'\n");
+                //         eprintln!("For more information, try '--help'");
+                //         std::process::exit(2);
+                //     }
+                // }
+                // if !FeatureFlag::OzIdentityFederation.is_enabled() {
+                //     let args: Vec<String> = env::args().collect();
+                //     if args.len() > 1 && args[1] == "federate" {
+                //         eprintln!("error: unrecognized subcommand 'federate'\n");
+                //         eprintln!("For more information, try '--help'");
+                //         std::process::exit(2);
+                //     }
+                // }
+                // if !FeatureFlag::ArtifactCommand.is_enabled() {
+                //     let args: Vec<String> = env::args().collect();
+                //     if args.len() > 1 && args[1] == "artifact" {
+                //         eprintln!("error: unrecognized subcommand 'artifact'\n");
+                //         eprintln!("For more information, try '--help'");
+                //         std::process::exit(2);
+                //     }
+                // }
+                // if !FeatureFlag::APIKeyManagement.is_enabled() {
+                //     let args: Vec<String> = env::args().collect();
+                //     if args.len() > 1 && args[1] == "api-key" {
+                //         eprintln!("error: unrecognized subcommand 'api-key'\n");
+                //         eprintln!("For more information, try '--help'");
+                //         std::process::exit(2);
+                //     }
+                // }
+                // if !FeatureFlag::CloudAgentRunners.is_enabled() {
+                //     let args: Vec<String> = env::args().collect();
+                //     if args.len() > 1 && args[1] == "runner" {
+                //         eprintln!("error: unrecognized subcommand 'runner'\n");
+                //         eprintln!("For more information, try '--help'");
+                //         std::process::exit(2);
+                //     }
+                // }
+                // `agent` retains its local `run` entry point; its cloud-only subcommands are
+                // rejected after clap parsing below.
 
                 let command = Self::clap_command();
 
-                command.try_get_matches()
-                    .and_then(|matches| Self::from_arg_matches(&matches))
-                    .unwrap_or_else(|err| {
-                        // We attach a console to ensure help and error messages are printed
-                        // when using the CLI.
-                        #[cfg(windows)]
-                        warp_util::windows::attach_to_parent_console();
-                        err.exit()
-                    })
+                let matches = command.try_get_matches().unwrap_or_else(|err| {
+                    // We attach a console to ensure help and error messages are printed
+                    // when using the CLI.
+                    #[cfg(windows)]
+                    warp_util::windows::attach_to_parent_console();
+                    err.exit()
+                });
+
+                if let Some(("agent", agent_matches)) = matches.subcommand()
+                    && let Some((subcommand, _)) = agent_matches.subcommand()
+                    && matches!(
+                        subcommand,
+                        "run-cloud"
+                            | "run-ambient"
+                            | "profile"
+                            | "list"
+                            | "get"
+                            | "create"
+                            | "update"
+                            | "delete"
+                            | "skills"
+                    )
+                {
+                    eprintln!("error: unrecognized subcommand 'agent {subcommand}'\n");
+                    eprintln!("For more information, try '--help'");
+                    std::process::exit(2);
+                }
+
+                Self::from_arg_matches(&matches).unwrap_or_else(|err| {
+                    // We attach a console to ensure help and error messages are printed
+                    // when using the CLI.
+                    #[cfg(windows)]
+                    warp_util::windows::attach_to_parent_console();
+                    err.exit()
+                })
             }
         }
     }
@@ -315,108 +332,81 @@ impl Args {
     pub fn clap_command() -> clap::Command {
         let mut command = <Args as CommandFactory>::command();
 
-        // Hide the environment subcommands and --environment flags from help text
-        if !FeatureFlag::CloudEnvironments.is_enabled() {
-            command = command.mut_subcommand("environment", |c| c.hide(true));
-            command = command.mut_subcommand("agent", |agent_cmd| {
-                agent_cmd
-                    .mut_subcommand("run", |run_cmd| {
-                        run_cmd.mut_arg("environment", |arg| arg.hide(true))
-                    })
-                    .mut_subcommand("run-cloud", |cloud_cmd| {
-                        cloud_cmd.mut_arg("environment", |arg| arg.hide(true))
-                    })
-            });
-        }
-
-        // Hide the --conversation flag from help text
-        if !FeatureFlag::CloudConversations.is_enabled() {
-            command = command.mut_subcommand("agent", |agent_cmd| {
-                agent_cmd
-                    .mut_subcommand("run", |run_cmd| {
-                        run_cmd.mut_arg("conversation", |arg| arg.hide(true))
-                    })
-                    .mut_subcommand("run-cloud", |cloud_cmd| {
-                        cloud_cmd.mut_arg("conversation", |arg| arg.hide(true))
-                    })
-            });
-        }
-
-        if !FeatureFlag::AmbientAgentsCommandLine.is_enabled() {
-            command = command.mut_subcommand("agent", |agent_cmd| {
-                agent_cmd.mut_subcommand("run-cloud", |c| c.hide(true))
-            });
-        }
-
-        // Hide the third-party harness flags on `run-cloud` when the harness
-        // feature is off, so `--help` matches the runtime gating (a non-oz
-        // `--harness` is rejected unless AgentHarness is enabled).
-        if !FeatureFlag::AgentHarness.is_enabled() {
-            command = command.mut_subcommand("agent", |agent_cmd| {
-                agent_cmd.mut_subcommand("run-cloud", |cloud_cmd| {
-                    cloud_cmd
-                        .mut_arg("harness", |arg| arg.hide(true))
-                        .mut_arg("claude_auth_secret", |arg| arg.hide(true))
-                        .mut_arg("codex_auth_secret", |arg| arg.hide(true))
+        // Commented out: Cloud Agent dispatch and management subcommands. The local `agent run`
+        // entry point remains available for local terminal workflows.
+        command = command.mut_subcommand("agent", |agent_cmd| {
+            agent_cmd
+                .mut_subcommand("run-cloud", |c| c.hide(true))
+                .mut_subcommand("profile", |c| c.hide(true))
+                .mut_subcommand("list", |c| c.hide(true))
+                .mut_subcommand("get", |c| c.hide(true))
+                .mut_subcommand("create", |c| c.hide(true))
+                .mut_subcommand("update", |c| c.hide(true))
+                .mut_subcommand("delete", |c| c.hide(true))
+                .mut_subcommand("skills", |c| c.hide(true))
+                .mut_subcommand("run", |run_cmd| {
+                    run_cmd
+                        .mut_arg("environment", |arg| arg.hide(true))
+                        .mut_arg("conversation", |arg| arg.hide(true))
                 })
-            });
-        }
+        });
 
-        // Hide the provider subcommand from help text
-        if !FeatureFlag::ProviderCommand.is_enabled() {
-            command = command.mut_subcommand("provider", |c| c.hide(true));
-        }
-
-        // Hide the integration subcommand from help text
-        if !FeatureFlag::IntegrationCommand.is_enabled() {
-            command = command.mut_subcommand("integration", |c| c.hide(true));
-        }
-
-        // Hide the schedule subcommand from help text.
-        if !FeatureFlag::ScheduledAmbientAgents.is_enabled() {
-            command = command.mut_subcommand("schedule", |c| c.hide(true));
-        }
-
-        // Hide the secret subcommand from help text.
-        if !FeatureFlag::WarpManagedSecrets.is_enabled() {
-            command = command.mut_subcommand("secret", |c| c.hide(true));
-        }
-
-        // Hide the federate subcommand from help text.
-        if !FeatureFlag::OzIdentityFederation.is_enabled() {
-            command = command.mut_subcommand("federate", |c| c.hide(true));
-        }
-
-        // Hide the harness-support subcommand from help text.
-        if !FeatureFlag::AgentHarness.is_enabled() {
-            command = command.mut_subcommand("harness-support", |c| c.hide(true));
-        }
-
-        // Hide the conversation subcommand and --conversation flag from help text.
-        if !FeatureFlag::ConversationApi.is_enabled() {
-            command = command.mut_subcommand("run", |run_cmd| {
-                run_cmd
-                    .mut_subcommand("conversation", |c| c.hide(true))
-                    .mut_subcommand("get", |get_cmd| {
-                        get_cmd.mut_arg("conversation", |arg| arg.hide(true))
-                    })
-            });
-        }
-
-        // Hide the artifact subcommand from help text.
-        if !FeatureFlag::ArtifactCommand.is_enabled() {
-            command = command.mut_subcommand("artifact", |c| c.hide(true));
-        }
-
-        // Hide the api-key subcommand from help text.
-        if !FeatureFlag::APIKeyManagement.is_enabled() {
-            command = command.mut_subcommand("api-key", |c| c.hide(true));
-        }
-
-        // Hide the runner subcommand from help text.
-        if !FeatureFlag::CloudAgentRunners.is_enabled() {
-            command = command.mut_subcommand("runner", |c| c.hide(true));
-        }
+        // Commented out: Cloud-only command help customizations. Those commands are no longer
+        // registered in [`CliCommand`].
+        // if !FeatureFlag::CloudEnvironments.is_enabled() {
+        //     command = command.mut_subcommand("environment", |c| c.hide(true));
+        // }
+        // if !FeatureFlag::CloudConversations.is_enabled() {
+        //     command = command.mut_subcommand("run", |run_cmd| {
+        //         run_cmd
+        //             .mut_subcommand("conversation", |c| c.hide(true))
+        //             .mut_subcommand("get", |get_cmd| {
+        //                 get_cmd.mut_arg("conversation", |arg| arg.hide(true))
+        //             })
+        //     });
+        // }
+        // if !FeatureFlag::AmbientAgentsCommandLine.is_enabled() {
+        //     command = command.mut_subcommand("agent", |agent_cmd| {
+        //         agent_cmd.mut_subcommand("run-cloud", |c| c.hide(true))
+        //     });
+        // }
+        // if !FeatureFlag::AgentHarness.is_enabled() {
+        //     command = command.mut_subcommand("agent", |agent_cmd| {
+        //         agent_cmd.mut_subcommand("run-cloud", |cloud_cmd| {
+        //             cloud_cmd
+        //                 .mut_arg("harness", |arg| arg.hide(true))
+        //                 .mut_arg("claude_auth_secret", |arg| arg.hide(true))
+        //                 .mut_arg("codex_auth_secret", |arg| arg.hide(true))
+        //         })
+        //     });
+        // }
+        // if !FeatureFlag::ProviderCommand.is_enabled() {
+        //     command = command.mut_subcommand("provider", |c| c.hide(true));
+        // }
+        // if !FeatureFlag::IntegrationCommand.is_enabled() {
+        //     command = command.mut_subcommand("integration", |c| c.hide(true));
+        // }
+        // if !FeatureFlag::ScheduledAmbientAgents.is_enabled() {
+        //     command = command.mut_subcommand("schedule", |c| c.hide(true));
+        // }
+        // if !FeatureFlag::WarpManagedSecrets.is_enabled() {
+        //     command = command.mut_subcommand("secret", |c| c.hide(true));
+        // }
+        // if !FeatureFlag::OzIdentityFederation.is_enabled() {
+        //     command = command.mut_subcommand("federate", |c| c.hide(true));
+        // }
+        // if !FeatureFlag::AgentHarness.is_enabled() {
+        //     command = command.mut_subcommand("harness-support", |c| c.hide(true));
+        // }
+        // if !FeatureFlag::ArtifactCommand.is_enabled() {
+        //     command = command.mut_subcommand("artifact", |c| c.hide(true));
+        // }
+        // if !FeatureFlag::APIKeyManagement.is_enabled() {
+        //     command = command.mut_subcommand("api-key", |c| c.hide(true));
+        // }
+        // if !FeatureFlag::CloudAgentRunners.is_enabled() {
+        //     command = command.mut_subcommand("runner", |c| c.hide(true));
+        // }
 
         // Wire up `--version` / `-V` using the same version metadata used elsewhere in the
         // app, so the CLI reports the build's release tag.
@@ -549,75 +539,68 @@ pub enum WorkerCommand {
 /// but it allows scripting some Warp functionality.
 #[derive(Debug, Clone, Subcommand)]
 pub enum CliCommand {
-    /// Interact with Oz.
+    /// Run a local Warp Agent.
     #[command(subcommand)]
     Agent(crate::agent::AgentCommand),
-
-    /// Manage cloud environments.
-    #[command(subcommand)]
-    Environment(crate::environment::EnvironmentCommand),
-
-    /// Manage MCP servers.
+    /// Manage local MCP servers.
     #[command(subcommand)]
     MCP(crate::mcp::MCPCommand),
+    // Commented out: Cloud environment and run management.
+    // /// Manage cloud environments.
+    // #[command(subcommand)]
+    // Environment(crate::environment::EnvironmentCommand),
+    // /// Manage runs.
+    // #[command(subcommand, alias = "task")]
+    // Run(crate::task::TaskCommand),
 
-    /// Manage runs.
-    #[command(subcommand, alias = "task")]
-    Run(crate::task::TaskCommand),
+    // Commented out: Server-backed model and memory management.
+    // /// Manage available models.
+    // #[command(subcommand)]
+    // Model(crate::model::ModelCommand),
+    // /// Manage memory stores.
+    // #[command(subcommand, alias = "memory-stores")]
+    // MemoryStore(crate::memory_store::MemoryStoreCommand),
+    // /// Manage memories.
+    // #[command(subcommand)]
+    // Memory(crate::memory_store::MemoryCommand),
 
-    /// Manage available models.
-    #[command(subcommand)]
-    Model(crate::model::ModelCommand),
-    /// Manage memory stores.
-    #[command(subcommand, alias = "memory-stores")]
-    MemoryStore(crate::memory_store::MemoryStoreCommand),
-    /// Manage memories.
-    #[command(subcommand)]
-    Memory(crate::memory_store::MemoryCommand),
+    // Commented out: Cloud account control.
+    // /// Log in to Warp.
+    // Login,
+    // /// Log out of Warp.
+    // Logout,
+    // /// Print information about the logged-in user.
+    // Whoami,
 
-    /// Log in to Warp.
-    Login,
-    /// Log out of Warp.
-    Logout,
-    /// Print information about the logged-in user.
-    Whoami,
+    // Commented out: Provider, integration, schedule, secret, and federation commands.
+    // /// Manage providers.
+    // #[command(subcommand)]
+    // Provider(crate::provider::ProviderCommand),
+    // /// Manage integrations.
+    // #[command(subcommand)]
+    // Integration(crate::integration::IntegrationCommand),
+    // /// Create and manage scheduled Oz agents.
+    // Schedule(crate::schedule::ScheduleCommand),
+    // /// Manage secrets.
+    // #[command(subcommand)]
+    // Secret(crate::secret::SecretCommand),
+    // /// Issue and manage federated identity tokens.
+    // #[command(subcommand)]
+    // Federate(crate::federate::FederateCommand),
 
-    /// Manage providers.
-    #[command(subcommand)]
-    Provider(crate::provider::ProviderCommand),
-
-    /// Manage integrations.
-    #[command(subcommand)]
-    Integration(crate::integration::IntegrationCommand),
-
-    /// Create and manage scheduled Oz agents. Scheduled agents run a user-defined task periodically, according to a cron schedule.
-    ///
-    /// As a shorthand, the `schedule` command behaves identically to `schedule create`.
-    Schedule(crate::schedule::ScheduleCommand),
-
-    /// Manage secrets.
-    #[command(subcommand)]
-    Secret(crate::secret::SecretCommand),
-
-    /// Issue and manage federated identity tokens.
-    #[command(subcommand)]
-    Federate(crate::federate::FederateCommand),
-
-    /// Support commands for agent harnesses to integrate with Oz.
-    #[command(hide = true)]
-    HarnessSupport(crate::harness_support::HarnessSupportArgs),
-
-    /// Manage artifacts.
-    #[command(subcommand)]
-    Artifact(crate::artifact::ArtifactCommand),
-
-    /// Manage API keys.
-    #[command(subcommand)]
-    ApiKey(crate::api_key::ApiKeyCommand),
-
-    /// Manage cloud agent runners.
-    #[command(subcommand)]
-    Runner(crate::runner::RunnerCommand),
+    // Commented out: Cloud harness, artifact, API-key, and runner commands.
+    // /// Support commands for agent harnesses to integrate with Oz.
+    // #[command(hide = true)]
+    // HarnessSupport(crate::harness_support::HarnessSupportArgs),
+    // /// Manage artifacts.
+    // #[command(subcommand)]
+    // Artifact(crate::artifact::ArtifactCommand),
+    // /// Manage API keys.
+    // #[command(subcommand)]
+    // ApiKey(crate::api_key::ApiKeyCommand),
+    // /// Manage cloud agent runners.
+    // #[command(subcommand)]
+    // Runner(crate::runner::RunnerCommand),
 }
 
 impl CliCommand {
@@ -625,24 +608,26 @@ impl CliCommand {
     pub fn as_str_for_tracing(&self) -> &'static str {
         match self {
             CliCommand::Agent(command) => command.as_str_for_tracing(),
-            CliCommand::Environment(command) => command.as_str_for_tracing(),
+            // Commented out: cloud-only command tracing paths. The variants remain listed above
+            // for the dispatcher reconciliation that follows this local CLI cutover.
+            // CliCommand::Environment(command) => command.as_str_for_tracing(),
             CliCommand::MCP(command) => command.as_str_for_tracing(),
-            CliCommand::Run(command) => command.as_str_for_tracing(),
-            CliCommand::Model(command) => command.as_str_for_tracing(),
-            CliCommand::Login => "login",
-            CliCommand::Logout => "logout",
-            CliCommand::Whoami => "whoami",
-            CliCommand::Provider(command) => command.as_str_for_tracing(),
-            CliCommand::Integration(command) => command.as_str_for_tracing(),
-            CliCommand::Schedule(command) => command.as_str_for_tracing(),
-            CliCommand::Secret(command) => command.as_str_for_tracing(),
-            CliCommand::Federate(command) => command.as_str_for_tracing(),
-            CliCommand::HarnessSupport(args) => args.command.as_str_for_tracing(),
-            CliCommand::Artifact(command) => command.as_str_for_tracing(),
-            CliCommand::ApiKey(command) => command.as_str_for_tracing(),
-            CliCommand::MemoryStore(command) => command.as_str_for_tracing(),
-            CliCommand::Memory(command) => command.as_str_for_tracing(),
-            CliCommand::Runner(command) => command.as_str_for_tracing(),
+            // CliCommand::Run(command) => command.as_str_for_tracing(),
+            // CliCommand::Model(command) => command.as_str_for_tracing(),
+            // CliCommand::Login => "login",
+            // CliCommand::Logout => "logout",
+            // CliCommand::Whoami => "whoami",
+            // CliCommand::Provider(command) => command.as_str_for_tracing(),
+            // CliCommand::Integration(command) => command.as_str_for_tracing(),
+            // CliCommand::Schedule(command) => command.as_str_for_tracing(),
+            // CliCommand::Secret(command) => command.as_str_for_tracing(),
+            // CliCommand::Federate(command) => command.as_str_for_tracing(),
+            // CliCommand::HarnessSupport(args) => args.command.as_str_for_tracing(),
+            // CliCommand::Artifact(command) => command.as_str_for_tracing(),
+            // CliCommand::ApiKey(command) => command.as_str_for_tracing(),
+            // CliCommand::MemoryStore(command) => command.as_str_for_tracing(),
+            // CliCommand::Memory(command) => command.as_str_for_tracing(),
+            // CliCommand::Runner(command) => command.as_str_for_tracing(),
         }
     }
 }

@@ -19,6 +19,7 @@ use crate::appearance::Appearance;
 use crate::changelog_model::{
     ChangelogHeader, ChangelogModel, ChangelogState, Event as ChangelogEvent,
 };
+use crate::channel::{Channel, ChannelState};
 use crate::send_telemetry_from_ctx;
 use crate::server::telemetry::TelemetryEvent;
 use crate::themes::theme::Fill;
@@ -362,6 +363,10 @@ impl SectionView for ChangelogSectionView {
     }
 
     fn section_link(&self, appearance: &Appearance) -> Option<Box<dyn Element>> {
+        if ChannelState::channel() == Channel::Local {
+            return None;
+        }
+
         Some(
             appearance
                 .ui_builder()

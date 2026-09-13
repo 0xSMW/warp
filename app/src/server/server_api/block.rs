@@ -1,26 +1,43 @@
+#[cfg(test)]
 use std::convert::TryFrom;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
+#[cfg(test)]
 use chrono::Utc;
+#[cfg(test)]
 use cynic::{MutationBuilder, QueryBuilder};
 #[cfg(test)]
 use mockall::automock;
+#[cfg(test)]
 use warp_core::channel::{Channel, ChannelState};
+#[cfg(test)]
 use warp_graphql::mutations::share_block::{
     BlockInput, ShareBlock, ShareBlockResult, ShareBlockVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::unshare_block::{
     UnshareBlock, UnshareBlockInput, UnshareBlockResult, UnshareBlockVariables,
 };
-use warp_graphql::queries::get_blocks_for_user::{
-    Block as GqlBlock, GetBlocksForUser, GetBlocksForUserVariables,
-};
+#[cfg(test)]
+use warp_graphql::queries::get_blocks_for_user::Block as GqlBlock;
+#[cfg(test)]
+use warp_graphql::queries::get_blocks_for_user::{GetBlocksForUser, GetBlocksForUserVariables};
 
 use super::ServerApi;
 use crate::ai::generate_block_title::api::{GenerateBlockTitleRequest, GenerateBlockTitleResponse};
 use crate::server::block::{Block, DisplaySetting};
+#[cfg(test)]
 use crate::server::graphql::{get_request_context, get_user_facing_error_message};
+
+#[cfg(not(test))]
+const LOCAL_ONLY_BLOCK_ERROR: &str =
+    "Block sharing and cloud block operations are unavailable in local-only mode";
+
+#[cfg(not(test))]
+fn local_only_block_error<T>() -> Result<T, anyhow::Error> {
+    Err(anyhow!(LOCAL_ONLY_BLOCK_ERROR))
+}
 
 #[cfg_attr(test, automock)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
@@ -50,25 +67,34 @@ pub trait BlockClient: 'static + Send + Sync {
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl BlockClient for ServerApi {
     async fn unshare_block(&self, block_uid: String) -> Result<(), anyhow::Error> {
-        let variables = UnshareBlockVariables {
-            input: UnshareBlockInput { block_uid },
-            request_context: get_request_context(),
-        };
+        #[cfg(not(test))]
+        {
+            let _ = (self, block_uid);
+            return local_only_block_error();
+        }
 
-        let operation = UnshareBlock::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-        match response.unshare_block {
-            UnshareBlockResult::UnshareBlockOutput(output) => {
-                if output.success {
-                    Ok(())
-                } else {
-                    Err(anyhow!("Failed to unshare block"))
+        #[cfg(test)]
+        {
+            let variables = UnshareBlockVariables {
+                input: UnshareBlockInput { block_uid },
+                request_context: get_request_context(),
+            };
+
+            let operation = UnshareBlock::build(variables);
+            let response = self.send_graphql_request(operation, None).await?;
+            match response.unshare_block {
+                UnshareBlockResult::UnshareBlockOutput(output) => {
+                    if output.success {
+                        Ok(())
+                    } else {
+                        Err(anyhow!("Failed to unshare block"))
+                    }
                 }
+                UnshareBlockResult::UserFacingError(error) => {
+                    Err(anyhow!(get_user_facing_error_message(error)))
+                }
+                UnshareBlockResult::Unknown => Err(anyhow!("Failed to unshare block")),
             }
-            UnshareBlockResult::UserFacingError(error) => {
-                Err(anyhow!(get_user_facing_error_message(error)))
-            }
-            UnshareBlockResult::Unknown => Err(anyhow!("Failed to unshare block")),
         }
     }
 
@@ -79,61 +105,79 @@ impl BlockClient for ServerApi {
         show_prompt: bool,
         display_setting: DisplaySetting,
     ) -> Result<String, anyhow::Error> {
-        let variables = ShareBlockVariables {
-            block: BlockInput {
-                command: block.command.as_deref(),
-                embed_display_setting: display_setting.into(),
-                output: block.output.as_deref(),
-                show_prompt,
-                stylized_command: block.stylized_command.as_deref(),
-                stylized_output: block.stylized_output.as_deref(),
-                stylized_prompt: block.stylized_prompt.as_deref(),
-                stylized_prompt_and_command: block.stylized_prompt_and_command.as_deref(),
-                time_started_term: Some(block.time_started_term.with_timezone(&Utc).into()),
-                title: title.as_deref(),
-            },
-            request_context: get_request_context(),
-        };
+        #[cfg(not(test))]
+        {
+            let _ = (self, block, title, show_prompt, display_setting);
+            return local_only_block_error();
+        }
 
-        let operation = ShareBlock::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
-        match response.share_block {
-            ShareBlockResult::ShareBlockOutput(output) => {
-                let mut created_url =
-                    format!("{}{}", ChannelState::server_root_url(), output.url_ending);
+        #[cfg(test)]
+        {
+            let variables = ShareBlockVariables {
+                block: BlockInput {
+                    command: block.command.as_deref(),
+                    embed_display_setting: display_setting.into(),
+                    output: block.output.as_deref(),
+                    show_prompt,
+                    stylized_command: block.stylized_command.as_deref(),
+                    stylized_output: block.stylized_output.as_deref(),
+                    stylized_prompt: block.stylized_prompt.as_deref(),
+                    stylized_prompt_and_command: block.stylized_prompt_and_command.as_deref(),
+                    time_started_term: Some(block.time_started_term.with_timezone(&Utc).into()),
+                    title: title.as_deref(),
+                },
+                request_context: get_request_context(),
+            };
 
-                // If this is a preview build, ensure the link routes to a preview build.
-                if matches!(ChannelState::channel(), Channel::Preview) {
-                    created_url.push_str("?preview=true");
+            let operation = ShareBlock::build(variables);
+            let response = self.send_graphql_request(operation, None).await?;
+            match response.share_block {
+                ShareBlockResult::ShareBlockOutput(output) => {
+                    let mut created_url =
+                        format!("{}{}", ChannelState::server_root_url(), output.url_ending);
+
+                    // If this is a preview build, ensure the link routes to a preview build.
+                    if matches!(ChannelState::channel(), Channel::Preview) {
+                        created_url.push_str("?preview=true");
+                    }
+
+                    Ok(created_url)
                 }
-
-                Ok(created_url)
+                ShareBlockResult::UserFacingError(error) => {
+                    Err(anyhow!(get_user_facing_error_message(error)))
+                }
+                ShareBlockResult::Unknown => Err(anyhow!("Failed to share block")),
             }
-            ShareBlockResult::UserFacingError(error) => {
-                Err(anyhow!(get_user_facing_error_message(error)))
-            }
-            ShareBlockResult::Unknown => Err(anyhow!("Failed to share block")),
         }
     }
 
     async fn blocks_owned_by_user(&self) -> Result<Vec<Block>, anyhow::Error> {
-        let variables = GetBlocksForUserVariables {
-            request_context: get_request_context(),
-        };
-        let operation = GetBlocksForUser::build(variables);
-        let response = self.send_graphql_request(operation, None).await?;
+        #[cfg(not(test))]
+        {
+            let _ = self;
+            return local_only_block_error();
+        }
 
-        match response.user {
-            warp_graphql::queries::get_blocks_for_user::UserResult::UserOutput(user_output) => {
-                Ok(user_output
-                    .user
-                    .blocks
-                    .into_iter()
-                    .filter_map(|block| block.try_into().ok())
-                    .collect())
-            }
-            warp_graphql::queries::get_blocks_for_user::UserResult::Unknown => {
-                Err(anyhow!("Unable to fetch blocks"))
+        #[cfg(test)]
+        {
+            let variables = GetBlocksForUserVariables {
+                request_context: get_request_context(),
+            };
+            let operation = GetBlocksForUser::build(variables);
+            let response = self.send_graphql_request(operation, None).await?;
+
+            match response.user {
+                warp_graphql::queries::get_blocks_for_user::UserResult::UserOutput(user_output) => {
+                    Ok(user_output
+                        .user
+                        .blocks
+                        .into_iter()
+                        .filter_map(|block| block.try_into().ok())
+                        .collect())
+                }
+                warp_graphql::queries::get_blocks_for_user::UserResult::Unknown => {
+                    Err(anyhow!("Unable to fetch blocks"))
+                }
             }
         }
     }
@@ -142,26 +186,36 @@ impl BlockClient for ServerApi {
         &self,
         request: GenerateBlockTitleRequest,
     ) -> Result<GenerateBlockTitleResponse, anyhow::Error> {
-        let auth_token = self.get_or_refresh_access_token().await?;
-        let request_builder = self.base_client.http_client().post(format!(
-            "{}/ai/generate_block_title",
-            ChannelState::server_root_url()
-        ));
-        let response = if let Some(token) = auth_token.as_bearer_token() {
-            request_builder.bearer_auth(token)
-        } else {
-            request_builder
+        #[cfg(not(test))]
+        {
+            let _ = (self, request);
+            return local_only_block_error();
         }
-        .json(&request)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-        Ok(response)
+
+        #[cfg(test)]
+        {
+            let auth_token = self.get_or_refresh_access_token().await?;
+            let request_builder = self.base_client.http_client().post(format!(
+                "{}/ai/generate_block_title",
+                ChannelState::server_root_url()
+            ));
+            let response = if let Some(token) = auth_token.as_bearer_token() {
+                request_builder.bearer_auth(token)
+            } else {
+                request_builder
+            }
+            .json(&request)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+            Ok(response)
+        }
     }
 }
 
+#[cfg(test)]
 impl TryFrom<GqlBlock> for Block {
     type Error = anyhow::Error;
 

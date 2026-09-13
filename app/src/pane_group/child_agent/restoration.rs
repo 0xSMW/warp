@@ -334,6 +334,7 @@ impl PaneGroup {
     /// Re-drives every pending parent seed using the shared `TasksUpdated`
     /// subscription: a (coalesced) `?ancestor_run_id=` fetch is dispatched
     /// for each.
+    #[cfg(test)]
     pub(in crate::pane_group) fn process_pending_parent_child_seeds(
         &mut self,
         ctx: &mut ViewContext<Self>,

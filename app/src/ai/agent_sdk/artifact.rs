@@ -1,54 +1,44 @@
+#[cfg(test)]
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use anyhow::{Context, Result};
+// use std::sync::Arc;
+#[cfg(test)]
+use anyhow::Context;
+use anyhow::Result;
+#[cfg(test)]
 use serde::Serialize;
 use warp_cli::GlobalOptions;
+#[cfg(test)]
 use warp_cli::agent::OutputFormat;
-use warp_cli::artifact::{
-    ArtifactCommand, DownloadArtifactArgs, GetArtifactArgs, UploadArtifactArgs,
-};
-use warpui::platform::TerminationMode;
-use warpui::{AppContext, ModelContext, SingletonEntity};
+use warp_cli::artifact::ArtifactCommand;
+use warpui::AppContext;
 
-use super::artifact_upload::{
-    CompletedFileArtifactUpload, FileArtifactUploadRequest, FileArtifactUploader,
-};
-use crate::ai::artifact_download::{download_artifact_bytes, download_destination};
+#[cfg(test)]
+use super::artifact_upload::CompletedFileArtifactUpload;
+// use super::artifact_upload::{FileArtifactUploadRequest, FileArtifactUploader};
+#[cfg(test)]
+use crate::ai::artifact_download::download_destination;
+// use crate::ai::artifact_download::download_artifact_bytes;
+#[cfg(test)]
+use crate::server::server_api::ai::ArtifactDownloadResponse;
 #[cfg(test)]
 use crate::server::server_api::ai::FileArtifactRecord;
-use crate::server::server_api::ai::{AIClient, ArtifactDownloadResponse};
-use crate::server::server_api::{ServerApi, ServerApiProvider};
+// use crate::server::server_api::ai::AIClient;
+// use crate::server::server_api::{ServerApi, ServerApiProvider};
 
 /// Run artifact-related commands.
 pub fn run(
-    ctx: &mut AppContext,
-    global_options: GlobalOptions,
-    command: ArtifactCommand,
+    _ctx: &mut AppContext,
+    _global_options: GlobalOptions,
+    _command: ArtifactCommand,
 ) -> Result<()> {
-    let runner = ctx.add_singleton_model(|_| ArtifactCommandRunner);
-    match command {
-        ArtifactCommand::Upload(args) => {
-            runner.update(ctx, |runner, ctx| {
-                runner.upload(args, global_options.output_format, ctx);
-            });
-            Ok(())
-        }
-        ArtifactCommand::Get(args) => {
-            runner.update(ctx, |runner, ctx| {
-                runner.get(args, global_options.output_format, ctx);
-            });
-            Ok(())
-        }
-        ArtifactCommand::Download(args) => {
-            runner.update(ctx, |runner, ctx| {
-                runner.download(args, global_options.output_format, ctx);
-            });
-            Ok(())
-        }
-    }
+    Err(anyhow::anyhow!(
+        "Artifact commands are disabled in local-only mode"
+    ))
 }
 
+// Commented out: Cloud-backed artifact operations in local-only mode.
+/*
 struct ArtifactCommandRunner;
 
 impl ArtifactCommandRunner {
@@ -157,7 +147,9 @@ async fn download_artifact(
     let path = std::path::absolute(&path).unwrap_or(path);
     Ok(DownloadArtifactOutput::new(&artifact, path))
 }
+*/
 
+#[cfg(test)]
 #[derive(Debug, Serialize)]
 struct ArtifactMetadataOutput {
     artifact_uid: String,
@@ -172,6 +164,7 @@ struct ArtifactMetadataOutput {
     size_bytes: Option<i64>,
 }
 
+#[cfg(test)]
 impl ArtifactMetadataOutput {
     fn new(artifact: &ArtifactDownloadResponse) -> Self {
         Self {
@@ -189,6 +182,7 @@ impl ArtifactMetadataOutput {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Serialize)]
 struct DownloadArtifactOutput {
     artifact_uid: String,
@@ -196,6 +190,7 @@ struct DownloadArtifactOutput {
     path: PathBuf,
 }
 
+#[cfg(test)]
 impl DownloadArtifactOutput {
     fn new(artifact: &ArtifactDownloadResponse, path: PathBuf) -> Self {
         Self {
@@ -206,6 +201,7 @@ impl DownloadArtifactOutput {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Serialize)]
 struct UploadArtifactOutput {
     artifact_uid: String,
@@ -215,6 +211,7 @@ struct UploadArtifactOutput {
     size_bytes: Option<i64>,
 }
 
+#[cfg(test)]
 fn write_get_output(
     artifact: &ArtifactDownloadResponse,
     output_format: OutputFormat,
@@ -223,6 +220,7 @@ fn write_get_output(
     write_get_output_to(&mut stdout, artifact, output_format)
 }
 
+#[cfg(test)]
 fn write_get_output_to<W: std::io::Write>(
     output: &mut W,
     artifact: &ArtifactDownloadResponse,
@@ -288,6 +286,7 @@ fn write_get_output_to<W: std::io::Write>(
     Ok(())
 }
 
+#[cfg(test)]
 fn write_download_output(
     output_record: &DownloadArtifactOutput,
     output_format: OutputFormat,
@@ -296,6 +295,7 @@ fn write_download_output(
     write_download_output_to(&mut stdout, output_record, output_format)
 }
 
+#[cfg(test)]
 fn write_download_output_to<W: std::io::Write>(
     output: &mut W,
     output_record: &DownloadArtifactOutput,
@@ -332,6 +332,7 @@ fn write_download_output_to<W: std::io::Write>(
     Ok(())
 }
 
+#[cfg(test)]
 fn write_upload_output(
     artifact: &CompletedFileArtifactUpload,
     output_format: OutputFormat,
@@ -340,6 +341,7 @@ fn write_upload_output(
     write_upload_output_to(&mut stdout, artifact, output_format)
 }
 
+#[cfg(test)]
 fn write_upload_output_to<W: std::io::Write>(
     output: &mut W,
     artifact: &CompletedFileArtifactUpload,

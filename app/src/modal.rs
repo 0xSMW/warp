@@ -1,12 +1,16 @@
 use pathfinder_geometry::vector::vec2f;
 use warpui::color::ColorU;
+#[cfg(test)]
+use warpui::elements::Percentage;
 use warpui::elements::{
     Align, Border, ChildAnchor, ChildView, ConstrainedBox, Container, CornerRadius,
     CrossAxisAlignment, Dismiss, Element, Flex, MouseStateHandle, OffsetPositioning, ParentAnchor,
-    ParentElement, ParentOffsetBounds, Percentage, Radius, Shrinkable, Stack, Text,
+    ParentElement, ParentOffsetBounds, Radius, Shrinkable, Stack, Text,
 };
 use warpui::fonts::{Properties, Weight};
-use warpui::keymap::{FixedBinding, Keystroke};
+use warpui::keymap::FixedBinding;
+#[cfg(test)]
+use warpui::keymap::Keystroke;
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 use warpui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
@@ -38,8 +42,10 @@ pub struct Modal<T> {
     close_modal_hover_state: MouseStateHandle,
     background_opacity: u8,
     offset_positioning: OffsetPositioning,
+    #[cfg(test)]
     max_height_percentage: Option<f32>,
     /// Optional keystroke to display alongside the close button.
+    #[cfg(test)]
     dismiss_keystroke: Option<Keystroke>,
 }
 
@@ -165,7 +171,9 @@ impl<T: View> Modal<T> {
             close_modal_hover_state: Default::default(),
             background_opacity: MODAL_BACKDROP_OPACITY,
             offset_positioning: Self::default_offset_positioning(),
+            #[cfg(test)]
             max_height_percentage: None,
+            #[cfg(test)]
             dismiss_keystroke: None,
         }
     }
@@ -205,12 +213,14 @@ impl<T: View> Modal<T> {
         self
     }
     /// Caps the modal height at a percentage of the containing window height.
+    #[cfg(test)]
     pub fn with_max_height_percentage(mut self, percentage: f32) -> Self {
         self.max_height_percentage = Some(percentage.clamp(0., 1.));
         self
     }
 
     /// Set the keystroke to display alongside the close button.
+    #[cfg(test)]
     pub fn with_dismiss_keystroke(mut self, keystroke: Keystroke) -> Self {
         self.dismiss_keystroke = Some(keystroke);
         self
@@ -256,8 +266,6 @@ impl<T: View> Modal<T> {
     }
 
     fn render_close_modal_button(&self, appearance: &Appearance) -> Box<dyn Element> {
-        use ui_components::{Component, keyboard_shortcut};
-
         const BUTTON_DIAMETER: f32 = 24.;
         let close_button = appearance
             .ui_builder()
@@ -266,32 +274,42 @@ impl<T: View> Modal<T> {
             .on_click(|ctx, _, _| ctx.dispatch_typed_action(ModalAction::Close))
             .finish();
 
-        if let Some(keystroke) = &self.dismiss_keystroke {
-            let theme = appearance.theme();
-            Flex::row()
-                .with_cross_axis_alignment(CrossAxisAlignment::Center)
-                .with_child(close_button)
-                .with_child(
-                    Container::new(keyboard_shortcut::KeyboardShortcut.render(
-                        appearance,
-                        keyboard_shortcut::Params {
-                            keystroke: keystroke.clone(),
-                            options: keyboard_shortcut::Options {
-                                font_color: Some(theme.nonactive_ui_text_color().into()),
-                                background: Some(blended_colors::neutral_3(theme).into()),
-                                border_fill: None,
-                                sizing: keyboard_shortcut::Sizing {
-                                    font_size: 11.,
-                                    padding: 5.,
+        #[cfg(test)]
+        {
+            use ui_components::{Component, keyboard_shortcut};
+
+            if let Some(keystroke) = &self.dismiss_keystroke {
+                let theme = appearance.theme();
+                Flex::row()
+                    .with_cross_axis_alignment(CrossAxisAlignment::Center)
+                    .with_child(close_button)
+                    .with_child(
+                        Container::new(keyboard_shortcut::KeyboardShortcut.render(
+                            appearance,
+                            keyboard_shortcut::Params {
+                                keystroke: keystroke.clone(),
+                                options: keyboard_shortcut::Options {
+                                    font_color: Some(theme.nonactive_ui_text_color().into()),
+                                    background: Some(blended_colors::neutral_3(theme).into()),
+                                    border_fill: None,
+                                    sizing: keyboard_shortcut::Sizing {
+                                        font_size: 11.,
+                                        padding: 5.,
+                                    },
                                 },
                             },
-                        },
-                    ))
-                    .with_margin_left(4.)
-                    .finish(),
-                )
-                .finish()
-        } else {
+                        ))
+                        .with_margin_left(4.)
+                        .finish(),
+                    )
+                    .finish()
+            } else {
+                close_button
+            }
+        }
+
+        #[cfg(not(test))]
+        {
             close_button
         }
     }
@@ -464,7 +482,10 @@ impl<T: View> View for Modal<T> {
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
+        #[cfg(test)]
         let has_relative_max_height = self.max_height_percentage.is_some();
+        #[cfg(not(test))]
+        let has_relative_max_height = false;
         let body_max_height = if has_relative_max_height {
             f32::INFINITY
         } else {
@@ -503,11 +524,14 @@ impl<T: View> View for Modal<T> {
         .with_max_width(self.modal_styles.width.unwrap())
         .with_max_height(modal_max_height)
         .finish();
+        #[cfg(test)]
         let mut modal = if let Some(max_height_percentage) = self.max_height_percentage {
             Percentage::height(max_height_percentage, modal).finish()
         } else {
             modal
         };
+        #[cfg(not(test))]
+        let mut modal = modal;
 
         if self.dismiss_on_click {
             modal = Dismiss::new(modal)

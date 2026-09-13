@@ -1,14 +1,12 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use ::settings::{Setting, ToggleableSetting};
-use lazy_static::lazy_static;
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
-use warp_core::channel::ChannelState;
+use warp_core::channel::{Channel, ChannelState};
 use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
 use warp_core::ui::icons::Icon;
-use warp_errors::{report_error, report_if_error};
+use warp_errors::report_error;
 #[cfg(not(target_family = "wasm"))]
 use warp_server_client::iap::{IapCredentialsState, IapManager, IapManagerEvent};
 use warpui::assets::asset_cache::AssetSource;
@@ -22,20 +20,16 @@ use warpui::keymap::ContextPredicate;
 use warpui::platform::Cursor;
 use warpui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
-use warpui::ui_components::switch::SwitchStateHandle;
 use warpui::{
     Action, AppContext, Entity, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext,
-    ViewHandle, WeakViewHandle, id,
+    ViewHandle, WeakViewHandle,
 };
 
 use super::settings_page::{
-    AdditionalInfo, HEADER_PADDING, LocalOnlyIconState, MatchData, PageTitle, PageType,
-    SettingsPageMeta, SettingsPageViewHandle, SettingsWidget, ToggleState, render_body_item,
-    render_customer_type_badge,
+    HEADER_PADDING, MatchData, PageTitle, PageType, SettingsPageMeta, SettingsPageViewHandle,
+    SettingsWidget, render_customer_type_badge,
 };
-use super::{
-    SettingsAction, SettingsSection, ToggleSettingActionPair, flags, plan_header_presentation,
-};
+use super::{SettingsAction, SettingsSection, plan_header_presentation};
 use crate::appearance::Appearance;
 use crate::auth::auth_manager::{AuthManager, LoginGatedFeature};
 use crate::auth::auth_state::AuthState;
@@ -43,73 +37,31 @@ use crate::auth::auth_view_modal::AuthViewVariant;
 use crate::auth::{AuthStateProvider, UserUid};
 use crate::autoupdate::{self, AutoupdateStage, AutoupdateState};
 use crate::server::ids::ServerId;
-use crate::settings::cloud_preferences::CloudPreferencesSettings;
 use crate::workspace::WorkspaceAction;
 use crate::workspaces::update_manager::TeamUpdateManager;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::workspaces::workspace::CustomerType;
-use crate::{TelemetryEvent, send_telemetry_from_ctx};
 
 const PHOTO_SIZE: f32 = 40.;
 const REFERRAL_CTA: &str = "Earn rewards by sharing Warp with friends & colleagues";
 const REGULAR_TEXT_FONT_SIZE: f32 = 12.;
 const VERTICAL_MARGIN: f32 = 24.;
 const LOG_OUT_TEXT: &str = "Log out";
-lazy_static! {
-    static ref SETTINGS_SYNC_BINDINGS_ADDED: Arc<Mutex<bool>> = Default::default();
-}
 
 pub fn init_actions_from_parent_view<T: Action + Clone>(
     app: &mut AppContext,
     context: &ContextPredicate,
     builder: fn(SettingsAction) -> T,
 ) {
-    let mut toggle_binding_pairs = Vec::new();
-    maybe_add_settings_sync_toggle_binding(app, context, builder, &mut toggle_binding_pairs);
+    // Commented out: cloud Settings Sync command binding registration.
+    let _ = (app, context, builder);
 
     // Add other bindings here in the future.
-
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(toggle_binding_pairs, app);
-}
-
-fn maybe_add_settings_sync_toggle_binding<T: Action + Clone>(
-    app: &mut AppContext,
-    context: &ContextPredicate,
-    builder: fn(SettingsAction) -> T,
-    toggle_binding_pairs: &mut Vec<ToggleSettingActionPair<T>>,
-) {
-    let mut lock = SETTINGS_SYNC_BINDINGS_ADDED
-        .lock()
-        .expect("settings sync bindings lock poisoned");
-    if !*lock {
-        *lock = true;
-        toggle_binding_pairs.push(
-            ToggleSettingActionPair::new(
-                "settings sync",
-                builder(SettingsAction::MainPageToggle(
-                    MainPageAction::ToggleSettingsSync,
-                )),
-                context,
-                flags::SETTINGS_SYNC_FLAG,
-            )
-            .is_supported_on_current_platform(
-                CloudPreferencesSettings::as_ref(app)
-                    .settings_sync_enabled
-                    .is_supported_on_current_platform(),
-            ),
-        );
-    }
 }
 
 pub fn handle_experiment_change(app: &mut AppContext) {
-    let mut toggle_binding_pairs: Vec<ToggleSettingActionPair<WorkspaceAction>> = Vec::new();
-    maybe_add_settings_sync_toggle_binding(
-        app,
-        &id!("Workspace"),
-        WorkspaceAction::DispatchToSettingsTab,
-        &mut toggle_binding_pairs,
-    );
-    ToggleSettingActionPair::add_toggle_setting_action_pairs_as_bindings(toggle_binding_pairs, app);
+    // Commented out: cloud Settings Sync experiment-change binding refresh.
+    let _ = app;
 }
 
 #[derive(Debug, Clone)]
@@ -117,7 +69,6 @@ pub enum MainPageAction {
     Relaunch,
     DownloadUpdate,
     CheckForUpdate,
-    ToggleSettingsSync,
     Upgrade {
         team_uid: Option<ServerId>,
         user_id: UserUid,
@@ -132,11 +83,26 @@ pub enum MainPageAction {
 }
 
 impl MainPageAction {
+    #[cfg(not(test))]
+    fn disabled_in_local_mode(&self) -> bool {
+        match self {
+            Self::Relaunch
+            | Self::DownloadUpdate
+            | Self::CheckForUpdate
+            | Self::Upgrade { .. }
+            | Self::GenerateStripeBillingPortalLink { .. }
+            | Self::SignupAnonymousUser => true,
+            Self::OpenUrl(_) => false,
+            #[cfg(not(target_family = "wasm"))]
+            Self::RefreshIapCredentials => true,
+        }
+    }
+
     fn blocked_for_anonymous_user(&self) -> bool {
         use MainPageAction::*;
         matches!(
             self,
-            Upgrade { .. } | GenerateStripeBillingPortalLink { .. } | ToggleSettingsSync,
+            Upgrade { .. } | GenerateStripeBillingPortalLink { .. },
         )
     }
 }
@@ -147,7 +113,6 @@ impl From<&MainPageAction> for LoginGatedFeature {
         match val {
             Upgrade { .. } => "Upgrade Plan",
             GenerateStripeBillingPortalLink { .. } => "Generate Stripe Billing Portal Link",
-            ToggleSettingsSync => "Toggle Settings Sync",
             _ => "Unknown reason",
         }
     }
@@ -175,6 +140,12 @@ impl TypedActionView for MainSettingsPageView {
     type Action = MainPageAction;
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
+        #[cfg(not(test))]
+        if crate::is_local_mode() && action.disabled_in_local_mode() {
+            log::warn!("Settings action is unavailable in local-only mode");
+            return;
+        }
+
         // Block anonymous users from upgrading
         if AuthStateProvider::as_ref(ctx)
             .get()
@@ -200,24 +171,6 @@ impl TypedActionView for MainSettingsPageView {
             }
             MainPageAction::CheckForUpdate => {
                 ctx.emit(MainSettingsPageEvent::CheckForUpdate);
-                ctx.notify();
-            }
-            MainPageAction::ToggleSettingsSync => {
-                let new_value =
-                    CloudPreferencesSettings::handle(ctx).update(ctx, |prefs_settings, ctx| {
-                        report_if_error!(
-                            prefs_settings
-                                .settings_sync_enabled
-                                .toggle_and_save_value(ctx)
-                        );
-                        *prefs_settings.settings_sync_enabled
-                    });
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::ToggleSettingsSync {
-                        is_settings_sync_enabled: new_value,
-                    },
-                    ctx
-                );
                 ctx.notify();
             }
             MainPageAction::Upgrade { team_uid, user_id } => match team_uid {
@@ -268,10 +221,6 @@ impl MainSettingsPageView {
             Self::handle_autoupdate_state_change,
         );
 
-        ctx.subscribe_to_model(&CloudPreferencesSettings::handle(ctx), |_, _, _, ctx| {
-            ctx.notify();
-        });
-
         let auth_manager_handle = AuthManager::handle(ctx);
         ctx.subscribe_to_model(&auth_manager_handle, |_, _, _, ctx| {
             ctx.notify();
@@ -281,8 +230,6 @@ impl MainSettingsPageView {
             Box::new(AccountWidget::default()),
             Box::new(DividerWidget {}),
         ];
-
-        widgets.push(Box::new(SettingsSyncWidget::default()));
 
         widgets.push(Box::new(EarnRewardsWidget::default()));
 
@@ -326,7 +273,6 @@ struct AccountWidgetStateHandles {
     upgrade_link: MouseStateHandle,
     anonymous_user_sign_up_button: MouseStateHandle,
     enterprise_contact_us_link: MouseStateHandle,
-    stripe_billing_portal_link: MouseStateHandle,
 }
 
 #[derive(Default)]
@@ -506,7 +452,7 @@ impl AccountWidget {
         let mut plan_info = Flex::column()
             .with_main_axis_alignment(MainAxisAlignment::SpaceEvenly)
             .with_cross_axis_alignment(CrossAxisAlignment::End);
-        let current_user_id = auth_state.user_id().unwrap_or_default();
+        let _current_user_id = auth_state.user_id().unwrap_or_default();
         let workspaces = UserWorkspaces::as_ref(app);
         let workspace = workspaces.current_workspace();
         let billing_metadata = workspace.map(|workspace| &workspace.billing_metadata);
@@ -537,82 +483,83 @@ impl AccountWidget {
                             .finish(),
                     );
                 } else {
-                    if workspace.is_some_and(|workspace| workspace.has_billing_history) {
-                        let team_uid = team.uid;
-                        plan_info.add_child(
-                            appearance
-                                .ui_builder()
-                                .link(
-                                    "Manage billing".into(),
-                                    None,
-                                    Some(Box::new(move |ctx| {
-                                        ctx.dispatch_typed_action(
-                                            MainPageAction::GenerateStripeBillingPortalLink {
-                                                team_uid,
-                                            },
-                                        );
-                                    })),
-                                    self.ui_state_handles.stripe_billing_portal_link.clone(),
-                                )
-                                .soft_wrap(false)
-                                .build()
-                                .with_margin_top(8.)
-                                .finish(),
-                        );
-                    }
+                    // Commented out: Manage billing link
+                    // if workspace.is_some_and(|workspace| workspace.has_billing_history) {
+                    //     let team_uid = team.uid;
+                    //     plan_info.add_child(
+                    //         appearance
+                    //             .ui_builder()
+                    //             .link(
+                    //                 "Manage billing".into(),
+                    //                 None,
+                    //                 Some(Box::new(move |ctx| {
+                    //                     ctx.dispatch_typed_action(
+                    //                         MainPageAction::GenerateStripeBillingPortalLink {
+                    //                             team_uid,
+                    //                         },
+                    //                     );
+                    //                 })),
+                    //                 self.ui_state_handles.stripe_billing_portal_link.clone(),
+                    //             )
+                    //             .soft_wrap(false)
+                    //             .build()
+                    //             .with_margin_top(8.)
+                    //             .finish(),
+                    //     );
+                    // }
 
-                    // If the team is upgradeable to self-serve tier, show them the upgrade link.
-                    if let Some(billing_metadata) = billing_metadata
-                        .filter(|metadata| metadata.can_upgrade_to_higher_tier_plan())
-                    {
-                        let description = match billing_metadata.customer_type {
-                            CustomerType::Prosumer => "Upgrade to Turbo plan",
-                            CustomerType::Turbo => "Upgrade to Lightspeed plan",
-                            _ => "Compare plans",
-                        };
-                        let team_uid = team.uid;
-                        plan_info.add_child(
-                            appearance
-                                .ui_builder()
-                                .link(
-                                    description.into(),
-                                    None,
-                                    Some(Box::new(move |ctx| {
-                                        ctx.dispatch_typed_action(MainPageAction::Upgrade {
-                                            team_uid: Some(team_uid),
-                                            user_id: current_user_id,
-                                        });
-                                    })),
-                                    self.ui_state_handles.upgrade_link.clone(),
-                                )
-                                .soft_wrap(false)
-                                .build()
-                                .with_margin_top(8.)
-                                .finish(),
-                        );
-                    }
+                    // Commented out: Upgrade link
+                    // if let Some(billing_metadata) = billing_metadata
+                    //     .filter(|metadata| metadata.can_upgrade_to_higher_tier_plan())
+                    // {
+                    //     let description = match billing_metadata.customer_type {
+                    //         CustomerType::Prosumer => "Upgrade to Turbo plan",
+                    //         CustomerType::Turbo => "Upgrade to Lightspeed plan",
+                    //         _ => "Compare plans",
+                    //     };
+                    //     let team_uid = team.uid;
+                    //     plan_info.add_child(
+                    //         appearance
+                    //             .ui_builder()
+                    //             .link(
+                    //                 description.into(),
+                    //                 None,
+                    //                 Some(Box::new(move |ctx| {
+                    //                     ctx.dispatch_typed_action(MainPageAction::Upgrade {
+                    //                         team_uid: Some(team_uid),
+                    //                         user_id: current_user_id,
+                    //                     });
+                    //                 })),
+                    //                 self.ui_state_handles.upgrade_link.clone(),
+                    //             )
+                    //             .soft_wrap(false)
+                    //             .build()
+                    //             .with_margin_top(8.)
+                    //             .finish(),
+                    //     );
+                    // }
                 }
             }
-        } else if presentation.show_personal_upgrade {
-            plan_info.add_child(
-                appearance
-                    .ui_builder()
-                    .link(
-                        "Compare plans".into(),
-                        None,
-                        Some(Box::new(move |ctx| {
-                            ctx.dispatch_typed_action(MainPageAction::Upgrade {
-                                team_uid: None,
-                                user_id: current_user_id,
-                            });
-                        })),
-                        self.ui_state_handles.upgrade_link.clone(),
-                    )
-                    .soft_wrap(false)
-                    .build()
-                    .with_margin_top(8.)
-                    .finish(),
-            );
+            // } else if presentation.show_personal_upgrade {
+            //     plan_info.add_child(
+            //         appearance
+            //             .ui_builder()
+            //             .link(
+            //                 "Compare plans".into(),
+            //                 None,
+            //                 Some(Box::new(move |ctx| {
+            //                     ctx.dispatch_typed_action(MainPageAction::Upgrade {
+            //                         team_uid: None,
+            //                         user_id: current_user_id,
+            //                     });
+            //                 })),
+            //                 self.ui_state_handles.upgrade_link.clone(),
+            //             )
+            //             .soft_wrap(false)
+            //             .build()
+            //             .with_margin_top(8.)
+            //             .finish(),
+            //     );
         }
 
         let mut row = Flex::row()
@@ -688,6 +635,8 @@ impl SettingsWidget for DividerWidget {
     }
 }
 
+// Commented out: cloud Settings Sync UI and its cloud-preference write path.
+/*
 #[derive(Default)]
 struct SettingsSyncWidget {
     tooltip_state: MouseStateHandle,
@@ -746,6 +695,7 @@ impl SettingsWidget for SettingsSyncWidget {
         .finish()
     }
 }
+*/
 
 #[derive(Default)]
 struct EarnRewardsWidget {
@@ -790,10 +740,9 @@ impl SettingsWidget for EarnRewardsWidget {
         "earn rewards referral share friends"
     }
 
-    fn should_render(&self, app: &AppContext) -> bool {
-        !AuthStateProvider::as_ref(app)
-            .get()
-            .is_anonymous_or_logged_out()
+    fn should_render(&self, _app: &AppContext) -> bool {
+        // Commented out: EarnRewardsWidget (Refer a friend)
+        false
     }
 
     fn render(
@@ -1234,6 +1183,9 @@ impl SettingsPageMeta for MainSettingsPageView {
     }
 
     fn on_page_selected(&mut self, _: bool, ctx: &mut ViewContext<Self>) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         // We want to immediately see if the user is part of a workspace rather than wait for the next poll.
         std::mem::drop(
             TeamUpdateManager::handle(ctx)

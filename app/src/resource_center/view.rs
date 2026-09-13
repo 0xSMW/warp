@@ -1,4 +1,5 @@
 use vec1::{Vec1, vec1};
+use warp_core::channel::{Channel, ChannelState};
 use warp_core::features::FeatureFlag;
 use warp_core::ui::builder::AnimatedButtonOptions;
 use warpui::elements::{
@@ -500,7 +501,6 @@ impl View for ResourceCenterView {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let header = self.render_header(appearance, app);
-        let footer = self.render_footer(appearance);
         let resource_center_page = &self.page_views[self.current_view_index].page_view_handle;
 
         let body = match &resource_center_page {
@@ -512,10 +512,14 @@ impl View for ResourceCenterView {
             }
         };
 
-        Flex::column()
+        let mut resource_center = Flex::column()
             .with_child(header)
-            .with_child(Shrinkable::new(1., body).finish())
-            .with_child(footer)
-            .finish()
+            .with_child(Shrinkable::new(1., body).finish());
+
+        if ChannelState::channel() != Channel::Local {
+            resource_center = resource_center.with_child(self.render_footer(appearance));
+        }
+
+        resource_center.finish()
     }
 }

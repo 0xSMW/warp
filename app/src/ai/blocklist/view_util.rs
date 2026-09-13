@@ -1,5 +1,4 @@
 //! This module contains common utilities for rendering Blocklist AI UI.
-use std::sync::LazyLock;
 
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
@@ -30,14 +29,6 @@ const ERROR_APOLOGY_TEXT: &str = "I'm sorry, I couldn't complete that request.";
 const INTERNAL_WARP_ERROR: &str = "Internal Warp error.";
 pub const FAILED_OUTPUT_USAGE_NOTICE_TEXT: &str = "This response won't count towards your usage.";
 pub const OUT_OF_CREDITS_SUBSCRIBE_LABEL: &str = "Subscribe";
-/// Text to use as a label throughout the app for user interactions that will attach selected
-/// block(s) or text selections to a new AI query.
-pub static ATTACH_AS_AGENT_MODE_CONTEXT_TEXT: LazyLock<&'static str> =
-    LazyLock::new(|| "Attach as agent context");
-
-/// Label we use for the the command palette action to create a new local Warp Agent pane.
-pub static NEW_AGENT_PANE_LABEL: LazyLock<&'static str> = LazyLock::new(|| "New Agent Pane");
-
 /// Claude/Anthropic brand color (official brand orange #D97757).
 /// Reference: https://github.com/anthropics/skills/blob/main/skills/brand-guidelines/SKILL.md
 pub const CLAUDE_ORANGE: ColorU = ColorU {

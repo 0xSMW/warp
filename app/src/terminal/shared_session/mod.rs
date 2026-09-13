@@ -1,4 +1,5 @@
 use byte_unit::Byte;
+#[cfg(test)]
 use instant::Duration;
 use serde::{Deserialize, Serialize};
 use session_sharing_protocol::common::{Role, Scrollback, ScrollbackBlock, SessionId};
@@ -11,6 +12,7 @@ use super::model::terminal_model::BlockIndex;
 use super::{GridType, TerminalModel};
 use crate::channel::{Channel, ChannelState};
 use crate::editor::{InteractionState, ReplicaId};
+#[cfg(test)]
 use crate::features::FeatureFlag;
 
 pub mod ai_agent;
@@ -39,6 +41,7 @@ pub const COPY_LINK_TEXT: &str = "Sharing link copied";
 /// to send selections even when it updates fast, so it appears live.
 /// Our throttle implementation throttles on the trailing edge (does not drop messages at the end, so the
 /// most up to date will always be sent after some delay)
+#[cfg(test)]
 const SELECTION_THROTTLE_PERIOD: Duration = Duration::from_millis(20);
 
 /// `SessionSourceType` paired with the orchestrator `task_id` that rides
@@ -356,6 +359,7 @@ pub fn join_link(session_id: &SessionId) -> String {
 }
 
 /// Returns the full session sharing URL given a path.
+#[cfg(test)]
 pub fn connect_endpoint(path: String) -> Option<String> {
     let base = ChannelState::session_sharing_server_url()?;
     if FeatureFlag::SessionSharingAcls.is_enabled() {
@@ -371,9 +375,11 @@ pub fn connect_endpoint(path: String) -> Option<String> {
 
 /// The event number for events sent to the server. The newtype
 /// ensures that events are incremented correctly.
+#[cfg(test)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct EventNumber(usize);
 
+#[cfg(test)]
 impl EventNumber {
     fn new() -> Self {
         Self(0)
@@ -390,6 +396,7 @@ impl EventNumber {
     }
 }
 
+#[cfg(test)]
 impl From<EventNumber> for usize {
     fn from(value: EventNumber) -> Self {
         value.0
@@ -420,12 +427,6 @@ impl From<session_sharing_protocol::common::GridType> for GridType {
     }
 }
 
-impl From<ReplicaId> for session_sharing_protocol::common::InputReplicaId {
-    fn from(value: ReplicaId) -> Self {
-        value.to_string().into()
-    }
-}
-
 impl From<session_sharing_protocol::common::InputReplicaId> for ReplicaId {
     fn from(value: session_sharing_protocol::common::InputReplicaId) -> Self {
         ReplicaId::new(value)
@@ -445,6 +446,7 @@ impl From<&Role> for InteractionState {
 /// Decode scrollback blocks from their JSON wire format into [`SerializedBlock`]s.
 ///
 /// Blocks that fail to deserialize are silently dropped.
+#[cfg(test)]
 pub(crate) fn decode_scrollback(scrollback: &Scrollback) -> Vec<SerializedBlock> {
     scrollback
         .blocks

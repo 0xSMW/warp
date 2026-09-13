@@ -38,6 +38,11 @@ impl ChangelogModel {
         request_type: ChangelogRequestType,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            ctx.emit(Event::ChangelogRequestFailed { request_type });
+            return;
+        }
+
         match &self.changelog {
             ChangelogState::Some(changelog) => {
                 // Don't refetch the changelog if we already have it
@@ -108,6 +113,10 @@ impl ChangelogModel {
     }
 
     fn fetch_changelog_image(&mut self, ctx: &mut ModelContext<Self>) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
+
         let ChangelogState::Some(changelog) = &self.changelog else {
             return;
         };

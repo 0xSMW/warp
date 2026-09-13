@@ -1,18 +1,33 @@
-//! Local-to-cloud handoff coordination for a TUI terminal session.
+//! Session integration for the TUI terminal's optional handoff card.
 //!
-//! [`TuiHandoffModel`] owns handoff state and execution. This module owns the
-//! active card's lifetime within the session surface and applies
-//! session-specific outcomes such as restoring input or persisting the
-//! completed card into the transcript.
+//! Production sessions keep the cloud-backed handoff path unavailable. The
+//! complete card lifecycle remains available to unit fixtures.
 
+#[cfg(test)]
 use warp::tui_export::{HandoffRestoration, record_static_slash_command_accepted};
 use warpui_core::{AppContext, ViewContext, ViewHandle};
 
 use super::TuiTerminalSessionView;
-use crate::handoff::{
-    TuiHandoffBlock, TuiHandoffBlockEvent, TuiHandoffModel, TuiHandoffModelEvent,
-};
+use crate::handoff::TuiHandoffBlock;
+#[cfg(test)]
+use crate::handoff::{TuiHandoffBlockEvent, TuiHandoffModel, TuiHandoffModelEvent};
 
+#[cfg(not(test))]
+impl TuiTerminalSessionView {
+    pub(super) fn active_handoff(&self, _ctx: &AppContext) -> Option<ViewHandle<TuiHandoffBlock>> {
+        None
+    }
+
+    pub(super) fn start_handoff(
+        &mut self,
+        _argument: Option<&String>,
+        ctx: &mut ViewContext<Self>,
+    ) {
+        self.show_transient_hint("Cloud handoff is unavailable.".to_owned(), ctx);
+    }
+}
+
+#[cfg(test)]
 impl TuiTerminalSessionView {
     pub(super) fn active_handoff(&self, ctx: &AppContext) -> Option<ViewHandle<TuiHandoffBlock>> {
         let handoff = self.handoff.as_ref()?;

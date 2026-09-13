@@ -128,26 +128,3 @@ pub struct ListVersionsArgs {
     #[arg(long = "store", short = 's')]
     pub store_uid: String,
 }
-
-impl MemoryStoreCommand {
-    pub(crate) fn as_str_for_tracing(&self) -> &'static str {
-        match self {
-            MemoryStoreCommand::List(_) => "memory-store list",
-            MemoryStoreCommand::Get(_) => "memory-store get",
-            MemoryStoreCommand::Update(_) => "memory-store update",
-            MemoryStoreCommand::ListStoreAgents(_) => "memory-store list-store-agents",
-        }
-    }
-}
-
-impl MemoryCommand {
-    pub(crate) fn as_str_for_tracing(&self) -> &'static str {
-        match self {
-            MemoryCommand::List(_) => "memory list",
-            MemoryCommand::Create(_) => "memory create",
-            MemoryCommand::Update(_) => "memory update",
-            MemoryCommand::Delete(_) => "memory delete",
-            MemoryCommand::Versions(_) => "memory versions",
-        }
-    }
-}

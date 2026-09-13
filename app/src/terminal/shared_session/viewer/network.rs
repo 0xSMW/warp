@@ -2,67 +2,94 @@
 //! connect to and communicate with the shared session.
 //! Adheres to the [`session-sharing-protocol`].
 
+#[cfg(any(test, feature = "integration_tests"))]
 use std::pin::pin;
 use std::sync::Arc;
+#[cfg(any(test, feature = "integration_tests"))]
 use std::time::Duration;
 
+#[cfg(any(test, feature = "integration_tests"))]
 use anyhow::bail;
 use async_channel::Receiver;
+#[cfg(any(test, feature = "integration_tests"))]
 use futures_util::stream::AbortHandle;
+#[cfg(any(test, feature = "integration_tests"))]
 use futures_util::{SinkExt, StreamExt};
+#[cfg(any(test, feature = "integration_tests"))]
 use instant::Instant;
 use parking_lot::FairMutex;
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::common::{
-    ActivePrompt, ActivePromptUpdate, AddGuestsResponse, AgentAttachment, AgentPromptFailureReason,
-    AgentPromptRequest, AgentPromptRequestId, CommandExecutionFailureReason, ControlAction,
-    ControlActionFailureReason, FeatureSupport, InputOperationId, InputOperationSeqNo, InputUpdate,
+    ActivePrompt, ActivePromptUpdate, AddGuestsResponse, AgentPromptFailureReason,
+    AgentPromptRequestId, CommandExecutionFailureReason, ControlActionFailureReason,
     LinkAccessLevelUpdateResponse, ParticipantId, ParticipantList, ParticipantPresenceUpdate,
-    RemoveGuestResponse, Role, RoleRequestId, RoleRequestResponse, Selection, SelectionUpdate,
-    ServerConversationToken, SessionId, TeamAccessLevelUpdateResponse, TeamAclData,
-    TelemetryContext, UniversalDeveloperInputContext, UniversalDeveloperInputContextUpdate,
-    UpdatePendingUserRoleResponse, UserID, WindowSize, WriteToPtyFailureReason,
-    WriteToPtyRequestId, WriteToPtySeqNo,
+    RemoveGuestResponse, RoleRequestResponse, TeamAccessLevelUpdateResponse, TeamAclData,
+    UniversalDeveloperInputContext, WriteToPtyFailureReason,
 };
+use session_sharing_protocol::common::{
+    AgentAttachment, Role, RoleRequestId, Selection, ServerConversationToken, SessionId,
+    UniversalDeveloperInputContextUpdate, WindowSize,
+};
+#[cfg(any(test, feature = "integration_tests"))]
+use session_sharing_protocol::common::{
+    AgentPromptRequest, ControlAction, FeatureSupport, InputOperationId, InputOperationSeqNo,
+    InputUpdate, SelectionUpdate, TelemetryContext, UserID, WriteToPtyRequestId, WriteToPtySeqNo,
+};
+#[cfg(any(test, feature = "integration_tests"))]
+use session_sharing_protocol::viewer::{DownstreamMessage, InitPayload, UpstreamMessage};
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::viewer::{
-    DownstreamMessage, InitPayload, RoleUpdatedReason, SessionEndedReason, UpstreamMessage,
-    ViewerRemovedReason,
+    RoleUpdatedReason, SessionEndedReason, ViewerRemovedReason,
 };
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_core::features::FeatureFlag;
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_errors::report_error;
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_server_client::iap::IapManager;
+#[cfg(any(test, feature = "integration_tests"))]
 use warpui::r#async::{SpawnedFutureHandle, Timer};
-use warpui::{
-    Entity, ModelContext, ModelHandle, RequestState, RetryOption, SingletonEntity, WeakViewHandle,
-};
+use warpui::{Entity, ModelContext, WeakViewHandle};
+#[cfg(any(test, feature = "integration_tests"))]
+use warpui::{ModelHandle, RequestState, RetryOption, SingletonEntity};
+#[cfg(any(test, feature = "integration_tests"))]
 use websocket::{Message, Sink, Stream, WebsocketMessage as _};
 
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::auth::AuthStateProvider;
+use crate::auth::UserUid;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::auth::auth_state::AuthState;
-use crate::auth::{AuthStateProvider, UserUid};
-use crate::editor::{CrdtOperation, ReplicaId};
+use crate::editor::CrdtOperation;
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::editor::ReplicaId;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::server_api::ServerApiProvider;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::server_api::auth::AuthClient;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::telemetry::telemetry_context;
 use crate::terminal::event_listener::ChannelEventListener;
 use crate::terminal::model::block::BlockId;
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::terminal::shared_session::SharedSessionSource;
 use crate::terminal::shared_session::shared_handlers::RemoteUpdateGuard;
-use crate::terminal::shared_session::viewer::event_loop::{
-    EventLoop, SharedSessionInitialLoadMode,
-};
-use crate::terminal::shared_session::{
-    EventNumber, SELECTION_THROTTLE_PERIOD, SharedSessionSource, connect_endpoint,
-};
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::terminal::shared_session::viewer::event_loop::EventLoop;
+use crate::terminal::shared_session::viewer::event_loop::SharedSessionInitialLoadMode;
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::terminal::shared_session::{EventNumber, SELECTION_THROTTLE_PERIOD, connect_endpoint};
 use crate::terminal::{TerminalModel, TerminalView};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::throttle::throttle;
 
 /// The amount of time we will wait to batch consecutive write to pty requests before sending an event to the server.
-const PTY_WRITES_BATCH_THRESHOLD: Duration = if cfg!(test) {
-    Duration::from_millis(5)
-} else {
-    Duration::from_millis(100)
-};
+#[cfg(any(test, feature = "integration_tests"))]
+const PTY_WRITES_BATCH_THRESHOLD: Duration = Duration::from_millis(5);
 /// Exponential backoff when retrying reconnection. This configuration has us retry for ~128 seconds before giving up,
 /// where the last interval between retries is 26s.
 /// The viewer can always close the window and rejoin using the same link, so we don't need to be super generous with the retries allowed.
+#[cfg(any(test, feature = "integration_tests"))]
 const RECONNECT_RETRY_STRATEGY: RetryOption = RetryOption::exponential(
     Duration::from_millis(1000), /* interval */
     1.2,                         /* exponential factor */
@@ -70,6 +97,7 @@ const RECONNECT_RETRY_STRATEGY: RetryOption = RetryOption::exponential(
 )
 .with_jitter(0.2);
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug)]
 enum Stage {
     BeforeJoined,
@@ -81,6 +109,7 @@ enum Stage {
     Finished,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug, Clone)]
 enum PtyBytesBatchStatus {
     /// We're not currently batching PTY write events.
@@ -100,6 +129,7 @@ enum PtyBytesBatchStatus {
 /// Helper struct to group together the most up to date state that the server needs to know about.
 /// Any event we send to the server where we only care about the latest value should be included here.
 /// This is used to avoid sending duplicate updates, and to update the server with the latest state on reconnection.
+#[cfg(any(test, feature = "integration_tests"))]
 struct CachedLatestState {
     selection: Selection,
     universal_developer_input_context: Option<UniversalDeveloperInputContext>,
@@ -108,44 +138,61 @@ struct CachedLatestState {
 /// The network interface to allow communication to and from the
 /// cloud-backed shared session.
 pub struct Network {
+    #[cfg(any(test, feature = "integration_tests"))]
     session_id: SessionId,
+    #[cfg(any(test, feature = "integration_tests"))]
     /// [`None`] until the viewer receives the successful join ack.
     event_loop: Option<ModelHandle<EventLoop>>,
 
+    #[cfg(any(test, feature = "integration_tests"))]
     terminal_view: WeakViewHandle<TerminalView>,
 
+    #[cfg(any(test, feature = "integration_tests"))]
     channel_event_proxy: ChannelEventListener,
+    #[cfg(any(test, feature = "integration_tests"))]
     terminal_model: Arc<FairMutex<TerminalModel>>,
+    #[cfg(any(test, feature = "integration_tests"))]
     initial_load_mode: SharedSessionInitialLoadMode,
+    #[cfg(any(test, feature = "integration_tests"))]
     remote_update_guard: RemoteUpdateGuard,
 
+    #[cfg(any(test, feature = "integration_tests"))]
     stage: Stage,
 
+    #[cfg(any(test, feature = "integration_tests"))]
     /// Intermediate channel to queue up messages to send over
     /// over the websocket to the server.
     ws_proxy_tx: async_channel::Sender<UpstreamMessage>,
+    #[cfg(any(test, feature = "integration_tests"))]
     selection_throttled_tx: async_channel::Sender<Selection>,
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     ws_proxy_rx: async_channel::Receiver<UpstreamMessage>,
 
     /// The participant ID we were assigned by the server.
     /// This is populated after successfully joining a session, and
     /// used if we need to reconnect.
+    #[cfg(any(test, feature = "integration_tests"))]
     id: Option<ParticipantId>,
 
+    #[cfg(any(test, feature = "integration_tests"))]
     cached_latest_state: CachedLatestState,
 
+    #[cfg(any(test, feature = "integration_tests"))]
     selection_event_no: EventNumber,
 
     /// The parameters for the next input operation to send.
+    #[cfg(any(test, feature = "integration_tests"))]
     next_buffer_seq_no: (BlockId, InputOperationSeqNo),
 
     /// The next event number to use when sending a write to pty request to the server.
+    #[cfg(any(test, feature = "integration_tests"))]
     write_to_pty_event_no: WriteToPtySeqNo,
+    #[cfg(any(test, feature = "integration_tests"))]
     pty_bytes_batch_status: PtyBytesBatchStatus,
 
     /// Input updates buffered while disconnected, to be flushed on reconnect.
+    #[cfg(any(test, feature = "integration_tests"))]
     pending_input_updates: Vec<InputUpdate>,
 }
 
@@ -161,54 +208,73 @@ impl Network {
         remote_update_guard: RemoteUpdateGuard,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
-        let (ws_proxy_tx, ws_proxy_rx) = async_channel::unbounded();
-        let (selection_throttled_tx, selection_rx) = async_channel::unbounded();
-        let selection_throttled_rx = throttle(SELECTION_THROTTLE_PERIOD, selection_rx);
-        let model = Network {
-            session_id,
-            event_loop: None,
-            ws_proxy_tx,
-            #[cfg(test)]
-            ws_proxy_rx: ws_proxy_rx.clone(),
-            channel_event_proxy,
-            terminal_model,
-            initial_load_mode,
-            remote_update_guard,
-            terminal_view,
-            stage: Stage::BeforeJoined,
-            id: None,
-            cached_latest_state: CachedLatestState {
-                selection: Selection::None,
-                universal_developer_input_context: None,
-            },
-            selection_throttled_tx,
-            selection_event_no: EventNumber::new(),
-            next_buffer_seq_no: (BlockId::new(), InputOperationSeqNo::zero()),
-            write_to_pty_event_no: WriteToPtySeqNo::zero(),
-            pty_bytes_batch_status: PtyBytesBatchStatus::NotBatching {
-                last_sent_at: Instant::now(),
-            },
-            pending_input_updates: Vec::new(),
-        };
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let (ws_proxy_tx, ws_proxy_rx) = async_channel::unbounded();
+            let (selection_throttled_tx, selection_rx) = async_channel::unbounded();
+            let selection_throttled_rx = throttle(SELECTION_THROTTLE_PERIOD, selection_rx);
+            let model = Network {
+                session_id,
+                event_loop: None,
+                ws_proxy_tx,
+                ws_proxy_rx: ws_proxy_rx.clone(),
+                channel_event_proxy,
+                terminal_model,
+                initial_load_mode,
+                remote_update_guard,
+                terminal_view,
+                stage: Stage::BeforeJoined,
+                id: None,
+                cached_latest_state: CachedLatestState {
+                    selection: Selection::None,
+                    universal_developer_input_context: None,
+                },
+                selection_throttled_tx,
+                selection_event_no: EventNumber::new(),
+                next_buffer_seq_no: (BlockId::new(), InputOperationSeqNo::zero()),
+                write_to_pty_event_no: WriteToPtySeqNo::zero(),
+                pty_bytes_batch_status: PtyBytesBatchStatus::NotBatching {
+                    last_sent_at: Instant::now(),
+                },
+                pending_input_updates: Vec::new(),
+            };
 
-        model.start_write_to_pty_events_listener(write_to_pty_events_rx, ctx);
-        model.start_websocket(session_id, ws_proxy_rx, ctx);
-        ctx.spawn_stream_local(
-            selection_throttled_rx,
-            |network, selection, _ctx| {
-                let event_no = network.selection_event_no.advance();
-                network.send_message_to_server(UpstreamMessage::UpdateSelection(SelectionUpdate {
-                    selection,
-                    event_no: event_no.into(),
-                }));
-            },
-            |_, _| {},
-        );
-        model
+            model.start_write_to_pty_events_listener(write_to_pty_events_rx, ctx);
+            model.start_websocket(session_id, ws_proxy_rx, ctx);
+            ctx.spawn_stream_local(
+                selection_throttled_rx,
+                |network, selection, _ctx| {
+                    let event_no = network.selection_event_no.advance();
+                    network.send_message_to_server(UpstreamMessage::UpdateSelection(
+                        SelectionUpdate {
+                            selection,
+                            event_no: event_no.into(),
+                        },
+                    ));
+                },
+                |_, _| {},
+            );
+            model
+        }
+
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        {
+            let _ = (
+                &channel_event_proxy,
+                &terminal_view,
+                &terminal_model,
+                &write_to_pty_events_rx,
+                &initial_load_mode,
+                &remote_update_guard,
+                &ctx,
+            );
+            let _ = session_id;
+            Self {}
+        }
     }
 
     /// Creates a model that artifically declares that a shared session has been joined.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn new_for_test(
         channel_event_proxy: ChannelEventListener,
         terminal_view: WeakViewHandle<TerminalView>,
@@ -278,6 +344,7 @@ impl Network {
         model
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     async fn get_user_id(
         auth_client: Arc<dyn AuthClient>,
         auth_state: &AuthState,
@@ -293,6 +360,7 @@ impl Network {
         anyhow::Ok(user_id)
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     async fn connect_websocket_and_get_user_id(
         session_id: SessionId,
         auth_client: Arc<dyn AuthClient>,
@@ -309,6 +377,7 @@ impl Network {
         anyhow::Ok(((socket.split().await), user_id))
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn on_websocket_connected(
         &mut self,
         ws_proxy_rx: async_channel::Receiver<UpstreamMessage>,
@@ -374,6 +443,7 @@ impl Network {
         );
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_websocket(
         &self,
         session_id: SessionId,
@@ -440,6 +510,7 @@ impl Network {
     /// We must wait for DownstreamMessage::JoinedSuccessfully to confirm that.
     /// We also will not initiate an attempt if the session has been explicitly ended or
     /// is already attempting to reconnect.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn reconnect_websocket(&mut self, ctx: &mut ModelContext<Self>) {
         if matches!(self.stage, Stage::Finished | Stage::Reconnecting { .. }) {
             return;
@@ -522,6 +593,7 @@ impl Network {
     }
 
     /// Fetches the new user id and reconnectes to the websocket.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn reauthenticate_viewer(&mut self, ctx: &mut ModelContext<Self>) {
         let auth_client = ServerApiProvider::as_ref(ctx).get_auth_client();
         let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
@@ -541,6 +613,12 @@ impl Network {
         );
     }
 
+    #[cfg(not(any(test, feature = "integration_tests")))]
+    pub fn reauthenticate_viewer(&mut self, ctx: &mut ModelContext<Self>) {
+        let _ = &ctx;
+    }
+
+    #[cfg(any(test, feature = "integration_tests"))]
     fn process_websocket_message(&mut self, message: Message, ctx: &mut ModelContext<Self>) {
         // Ignore non-text frames (e.g. ping frames sent by the server).
         let Some(text) = message.text() else {
@@ -771,6 +849,7 @@ impl Network {
     }
 
     /// Start a process to listen for and batch pty write events.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_write_to_pty_events_listener(
         &self,
         events_rx: Receiver<Vec<u8>>,
@@ -812,6 +891,7 @@ impl Network {
     }
 
     /// Close the websocket to the session-sharing-server.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn close(&mut self) {
         if let Stage::Reconnecting { abort_handle } = &self.stage {
             abort_handle.abort();
@@ -822,10 +902,14 @@ impl Network {
 
     /// Close the websocket and don't try to reconnect.
     pub fn close_without_reconnection(&mut self) {
-        self.close();
-        self.stage = Stage::Finished;
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            self.close();
+            self.stage = Stage::Finished;
+        }
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn send_message_to_server(&self, message: UpstreamMessage) {
         let Stage::JoinedSuccessfully = self.stage else {
             return;
@@ -837,14 +921,20 @@ impl Network {
 
     /// Send the presence selection to the server if it changed, with a throttle period.
     pub fn send_presence_selection_if_changed(&mut self, selection: Selection) {
-        if selection == self.cached_latest_state.selection {
-            return;
-        }
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            if selection == self.cached_latest_state.selection {
+                return;
+            }
 
-        self.send_presence_selection(selection);
+            self.send_presence_selection(selection);
+        }
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = &selection;
     }
 
     /// Send the presence selection to the server, with a throttle period.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn send_presence_selection(&mut self, selection: Selection) {
         self.cached_latest_state.selection = selection.clone();
         if let Err(e) = self.selection_throttled_tx.try_send(selection) {
@@ -859,53 +949,59 @@ impl Network {
         block_id: &BlockId,
         operations: impl Iterator<Item = &'a CrdtOperation>,
     ) {
-        let Some(viewer_id) = self.id.clone() else {
-            return;
-        };
-
-        // Set the right block ID. The block IDs that we call this function
-        // with are monotonically increasing.
-        if block_id != &self.next_buffer_seq_no.0 {
-            self.next_buffer_seq_no = (block_id.to_owned(), InputOperationSeqNo::zero());
-            // Clear buffered ops for the old block since they're now stale.
-            self.pending_input_updates.clear();
-        }
-
-        let operations = operations
-            .map(|o| serde_json::to_vec(o).map(session_sharing_protocol::common::CrdtOperation))
-            .collect();
-
-        let ops = match operations {
-            Ok(operations) => operations,
-            Err(e) => {
-                log::warn!("Failed to serialize CRDT operations to send to server: {e}");
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let Some(viewer_id) = self.id.clone() else {
                 return;
-            }
-        };
+            };
 
-        let id = InputOperationId {
-            participant_id: viewer_id,
-            buffer_id: block_id.to_owned().into(),
-            op_no: self.next_buffer_seq_no.1,
-        };
-        self.next_buffer_seq_no.1.advance();
-
-        let update = InputUpdate { id, ops };
-        if matches!(self.stage, Stage::JoinedSuccessfully) {
-            if let Err(e) = self
-                .ws_proxy_tx
-                .try_send(UpstreamMessage::UpdateInput(update))
-            {
-                log::warn!(
-                    "Failed to send input update over ws_proxy channel in viewer network: {e}"
-                );
+            // Set the right block ID. The block IDs that we call this function
+            // with are monotonically increasing.
+            if block_id != &self.next_buffer_seq_no.0 {
+                self.next_buffer_seq_no = (block_id.to_owned(), InputOperationSeqNo::zero());
+                // Clear buffered ops for the old block since they're now stale.
+                self.pending_input_updates.clear();
             }
-        } else {
-            // Not connected; buffer the update to be flushed on reconnect.
-            self.pending_input_updates.push(update);
+
+            let operations = operations
+                .map(|o| serde_json::to_vec(o).map(session_sharing_protocol::common::CrdtOperation))
+                .collect();
+
+            let ops = match operations {
+                Ok(operations) => operations,
+                Err(e) => {
+                    log::warn!("Failed to serialize CRDT operations to send to server: {e}");
+                    return;
+                }
+            };
+
+            let id = InputOperationId {
+                participant_id: viewer_id,
+                buffer_id: block_id.to_owned().into(),
+                op_no: self.next_buffer_seq_no.1,
+            };
+            self.next_buffer_seq_no.1.advance();
+
+            let update = InputUpdate { id, ops };
+            if matches!(self.stage, Stage::JoinedSuccessfully) {
+                if let Err(e) = self
+                    .ws_proxy_tx
+                    .try_send(UpstreamMessage::UpdateInput(update))
+                {
+                    log::warn!(
+                        "Failed to send input update over ws_proxy channel in viewer network: {e}"
+                    );
+                }
+            } else {
+                // Not connected; buffer the update to be flushed on reconnect.
+                self.pending_input_updates.push(update);
+            }
         }
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (&block_id, &operations);
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn send_write_to_pty(&mut self) {
         let Some(viewer_id) = self.id.clone() else {
             return;
@@ -938,8 +1034,13 @@ impl Network {
     }
 
     pub fn send_command_execution_request(&mut self, block_id: &BlockId, command: String) {
-        let buffer_id = block_id.to_owned().into();
-        self.send_message_to_server(UpstreamMessage::ExecuteCommand { buffer_id, command });
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let buffer_id = block_id.to_owned().into();
+            self.send_message_to_server(UpstreamMessage::ExecuteCommand { buffer_id, command });
+        }
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (&block_id, &command);
     }
 
     pub fn send_agent_prompt_request(
@@ -948,63 +1049,98 @@ impl Network {
         prompt: String,
         attachments: Vec<AgentAttachment>,
     ) {
-        let request = AgentPromptRequest {
-            id: AgentPromptRequestId::new(),
-            server_conversation_token,
-            prompt,
-            attachments,
-        };
-        self.send_message_to_server(UpstreamMessage::SendAgentPrompt(request));
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let request = AgentPromptRequest {
+                id: AgentPromptRequestId::new(),
+                server_conversation_token,
+                prompt,
+                attachments,
+            };
+            self.send_message_to_server(UpstreamMessage::SendAgentPrompt(request));
+        }
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (&server_conversation_token, &prompt, &attachments);
     }
 
     pub fn send_cancel_control_action(
         &mut self,
         server_conversation_token: ServerConversationToken,
     ) {
-        let action = ControlAction::CancelConversation {
-            server_conversation_token,
-        };
-        self.send_message_to_server(UpstreamMessage::SendControlAction(action));
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let action = ControlAction::CancelConversation {
+                server_conversation_token,
+            };
+            self.send_message_to_server(UpstreamMessage::SendControlAction(action));
+        }
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = &server_conversation_token;
     }
 
     pub fn send_link_permission_update(&mut self, role: Option<Role>) {
+        #[cfg(any(test, feature = "integration_tests"))]
         self.send_message_to_server(UpstreamMessage::UpdateLinkAccessLevel { role });
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = &role;
     }
 
     pub fn send_team_permission_update(&mut self, role: Option<Role>, team_uid: String) {
+        #[cfg(any(test, feature = "integration_tests"))]
         self.send_message_to_server(UpstreamMessage::UpdateTeamAccessLevel { team_uid, role });
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (&role, &team_uid);
     }
 
     pub fn send_add_guests(&mut self, emails: Vec<String>, role: Role) {
+        #[cfg(any(test, feature = "integration_tests"))]
         self.send_message_to_server(UpstreamMessage::AddGuests { emails, role });
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (&emails, &role);
     }
 
     pub fn send_remove_guest(&mut self, user_uid: UserUid) {
+        #[cfg(any(test, feature = "integration_tests"))]
         self.send_message_to_server(UpstreamMessage::RemoveGuest {
             user_uid: user_uid.as_string(),
         });
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = &user_uid;
     }
 
     pub fn send_remove_pending_guest(&mut self, email: String) {
+        #[cfg(any(test, feature = "integration_tests"))]
         self.send_message_to_server(UpstreamMessage::RemovePendingGuest { email });
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = &email;
     }
 
     pub fn send_user_role_update(&mut self, user_uid: UserUid, role: Role) {
+        #[cfg(any(test, feature = "integration_tests"))]
         self.send_message_to_server(UpstreamMessage::UpdateUserRole {
             user_uid: user_uid.as_string(),
             role,
         });
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (&user_uid, &role);
     }
 
     pub fn send_pending_user_role_update(&mut self, email: String, role: Role) {
+        #[cfg(any(test, feature = "integration_tests"))]
         self.send_message_to_server(UpstreamMessage::UpdatePendingUserRole { email, role });
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (&email, &role);
     }
 
     pub fn send_report_terminal_size(&mut self, window_size: WindowSize) {
+        #[cfg(any(test, feature = "integration_tests"))]
         self.send_message_to_server(UpstreamMessage::ReportTerminalSize { window_size });
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = &window_size;
     }
 
     /// Sends all input updates buffered during disconnection to the server, then clears the buffer.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn flush_pending_input_updates_to_server(&mut self) {
         for update in self.pending_input_updates.drain(..) {
             if let Err(e) = self
@@ -1021,42 +1157,66 @@ impl Network {
 
     /// Send everything in `self.cached_latest_state` to the server.
     /// This is needed when we reconnect to the server, since all values were dropped before we were connected.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn send_latest_state_to_server(&mut self) {
         self.send_presence_selection(self.cached_latest_state.selection.clone())
     }
 
     pub fn is_connected(&self) -> bool {
-        matches!(self.stage, Stage::JoinedSuccessfully)
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            matches!(self.stage, Stage::JoinedSuccessfully)
+        }
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        {
+            false
+        }
     }
 
     pub fn send_role_request(&mut self, role: Role) {
-        let message = UpstreamMessage::RequestRole(role);
-        self.send_message_to_server(message);
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let message = UpstreamMessage::RequestRole(role);
+            self.send_message_to_server(message);
+        }
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = &role;
     }
 
     pub fn send_cancel_role_request(&mut self, role_request_id: RoleRequestId) {
-        let message = UpstreamMessage::CancelRoleRequest(role_request_id);
-        self.send_message_to_server(message);
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let message = UpstreamMessage::CancelRoleRequest(role_request_id);
+            self.send_message_to_server(message);
+        }
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = &role_request_id;
     }
 
     pub fn send_universal_developer_input_context_update(
         &mut self,
         update: UniversalDeveloperInputContextUpdate,
     ) {
-        // Skip update if nothing would change
-        if let Some(ref cached) = self.cached_latest_state.universal_developer_input_context
-            && !update.changes_cached_context(cached)
+        #[cfg(any(test, feature = "integration_tests"))]
         {
-            return;
-        }
+            // Skip update if nothing would change
+            if let Some(ref cached) = self.cached_latest_state.universal_developer_input_context
+                && !update.changes_cached_context(cached)
+            {
+                return;
+            }
 
-        self.apply_context_update_to_cache(update.clone());
-        self.send_message_to_server(UpstreamMessage::UpdateUniversalDeveloperInputContext(
-            update,
-        ));
+            self.apply_context_update_to_cache(update.clone());
+            self.send_message_to_server(UpstreamMessage::UpdateUniversalDeveloperInputContext(
+                update,
+            ));
+        }
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = &update;
     }
 
     /// Merges an update into the cached context.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn apply_context_update_to_cache(&mut self, update: UniversalDeveloperInputContextUpdate) {
         let current = self
             .cached_latest_state
@@ -1068,14 +1228,17 @@ impl Network {
             Some(update.merge_into(current));
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn session_id(&self) -> SessionId {
         self.session_id
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug)]
 pub enum FailedToJoinReason {
     Unknown,
+    #[cfg(any(test, feature = "integration_tests"))]
     FailedToConnectToServer,
     SessionNotFound,
     WrongPassword,
@@ -1083,11 +1246,13 @@ pub enum FailedToJoinReason {
     SessionNotAccessible,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl FailedToJoinReason {
     /// This error message will be displayed to the user.
     pub fn user_facing_error_message(&self) -> &str {
         match self {
             FailedToJoinReason::Unknown => "Failed to join shared session.",
+            #[cfg(any(test, feature = "integration_tests"))]
             FailedToJoinReason::FailedToConnectToServer => {
                 "Failed to connect. Please try again later."
             }
@@ -1101,6 +1266,7 @@ impl FailedToJoinReason {
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl From<session_sharing_protocol::viewer::FailedToJoinReason> for FailedToJoinReason {
     fn from(reason: session_sharing_protocol::viewer::FailedToJoinReason) -> Self {
         match reason {
@@ -1115,6 +1281,7 @@ impl From<session_sharing_protocol::viewer::FailedToJoinReason> for FailedToJoin
 }
 
 /// Converts SessionEndedReason to a user-facing string
+#[cfg(any(test, feature = "integration_tests"))]
 pub fn session_ended_reason_string(reason: &SessionEndedReason) -> String {
     match reason {
         SessionEndedReason::InternalServerError => {
@@ -1127,6 +1294,7 @@ pub fn session_ended_reason_string(reason: &SessionEndedReason) -> String {
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 pub fn viewer_removed_reason_string(reason: &ViewerRemovedReason) -> String {
     match reason {
         ViewerRemovedReason::LostAccess => {
@@ -1137,6 +1305,7 @@ pub fn viewer_removed_reason_string(reason: &ViewerRemovedReason) -> String {
 }
 
 /// Converts CommandExecutionFailureReason to a user-facing string
+#[cfg(any(test, feature = "integration_tests"))]
 pub fn command_execution_failure_reason_string(reason: &CommandExecutionFailureReason) -> String {
     match reason {
         CommandExecutionFailureReason::InsufficientPermissions => {
@@ -1147,6 +1316,7 @@ pub fn command_execution_failure_reason_string(reason: &CommandExecutionFailureR
 }
 
 /// Converts WriteToPtyFailureReason to a user-facing string
+#[cfg(any(test, feature = "integration_tests"))]
 pub fn write_to_pty_failure_reason_string(reason: &WriteToPtyFailureReason) -> String {
     match reason {
         WriteToPtyFailureReason::InsufficientPermissions => {
@@ -1157,6 +1327,7 @@ pub fn write_to_pty_failure_reason_string(reason: &WriteToPtyFailureReason) -> S
 }
 
 /// Converts AgentPromptFailureReason to a user-facing string
+#[cfg(any(test, feature = "integration_tests"))]
 pub fn agent_prompt_failure_reason_string(reason: &AgentPromptFailureReason) -> String {
     match reason {
         AgentPromptFailureReason::InsufficientPermissions => {
@@ -1172,6 +1343,7 @@ pub fn agent_prompt_failure_reason_string(reason: &AgentPromptFailureReason) -> 
 }
 
 /// Converts ControlActionFailureReason to a user-facing string
+#[cfg(any(test, feature = "integration_tests"))]
 pub fn control_action_failure_reason_string(reason: &ControlActionFailureReason) -> String {
     match reason {
         ControlActionFailureReason::InsufficientPermissions => {
@@ -1181,6 +1353,7 @@ pub fn control_action_failure_reason_string(reason: &ControlActionFailureReason)
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 pub enum NetworkEvent {
     JoinedSuccessfully {
         active_prompt: ActivePrompt,
@@ -1255,9 +1428,13 @@ pub enum NetworkEvent {
 }
 
 impl Entity for Network {
+    #[cfg(any(test, feature = "integration_tests"))]
     type Event = NetworkEvent;
+    #[cfg(not(any(test, feature = "integration_tests")))]
+    type Event = ();
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl Drop for Network {
     fn drop(&mut self) {
         self.close();

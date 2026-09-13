@@ -22,6 +22,8 @@ use crate::ai::agent::conversation::AIConversationId;
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub(crate) enum FinalizeReason {
     StoppedByAgent,
+    // Cloud/task-sync-only finalization path; retained for unit tests.
+    #[cfg(test)]
     RunEnded,
     LimitReached,
     FfmpegExited,
@@ -37,6 +39,7 @@ impl FinalizeReason {
     pub(crate) fn telemetry_key(self) -> &'static str {
         match self {
             FinalizeReason::StoppedByAgent => "agent_stopped",
+            #[cfg(test)]
             FinalizeReason::RunEnded => "run_ended",
             FinalizeReason::LimitReached => "limit_reached",
             FinalizeReason::FfmpegExited => "encoding_failed",
@@ -45,7 +48,7 @@ impl FinalizeReason {
         }
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(test, not(target_family = "wasm")))]
     pub(crate) fn termination_reason(
         self,
         completion_status: computer_use::RecordingCompletionStatus,
@@ -59,6 +62,7 @@ impl FinalizeReason {
                     "Recording stopped before the agent requested it".to_string()
                 }
             },
+            #[cfg(test)]
             FinalizeReason::RunEnded => {
                 "Finalized because the agent run ended without stopping the recording".to_string()
             }
@@ -114,8 +118,9 @@ pub(crate) struct ActiveRecording {
     pub(crate) handle: computer_use::RecordingHandle,
     /// When capture went live; action offsets are measured from here.
     pub(crate) started_at: Instant,
-    /// The capture frame rate, used by the post-stop smart cut to enforce the
-    /// one-source-frame minimum for instantaneous action groups.
+    /// The capture frame rate, used by test-only cloud finalization to enforce
+    /// the one-source-frame minimum for instantaneous action groups.
+    #[cfg(test)]
     pub(crate) frame_rate: u32,
     /// The surface being recorded, used to resolve pointer-event coordinates
     /// into capture space for the post-stop burn-in.
@@ -127,9 +132,11 @@ pub(crate) struct ActiveRecording {
     pub(crate) pointer_session: computer_use::PointerSession,
     /// Action groups committed to the video, in completion order.
     pub(crate) actions: Vec<computer_use::ActionLogEntry>,
-    /// Short agent-authored title shown in badges (from StartRecording.summary).
+    /// Short agent-authored title shown in test-only cloud artifact metadata.
+    #[cfg(test)]
     pub(crate) summary: Option<String>,
-    /// Optional longer description shown in detail views (from StartRecording.description).
+    /// Optional longer description shown in test-only cloud artifact metadata.
+    #[cfg(test)]
     pub(crate) description: Option<String>,
     /// The currently in-flight `UseComputer` group, if any. It is committed with
     /// its finish offset on success or discarded on failure/cancellation.
@@ -249,6 +256,9 @@ impl RecordingController {
         description: Option<String>,
         target: computer_use::Target,
     ) {
+        #[cfg(not(test))]
+        let _ = (frame_rate, summary, description);
+
         if matches!(
             self.state,
             RecordingState::Starting {
@@ -260,11 +270,14 @@ impl RecordingController {
                 conversation_id,
                 handle,
                 started_at: Instant::now(),
+                #[cfg(test)]
                 frame_rate,
                 target,
                 pointer_session: computer_use::PointerSession::new(),
                 actions: Vec::new(),
+                #[cfg(test)]
                 summary,
+                #[cfg(test)]
                 description,
                 pending_group: None,
             }));

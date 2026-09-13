@@ -7,9 +7,11 @@ use anyhow::Error;
 use warpui::ModelSpawner;
 
 use super::terminal::TerminalDriver;
-use crate::ai::cloud_environments::ProvidersConfig;
+use cloud_object_models::cloud_environment::ProvidersConfig;
 
+#[cfg(test)]
 mod aws;
+#[cfg(test)]
 mod gcp;
 
 pub(crate) type Result<T> = std::result::Result<T, CloudProviderSetupError>;
@@ -58,17 +60,26 @@ pub(crate) fn load_providers(
     providers: &ProvidersConfig,
     run_id: &str,
 ) -> Result<Vec<Box<dyn CloudProvider>>> {
-    let mut result: Vec<Box<dyn CloudProvider>> = Vec::new();
-
-    if let Some(aws) = &providers.aws {
-        result.push(Box::new(aws::AwsCloudProvider::new(aws, run_id)?));
+    #[cfg(not(test))]
+    {
+        let _ = (providers, run_id);
+        return Ok(Vec::new());
     }
 
-    if let Some(gcp) = &providers.gcp {
-        result.push(Box::new(gcp::GcpCloudProvider::new(gcp, run_id)?));
-    }
+    #[cfg(test)]
+    {
+        let mut result: Vec<Box<dyn CloudProvider>> = Vec::new();
 
-    Ok(result)
+        if let Some(aws) = &providers.aws {
+            result.push(Box::new(aws::AwsCloudProvider::new(aws, run_id)?));
+        }
+
+        if let Some(gcp) = &providers.gcp {
+            result.push(Box::new(gcp::GcpCloudProvider::new(gcp, run_id)?));
+        }
+
+        Ok(result)
+    }
 }
 
 /// Collect all environment variables from a list of providers.

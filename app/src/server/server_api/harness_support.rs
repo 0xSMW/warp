@@ -1,22 +1,26 @@
-// We don't directly run agent harnesses on WASM, so this code is unused.
-#![cfg_attr(target_family = "wasm", expect(dead_code))]
-
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
+#[cfg(test)]
+use anyhow::Context;
+#[cfg(test)]
+use anyhow::Result;
+#[cfg(test)]
 use async_trait::async_trait;
 #[cfg(test)]
 use mockall::automock;
 
+#[cfg(test)]
 use super::ServerApi;
-#[cfg(feature = "local_fs")]
-pub use super::presigned_upload::FileUploadBody;
+#[cfg(test)]
 pub use super::presigned_upload::UploadBody;
+#[cfg(test)]
 use crate::ai::agent::api::ServerConversationToken;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::agent_sdk::retry::with_bounded_retry;
+#[cfg(test)]
 use crate::ai::ambient_agents::AmbientAgentTaskId;
+#[cfg(test)]
 use crate::ai::artifacts::Artifact;
+#[cfg(all(test, not(target_family = "wasm")))]
+use crate::server::retry_strategies::with_bounded_retry;
 
 /// A presigned upload target returned by the server.
 #[serde_with::serde_as]
@@ -40,7 +44,7 @@ pub struct UploadField {
     pub value: UploadFieldValue,
 }
 
-/// Descriptor for a field value when uploading to an [`UploadTarget`].
+/// Descriptor for a multipart form field value during an upload.
 /// This is currently only used for `POST` requests, but may be supported
 /// for HTTP headers in the future.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -62,6 +66,7 @@ pub enum UploadFieldValue {
 ///
 /// `Legacy` uses unprefixed names and charges the execution's cumulative attachment quota.
 /// `Checkpoint` signs generation-prefixed names and is charged per attempt at commit time.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SnapshotUploadMode {
@@ -71,6 +76,7 @@ pub enum SnapshotUploadMode {
 }
 
 /// Request body for upload-snapshot upload targets.
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SnapshotUploadRequest {
     /// Omitted when legacy, which the server treats as the default.
@@ -83,10 +89,12 @@ pub struct SnapshotUploadRequest {
     pub files: Vec<SnapshotFileInfo>,
 }
 
+#[cfg(test)]
 fn is_default_mode(mode: &SnapshotUploadMode) -> bool {
     *mode == SnapshotUploadMode::default()
 }
 
+#[cfg(test)]
 impl SnapshotUploadRequest {
     pub fn legacy(files: Vec<SnapshotFileInfo>) -> Self {
         Self {
@@ -110,10 +118,12 @@ impl SnapshotUploadRequest {
 ///
 /// A generation is a storage-keying detail and must never leak into agent-visible paths or
 /// restore commands.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(transparent)]
 pub struct CheckpointGeneration(String);
 
+#[cfg(test)]
 impl CheckpointGeneration {
     /// Test-only escape hatch; production code mints generations via
     /// `snapshot::mint_generation`. Gated to match `driver::snapshot`'s test module, which
@@ -154,6 +164,7 @@ impl CheckpointGeneration {
     }
 }
 
+#[cfg(test)]
 impl std::fmt::Display for CheckpointGeneration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -168,18 +179,21 @@ impl std::fmt::Display for CheckpointGeneration {
 ///
 /// Exact-set: the server commits only the objects these names resolve to, and selection later
 /// returns exactly that set rather than everything sharing the generation.
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CommitSnapshotRequest {
     pub generation: String,
     pub files: Vec<String>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct CommitSnapshotResponse {
     pub generation: String,
 }
 
 /// Describes a single file in a snapshot upload request.
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SnapshotFileInfo {
     pub filename: String,
@@ -193,21 +207,25 @@ pub struct SnapshotFileInfo {
 /// they requested by position. The server does not include filenames on the
 /// response entries — see the `UploadSnapshotResponse` schema in
 /// `warp-server`'s `public_api/openapi.yaml`.
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct SnapshotUploadResponse {
     pub uploads: Vec<UploadTarget>,
 }
 
+#[cfg(test)]
 #[derive(serde::Serialize)]
 struct CreateExternalConversationRequest {
     format: String,
 }
 
+#[cfg(test)]
 #[derive(serde::Deserialize)]
 struct CreateExternalConversationResponse {
     conversation_id: String,
 }
 
+#[cfg(test)]
 #[derive(serde::Serialize)]
 struct GetUploadTargetRequest {
     conversation_id: String,
@@ -216,6 +234,7 @@ struct GetUploadTargetRequest {
 /// Skill attached to a resolve-prompt request,
 /// used when invoking a third-party harness with a skill
 /// via the CLI.
+#[cfg(test)]
 #[derive(serde::Serialize)]
 pub struct ResolvePromptAttachedSkill {
     pub name: String,
@@ -224,6 +243,7 @@ pub struct ResolvePromptAttachedSkill {
     pub path: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(serde::Serialize)]
 pub struct ResolvePromptRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -232,6 +252,7 @@ pub struct ResolvePromptRequest {
     pub attachments_dir: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(serde::Deserialize)]
 pub struct ResolvedHarnessPrompt {
     pub prompt: String,
@@ -250,34 +271,40 @@ pub struct ResolvedHarnessPrompt {
     pub context: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct ReportArtifactResponse {
     pub artifact_uid: String,
 }
 
+#[cfg(test)]
 #[derive(serde::Serialize)]
 struct NotifyUserRequest {
     message: String,
 }
 
+#[cfg(test)]
 #[derive(serde::Serialize)]
 struct FinishTaskRequest {
     success: bool,
     summary: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 struct ShutdownError {
     category: String,
     message: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct ReportShutdownRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<ShutdownError>,
 }
 
+#[cfg(test)]
 impl ReportShutdownRequest {
     /// A clean shutdown with no error payload.
     pub fn clean() -> Self {
@@ -293,6 +320,7 @@ impl ReportShutdownRequest {
 }
 
 /// Trait for API endpoints used to support third-party agent harnesses in Oz.
+#[cfg(test)]
 #[cfg_attr(test, automock)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
@@ -372,6 +400,7 @@ pub trait HarnessSupportClient: 'static + Send + Sync {
     fn http_client(&self) -> &http_client::Client;
 }
 
+#[cfg(test)]
 impl ServerApi {
     pub(crate) async fn get_public_api_response_for_task(
         &self,
@@ -485,9 +514,11 @@ impl ServerApi {
     }
 }
 
+#[cfg(test)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl HarnessSupportClient for ServerApi {
+    #[cfg(test)]
     async fn create_external_conversation(&self, format: &str) -> Result<ServerConversationToken> {
         let response: CreateExternalConversationResponse = self
             .post_public_api(
@@ -501,6 +532,7 @@ impl HarnessSupportClient for ServerApi {
         Ok(ServerConversationToken::new(response.conversation_id))
     }
 
+    #[cfg(test)]
     async fn get_transcript_upload_target(
         &self,
         conversation_id: &ServerConversationToken,
@@ -514,6 +546,7 @@ impl HarnessSupportClient for ServerApi {
         .await
     }
 
+    #[cfg(test)]
     async fn get_block_snapshot_upload_target(
         &self,
         conversation_id: &ServerConversationToken,
@@ -527,16 +560,19 @@ impl HarnessSupportClient for ServerApi {
         .await
     }
 
+    #[cfg(test)]
     async fn resolve_prompt(&self, request: ResolvePromptRequest) -> Result<ResolvedHarnessPrompt> {
         self.post_public_api("harness-support/resolve-prompt", &request)
             .await
     }
 
+    #[cfg(test)]
     async fn report_artifact(&self, artifact: &Artifact) -> Result<ReportArtifactResponse> {
         self.post_public_api("harness-support/report-artifact", artifact)
             .await
     }
 
+    #[cfg(test)]
     async fn notify_user(&self, message: &str) -> Result<()> {
         self.post_public_api_unit(
             "harness-support/notify-user",
@@ -547,6 +583,7 @@ impl HarnessSupportClient for ServerApi {
         .await
     }
 
+    #[cfg(test)]
     async fn finish_task(&self, success: bool, summary: &str) -> Result<()> {
         self.post_public_api_unit(
             "harness-support/finish-task",
@@ -558,6 +595,7 @@ impl HarnessSupportClient for ServerApi {
         .await
     }
 
+    #[cfg(test)]
     async fn report_clean_shutdown(&self) -> Result<()> {
         self.post_public_api_unit(
             "harness-support/report-shutdown",
@@ -566,6 +604,7 @@ impl HarnessSupportClient for ServerApi {
         .await
     }
 
+    #[cfg(test)]
     async fn report_error_shutdown(
         &self,
         error_category: String,
@@ -578,6 +617,7 @@ impl HarnessSupportClient for ServerApi {
         .await
     }
 
+    #[cfg(test)]
     async fn get_snapshot_upload_targets(
         &self,
         request: &SnapshotUploadRequest,
@@ -588,6 +628,7 @@ impl HarnessSupportClient for ServerApi {
         Ok(response.uploads)
     }
 
+    #[cfg(test)]
     async fn commit_snapshot(
         &self,
         request: &CommitSnapshotRequest,
@@ -596,6 +637,7 @@ impl HarnessSupportClient for ServerApi {
             .await
     }
 
+    #[cfg(test)]
     async fn fetch_transcript(&self) -> Result<bytes::Bytes> {
         #[cfg(not(target_family = "wasm"))]
         {
@@ -618,12 +660,14 @@ impl HarnessSupportClient for ServerApi {
         }
     }
 
+    #[cfg(test)]
     fn http_client(&self) -> &http_client::Client {
         self.base_client.http_client()
     }
 }
 
 /// Upload a blob to a presigned upload target.
+#[cfg(test)]
 pub async fn upload_to_target(
     http_client: &http_client::Client,
     target: &UploadTarget,

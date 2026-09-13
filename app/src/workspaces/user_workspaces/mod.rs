@@ -24,7 +24,7 @@ use crate::ai::credit_availability::AICreditAvailability;
 use crate::ai::llms::{AvailableLLMs, MODELS_BY_FEATURE_CACHE_KEY, ModelsByFeature};
 use crate::ai::request_usage_model::AIRequestUsageModel;
 use crate::auth::{AuthStateProvider, UserUid};
-use crate::channel::ChannelState;
+use crate::channel::{Channel, ChannelState};
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::cloud_object::{CloudObjectEventEntrypoint, ObjectType, Owner, Space};
 use crate::pricing::PricingInfoModel;
@@ -47,11 +47,16 @@ use crate::workspaces::workspace::{
 };
 pub(crate) mod billing_workspace_settings;
 pub(crate) mod team_workspace_settings;
+#[cfg(not(target_family = "wasm"))]
+pub(crate) use team_workspace_settings::GeminiEnterpriseBackgroundHost;
 pub(crate) use team_workspace_settings::TeamContextForOperationResolver;
+#[cfg(all(
+    not(target_family = "wasm"),
+    any(test, feature = "local_claude_codex_child_harnesses")
+))]
+pub(crate) use team_workspace_settings::TeamScopeForCli;
 #[cfg(test)]
 pub(crate) use team_workspace_settings::TeamlessScopeForTest;
-#[cfg(not(target_family = "wasm"))]
-pub(crate) use team_workspace_settings::{GeminiEnterpriseBackgroundHost, TeamScopeForCli};
 pub use team_workspace_settings::{
     ResolvedTeamScope, TeamContext, TeamContextForOperation, TeamContextResolver, TeamScope,
 };
@@ -276,6 +281,10 @@ impl UserWorkspaces {
     }
 
     pub fn upgrade_link(user_id: UserUid) -> String {
+        if ChannelState::channel() == Channel::Local {
+            return String::new();
+        }
+
         format!(
             "{}{}/{}/{}",
             ChannelState::server_root_url(),
@@ -287,6 +296,10 @@ impl UserWorkspaces {
 
     // TODO(isaiah): make me private in favour for upgrade_link_for_scope being the public facing api
     pub fn upgrade_link_for_team(team_uid: ServerId) -> String {
+        if ChannelState::channel() == Channel::Local {
+            return String::new();
+        }
+
         format!(
             "{}{}/{}",
             ChannelState::server_root_url(),
@@ -312,6 +325,10 @@ impl UserWorkspaces {
     }
 
     pub fn warp_agent_cli_upgrade_link(user_id: Option<UserUid>) -> String {
+        if ChannelState::channel() == Channel::Local {
+            return String::new();
+        }
+
         let upgrade_link = user_id.map_or_else(
             || {
                 format!(
@@ -325,6 +342,10 @@ impl UserWorkspaces {
         format!("{upgrade_link}?source=warp-agent-cli")
     }
     pub fn admin_billing_link_for_team(team_uid: ServerId) -> String {
+        if ChannelState::channel() == Channel::Local {
+            return String::new();
+        }
+
         format!(
             "{}/admin/{team_uid}/billing",
             ChannelState::server_root_url().trim_end_matches('/')
@@ -332,6 +353,10 @@ impl UserWorkspaces {
     }
 
     pub fn admin_billing_link_for_default_team(&self, user_email: &str) -> Option<String> {
+        if ChannelState::channel() == Channel::Local {
+            return None;
+        }
+
         let team_uid = self.inherited_or_default_team_uid(None)?;
         self.team_from_uid(team_uid)
             .filter(|team| team.has_admin_permissions(user_email))
@@ -1379,6 +1404,17 @@ impl UserWorkspaces {
         team_uid: ServerId,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            Self::on_generate_stripe_billing_portal_link(
+                self,
+                Err(anyhow::anyhow!(
+                    "Stripe billing portal is disabled in local-only mode"
+                )),
+                ctx,
+            );
+            return;
+        }
+
         let workspace_client = self.workspace_client.clone();
         let _ = ctx.spawn(
             async move {
@@ -1397,6 +1433,17 @@ impl UserWorkspaces {
         max_monthly_spend_cents: Option<u32>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            Self::on_update_workspace_metadata(
+                self,
+                Err(anyhow::anyhow!(
+                    "Usage-based pricing settings are disabled in local-only mode"
+                )),
+                ctx,
+            );
+            return;
+        }
+
         let workspace_client = self.workspace_client.clone();
         let _ = ctx.spawn(
             async move {
@@ -1443,6 +1490,17 @@ impl UserWorkspaces {
         credits: i32,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            Self::on_purchase_addon_credits(
+                self,
+                Err(anyhow::anyhow!(
+                    "Addon credit purchases are disabled in local-only mode"
+                )),
+                ctx,
+            );
+            return;
+        }
+
         let workspace_client = self.workspace_client.clone();
         let _ = ctx.spawn(
             async move {

@@ -1,17 +1,24 @@
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use warp_graphql::queries::get_user::UserOutput as GqlUserOutput;
 
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use super::UserUid;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use super::user::User;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::convert_to_server_experiment;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::server::experiments::ServerExperiment;
 
 /// Intermediate app model state converted from a user response returned by the auth client.
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 pub(crate) struct UserProperties {
     pub(crate) user: User,
     pub(crate) server_experiments: Vec<ServerExperiment>,
     pub(crate) llms: crate::ai::llms::ModelsByFeature,
 }
 
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 impl From<GqlUserOutput> for UserProperties {
     fn from(user_output: GqlUserOutput) -> Self {
         let principal_type = user_output

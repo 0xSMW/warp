@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 #[cfg(not(target_family = "wasm"))]
 use std::path::Path;
+#[cfg(test)]
 use std::time::Duration;
 
 use ai::index::full_source_code_embedding::store_client::{IntermediateNode, StoreClient};
@@ -9,114 +10,149 @@ use ai::index::full_source_code_embedding::{
 };
 use anyhow::anyhow;
 use async_trait::async_trait;
+#[cfg(test)]
 use base64::Engine;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use cloud_object_models::CodeForge;
+#[cfg(test)]
 use cynic::{MutationBuilder, QueryBuilder};
+#[cfg(test)]
 use itertools::Itertools;
 #[cfg(test)]
 use mockall::automock;
+#[cfg(test)]
 use prost::Message;
+#[cfg(test)]
 use warp_core::channel::ChannelState;
+#[cfg(test)]
 use warp_core::features::FeatureFlag;
+#[cfg(test)]
 use warp_errors::report_error;
 use warp_graphql::ai::{AgentTaskState, PlatformErrorCode};
-use warp_graphql::client::Operation;
+#[cfg(test)]
+use warp_graphql::client::{Operation, get_request_context, get_user_facing_error_message};
+#[cfg(test)]
 use warp_graphql::error::{UserFacingError, UserFacingErrorInterface};
+#[cfg(test)]
 use warp_graphql::mutations::confirm_file_artifact_upload::{
     ConfirmFileArtifactUpload, ConfirmFileArtifactUploadInput, ConfirmFileArtifactUploadResult,
     ConfirmFileArtifactUploadVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::create_agent_task::{
     CreateAgentTask, CreateAgentTaskInput, CreateAgentTaskResult, CreateAgentTaskVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::create_file_artifact_upload_target::{
     CreateFileArtifactUploadTarget, CreateFileArtifactUploadTargetInput,
     CreateFileArtifactUploadTargetResult, CreateFileArtifactUploadTargetVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::delete_ai_conversation::{
     DeleteAIConversation, DeleteAIConversationVariables, DeleteConversationInput,
     DeleteConversationResult,
 };
+#[cfg(test)]
 use warp_graphql::mutations::generate_code_embeddings::{
     GenerateCodeEmbeddings, GenerateCodeEmbeddingsInput, GenerateCodeEmbeddingsResult,
     GenerateCodeEmbeddingsVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::generate_commands::{
     GenerateCommands, GenerateCommandsInput, GenerateCommandsResult, GenerateCommandsStatus,
     GenerateCommandsVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::generate_dialogue::{
     GenerateDialogue, GenerateDialogueInput,
     GenerateDialogueResult as GenerateDialogueResultGraphql, GenerateDialogueStatus,
     GenerateDialogueVariables, TranscriptPart as TranscriptPartGraphql,
 };
+#[cfg(test)]
 use warp_graphql::mutations::generate_metadata_for_command::{
     GenerateMetadataForCommand, GenerateMetadataForCommandInput, GenerateMetadataForCommandResult,
     GenerateMetadataForCommandStatus, GenerateMetadataForCommandVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::populate_merkle_tree_cache::{
     PopulateMerkleTreeCache, PopulateMerkleTreeCacheResult, PopulateMerkleTreeCacheVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::request_bonus::{
     ProvideNegativeFeedbackResponseForAiConversation,
     ProvideNegativeFeedbackResponseForAiConversationInput,
     ProvideNegativeFeedbackResponseForAiConversationVariables, RequestsRefundedResult,
 };
+#[cfg(test)]
 use warp_graphql::mutations::update_agent_task::{
     AgentTaskStatusMessageInput, UpdateAgentTask, UpdateAgentTaskInput, UpdateAgentTaskResult,
     UpdateAgentTaskVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::update_merkle_tree::{
     MerkleTreeNode, UpdateMerkleTree, UpdateMerkleTreeInput, UpdateMerkleTreeResult,
     UpdateMerkleTreeVariables,
 };
 use warp_graphql::platform_error::PlatformErrorInfo;
+#[cfg(test)]
 use warp_graphql::queries::codebase_context_config::{
     CodebaseContextConfigQuery, CodebaseContextConfigResult, CodebaseContextConfigVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::free_available_models::{
     FreeAvailableModels, FreeAvailableModelsInput, FreeAvailableModelsResult,
     FreeAvailableModelsVariables,
 };
-#[cfg(not(feature = "agent_mode_evals"))]
+#[cfg(all(test, not(feature = "agent_mode_evals")))]
 use warp_graphql::queries::get_ai_credit_availability::{
     GetAICreditAvailability, GetAICreditAvailabilityVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_available_harnesses::{
     GetAvailableHarnesses, GetAvailableHarnessesVariables,
 };
+use warp_graphql::queries::get_conversation_usage::ConversationUsage;
+#[cfg(test)]
 use warp_graphql::queries::get_conversation_usage::{
-    ConversationUsage, GetConversationUsage, GetConversationUsageVariables, UserResult,
+    GetConversationUsage, GetConversationUsageVariables, UserResult,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_feature_model_choices::{
     GetFeatureModelChoices, GetFeatureModelChoicesVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::get_relevant_fragments::{
     GetRelevantFragmentsQuery, GetRelevantFragmentsResult, GetRelevantFragmentsVariables,
 };
-#[cfg(not(feature = "agent_mode_evals"))]
+#[cfg(all(test, not(feature = "agent_mode_evals")))]
 use warp_graphql::queries::get_request_limit_info::{
     GetRequestLimitInfo, GetRequestLimitInfoVariables,
 };
+use warp_graphql::queries::get_scheduled_agent_history::ScheduledAgentHistory;
+#[cfg(test)]
 use warp_graphql::queries::get_scheduled_agent_history::{
-    GetScheduledAgentHistory, GetScheduledAgentHistoryVariables, ScheduledAgentHistory,
-    ScheduledAgentHistoryInput, ScheduledAgentHistoryResult,
+    GetScheduledAgentHistory, GetScheduledAgentHistoryVariables, ScheduledAgentHistoryInput,
+    ScheduledAgentHistoryResult,
 };
+#[cfg(test)]
 use warp_graphql::queries::rerank_fragments::{
     RerankFragments, RerankFragmentsResult, RerankFragmentsVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::setup_failure_debug_authorization::{
     SetupFailureDebugAuthorization, SetupFailureDebugAuthorizationInput,
     SetupFailureDebugAuthorizationResult, SetupFailureDebugAuthorizationVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::sync_merkle_tree::{
     SyncMerkleTree, SyncMerkleTreeInput, SyncMerkleTreeResult, SyncMerkleTreeVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::task_attachments::{
     Task as TaskAttachmentsQuery, TaskInput, TaskResult, TaskVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::task_git_credentials::{
     TaskGitCredentials, TaskGitCredentialsInput, TaskGitCredentialsLegacy,
     TaskGitCredentialsLegacyInput, TaskGitCredentialsLegacyResult,
@@ -125,24 +161,27 @@ use warp_graphql::queries::task_git_credentials::{
 use warp_multi_agent_api::ConversationData;
 
 use super::ServerApi;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 use super::download::write_response_body_to_path;
-use super::harness_support::{UploadField, UploadFieldValue, UploadTarget};
-#[cfg(not(feature = "agent_mode_evals"))]
+#[cfg(test)]
+use super::harness_support::UploadFieldValue;
+use super::harness_support::{UploadField, UploadTarget};
+#[cfg(all(test, not(feature = "agent_mode_evals")))]
 use crate::ai::BonusGrant;
 pub use crate::ai::agent::UserQueryMode;
 use crate::ai::agent::api::ServerConversationToken;
-use crate::ai::agent::conversation::{
-    AIAgentConversationFormat, AIAgentHarness, AIAgentSerializedBlockFormat,
-    ServerAIConversationMetadata,
-};
+use crate::ai::agent::conversation::{AIAgentConversationFormat, ServerAIConversationMetadata};
+#[cfg(test)]
+use crate::ai::agent::conversation::{AIAgentHarness, AIAgentSerializedBlockFormat};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
+#[cfg(test)]
+pub use crate::ai::ambient_agents::TaskStatusMessage;
 // Re-export ambient agent types for backwards compatibility
 pub use crate::ai::ambient_agents::{
     AgentConfigSnapshot, AgentSource, AmbientAgentTask, AmbientAgentTaskState, ExecutionLocation,
-    TaskStatusMessage,
     task::{AttachmentInput, TaskAttachment},
 };
+#[cfg(test)]
 use crate::ai::artifacts::Artifact;
 use crate::ai::generate_code_review_content::api::{
     GenerateCodeReviewContentRequest, GenerateCodeReviewContentResponse,
@@ -152,7 +191,7 @@ use crate::ai::llms::{
     AvailableLLMs, DisableReason, LLMContextWindow, LLMInfo, LLMModelHost, LLMSpec,
     LLMUsageMetadata, ModelsByFeature, RoutingHostConfig,
 };
-#[cfg(feature = "agent_mode_evals")]
+#[cfg(all(test, feature = "agent_mode_evals"))]
 use crate::ai::request_usage_model::RequestLimitInfo;
 use crate::ai::{AICreditAvailability, RequestUsageInfo};
 use crate::ai_assistant::execution_context::WarpAiExecutionContext;
@@ -160,16 +199,17 @@ use crate::ai_assistant::requests::GenerateDialogueResult;
 use crate::ai_assistant::utils::TranscriptPart;
 use crate::ai_assistant::{AIGeneratedCommand, GenerateCommandsFromNaturalLanguageError};
 use crate::drive::workflows::ai_assist::{GeneratedCommandMetadata, GeneratedCommandMetadataError};
+#[cfg(test)]
 use crate::persistence::model::ConversationUsageMetadata;
-use crate::server::graphql::{get_request_context, get_user_facing_error_message};
 use crate::server::team_scope::RequestTeamScope;
 use crate::terminal::model::block::SerializedBlock;
-#[cfg(not(feature = "agent_mode_evals"))]
+#[cfg(all(test, not(feature = "agent_mode_evals")))]
 use crate::{
     server::ids::ServerId,
     workspaces::{gql_convert::PLACEHOLDER_WORKSPACE_UID, workspace::WorkspaceUid},
 };
 
+#[cfg(test)]
 const AI_ASSISTANT_REQUEST_TIMEOUT_SECONDS: u64 = 30;
 
 /// A status update for a task, optionally including a platform error code.
@@ -197,6 +237,7 @@ pub enum TaskGitCredentialsError {
 }
 
 impl TaskGitCredentialsError {
+    #[cfg(test)]
     pub(crate) fn from_user_facing(error: UserFacingError) -> Self {
         let UserFacingError {
             error,
@@ -218,6 +259,7 @@ impl TaskGitCredentialsError {
     }
 }
 
+#[cfg(test)]
 fn agent_task_status_message_input(update: TaskStatusUpdate) -> AgentTaskStatusMessageInput {
     AgentTaskStatusMessageInput {
         message: update.message,
@@ -364,6 +406,7 @@ pub struct UploadLocalHandoffSnapshotResponse {
 }
 
 /// Request body for `POST /agent/conversations/{conversation_id}/fork`.
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct ForkConversationRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -378,6 +421,7 @@ pub struct ForkConversationResponse {
 }
 
 /// Request body for `POST /agent/conversations/{conversation_id}/rename`.
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RenameConversationRequest {
     pub title: String,
@@ -426,6 +470,7 @@ pub struct AgentMessageHeader {
     pub read_at: Option<String>,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AgentRunEvent {
     pub event_type: String,
@@ -666,11 +711,13 @@ pub struct AttachmentFileInfo {
     pub mime_type: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PrepareAttachmentUploadsRequest {
     pub files: Vec<AttachmentFileInfo>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DownloadAttachmentsRequest {
     pub attachment_ids: Vec<String>,
@@ -687,6 +734,7 @@ pub struct DownloadAttachmentsResponse {
     pub attachments: Vec<AttachmentDownloadInfo>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct HandoffSnapshotAttachmentInfo {
     pub attachment_id: String,
@@ -695,6 +743,7 @@ pub struct HandoffSnapshotAttachmentInfo {
     pub mime_type: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct ListHandoffSnapshotAttachmentsResponse {
     pub attachments: Vec<HandoffSnapshotAttachmentInfo>,
@@ -883,6 +932,7 @@ impl RunSortOrder {
 }
 
 /// Build the path + query string for `GET /api/v1/agent/runs` from a filter.
+#[cfg(test)]
 pub(crate) fn build_list_agent_runs_url(limit: i32, filter: &TaskListFilter) -> String {
     let mut url = format!("agent/runs?limit={limit}");
 
@@ -955,10 +1005,12 @@ pub(crate) fn build_list_agent_runs_url(limit: i32, filter: &TaskListFilter) -> 
     url
 }
 
+#[cfg(test)]
 pub(crate) fn build_run_followup_url(run_id: &AmbientAgentTaskId) -> String {
     format!("agent/runs/{run_id}/followups")
 }
 
+#[cfg(test)]
 pub(crate) fn build_fork_conversation_url(conversation_id: &str) -> String {
     format!(
         "agent/conversations/{}/fork",
@@ -966,6 +1018,7 @@ pub(crate) fn build_fork_conversation_url(conversation_id: &str) -> String {
     )
 }
 
+#[cfg(test)]
 pub(crate) fn build_rename_conversation_url(conversation_id: &str) -> String {
     format!(
         "agent/conversations/{}/rename",
@@ -973,10 +1026,12 @@ pub(crate) fn build_rename_conversation_url(conversation_id: &str) -> String {
     )
 }
 
+#[cfg(test)]
 struct ListRunsResponse {
     runs: Vec<AmbientAgentTask>,
 }
 
+#[cfg(test)]
 impl<'de> serde::Deserialize<'de> for ListRunsResponse {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -1036,6 +1091,7 @@ pub struct AgentSkillItem {
     pub variants: Vec<AgentSkillVariant>,
 }
 
+#[cfg(test)]
 #[derive(serde::Deserialize)]
 struct ListSkillsResponse {
     agents: Vec<AgentSkillItem>,
@@ -1110,11 +1166,13 @@ pub struct AgentResponse {
     pub environment_id: Option<String>,
 }
 
+#[cfg(test)]
 #[derive(serde::Deserialize)]
 struct ListAgentsResponse {
     agents: Vec<AgentResponse>,
 }
 
+#[cfg(test)]
 fn build_agent_url(uid: &str) -> String {
     format!("agent/identities/{}", urlencoding::encode(uid))
 }
@@ -1132,6 +1190,7 @@ pub struct ListConnectedSelfHostedWorkersResponse {
     pub workers: Vec<ConnectedSelfHostedWorker>,
 }
 
+#[cfg(test)]
 pub(crate) const CONNECTED_SELF_HOSTED_WORKERS_PATH: &str = "agent/connected-self-hosted-workers";
 
 /// A memory store returned by the public API.
@@ -1145,6 +1204,7 @@ pub struct MemoryStoreItem {
     pub updated_at: DateTime<Utc>,
 }
 
+#[cfg(test)]
 #[derive(serde::Deserialize)]
 struct ListMemoryStoresResponse {
     memory_stores: Vec<MemoryStoreItem>,
@@ -1165,6 +1225,7 @@ pub struct MemoryItem {
     pub updated_at: DateTime<Utc>,
 }
 
+#[cfg(test)]
 #[derive(serde::Deserialize)]
 struct ListMemoriesResponse {
     memories: Vec<MemoryItem>,
@@ -1205,6 +1266,7 @@ pub struct MemoryVersionItem {
     pub created_at: DateTime<Utc>,
 }
 
+#[cfg(test)]
 #[derive(serde::Deserialize)]
 struct ListMemoryVersionsResponse {
     versions: Vec<MemoryVersionItem>,
@@ -1218,6 +1280,7 @@ pub struct AgentAttachmentItem {
     pub instructions: String,
 }
 
+#[cfg(test)]
 #[derive(serde::Deserialize)]
 struct ListMemoryStoreAgentsResponse {
     agents: Vec<AgentAttachmentItem>,
@@ -1234,6 +1297,19 @@ pub struct UpdateMemoryRequest {
 pub struct UpdateMemoryResponse {
     pub memory_id: String,
     pub version_id: String,
+}
+
+#[cfg(not(test))]
+const LOCAL_ONLY_ERROR_MESSAGE: &str = "AI server access is disabled in local-only mode";
+
+#[cfg(not(test))]
+fn local_only_error() -> anyhow::Error {
+    anyhow!(LOCAL_ONLY_ERROR_MESSAGE)
+}
+
+#[cfg(not(test))]
+fn local_only_embedding_error() -> full_source_code_embedding::Error {
+    local_only_error().into()
 }
 
 #[cfg_attr(test, automock)]
@@ -1683,6 +1759,7 @@ pub trait AIClient: 'static + Send + Sync {
     ) -> Result<GenerateCodeReviewContentResponse, anyhow::Error>;
 }
 
+#[cfg(test)]
 fn into_file_artifact_record(
     artifact: warp_graphql::mutations::create_file_artifact_upload_target::FileArtifact,
 ) -> FileArtifactRecord {
@@ -1695,7 +1772,9 @@ fn into_file_artifact_record(
     }
 }
 
+#[cfg(test)]
 impl ServerApi {
+    #[cfg(test)]
     async fn get_public_api_with_team_scope<R>(
         &self,
         path: &str,
@@ -1712,6 +1791,7 @@ impl ServerApi {
             .await
     }
 
+    #[cfg(test)]
     pub(crate) async fn send_agent_message_for_task(
         &self,
         task_id: &AmbientAgentTaskId,
@@ -1724,7 +1804,8 @@ impl ServerApi {
         Ok(response)
     }
 
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    // Retain the cloud-scoped helper for tests.
+    #[cfg(test)]
     pub(crate) async fn list_agent_messages_for_task(
         &self,
         task_id: &AmbientAgentTaskId,
@@ -1747,6 +1828,7 @@ impl ServerApi {
         Ok(response)
     }
 
+    #[cfg(test)]
     pub(crate) async fn mark_message_delivered_for_task(
         &self,
         task_id: &AmbientAgentTaskId,
@@ -1761,6 +1843,7 @@ impl ServerApi {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) async fn read_agent_message_for_task(
         &self,
         task_id: &AmbientAgentTaskId,
@@ -1777,6 +1860,7 @@ impl ServerApi {
         Ok(response)
     }
 
+    #[cfg(test)]
     async fn get_task_git_credentials_current(
         &self,
         task_id: String,
@@ -1817,6 +1901,7 @@ impl ServerApi {
         }
     }
 
+    #[cfg(test)]
     async fn get_task_git_credentials_legacy(
         &self,
         task_id: String,
@@ -1856,6 +1941,7 @@ impl ServerApi {
     }
 }
 
+#[cfg(test)]
 fn into_git_credential(
     credential: warp_graphql::queries::task_git_credentials::TaskGitCredential,
 ) -> GitCredential {
@@ -1867,6 +1953,7 @@ fn into_git_credential(
     }
 }
 
+#[cfg(test)]
 fn is_unknown_git_credential_schema_error(error: &TaskGitCredentialsError) -> bool {
     let TaskGitCredentialsError::Request(error) = error else {
         return false;
@@ -1884,6 +1971,7 @@ fn is_unknown_git_credential_schema_error(error: &TaskGitCredentialsError) -> bo
 /// domain type. Unknown variants bubble as an error rather than being silently
 /// dropped, because a server-provided field we can't represent will almost certainly
 /// cause the upload to fail.
+#[cfg(test)]
 fn convert_upload_field(
     field: warp_graphql::mutations::create_file_artifact_upload_target::FileArtifactUploadField,
 ) -> anyhow::Result<UploadField> {
@@ -1908,6 +1996,7 @@ fn convert_upload_field(
     })
 }
 
+#[cfg(test)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl AIClient for ServerApi {
@@ -3400,6 +3489,569 @@ impl AIClient for ServerApi {
     }
 }
 
+#[cfg(not(test))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+impl AIClient for ServerApi {
+    async fn generate_commands_from_natural_language(
+        &self,
+        _: String,
+        _: Option<WarpAiExecutionContext>,
+    ) -> Result<Vec<AIGeneratedCommand>, GenerateCommandsFromNaturalLanguageError> {
+        Err(GenerateCommandsFromNaturalLanguageError::Other)
+    }
+
+    async fn generate_dialogue_answer(
+        &self,
+        _: Vec<TranscriptPart>,
+        _: String,
+        _: Option<WarpAiExecutionContext>,
+    ) -> anyhow::Result<GenerateDialogueResult> {
+        Err(local_only_error())
+    }
+
+    async fn generate_metadata_for_command(
+        &self,
+        _: String,
+    ) -> Result<GeneratedCommandMetadata, GeneratedCommandMetadataError> {
+        Err(GeneratedCommandMetadataError::Other)
+    }
+
+    async fn get_request_limit_info(&self) -> Result<RequestUsageInfo, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_ai_credit_availability(&self) -> Result<AICreditAvailability, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_conversation_usage_history(
+        &self,
+        _: Option<i32>,
+        _: Option<i32>,
+        _: Option<warp_graphql::scalars::Time>,
+    ) -> Result<Vec<ConversationUsage>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn get_feature_model_choices(&self) -> Result<ModelsByFeature, anyhow::Error> {
+        Ok(ModelsByFeature::default())
+    }
+
+    async fn get_available_harnesses(&self) -> Result<Vec<HarnessAvailability>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn list_connected_self_hosted_workers(
+        &self,
+        _: RequestTeamScope,
+    ) -> anyhow::Result<ListConnectedSelfHostedWorkersResponse, anyhow::Error> {
+        Ok(ListConnectedSelfHostedWorkersResponse {
+            workers: Vec::new(),
+        })
+    }
+
+    async fn get_free_available_models(
+        &self,
+        _: Option<String>,
+    ) -> Result<ModelsByFeature, anyhow::Error> {
+        Ok(ModelsByFeature::default())
+    }
+
+    async fn update_merkle_tree(
+        &self,
+        _: EmbeddingConfig,
+        _: Vec<IntermediateNode>,
+    ) -> anyhow::Result<HashMap<NodeHash, bool>> {
+        Err(local_only_error())
+    }
+
+    async fn generate_code_embeddings(
+        &self,
+        _: EmbeddingConfig,
+        _: Vec<full_source_code_embedding::Fragment>,
+        _: NodeHash,
+        _: RepoMetadata,
+    ) -> anyhow::Result<HashMap<ContentHash, bool>> {
+        Err(local_only_error())
+    }
+
+    async fn provide_negative_feedback_response_for_ai_conversation(
+        &self,
+        _: String,
+        _: Vec<String>,
+    ) -> anyhow::Result<i32, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn create_agent_task(
+        &self,
+        _: String,
+        _: Option<String>,
+        _: Option<String>,
+        _: Option<AgentConfigSnapshot>,
+        _: RequestTeamScope,
+    ) -> anyhow::Result<AmbientAgentTaskId, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn update_agent_task(
+        &self,
+        _: AmbientAgentTaskId,
+        _: Option<AgentTaskState>,
+        _: Option<session_sharing_protocol::common::SessionId>,
+        _: Option<String>,
+        _: Option<TaskStatusUpdate>,
+        _: Option<DateTime<Utc>>,
+        _: Option<bool>,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn spawn_agent(
+        &self,
+        _: SpawnAgentRequest,
+        _: RequestTeamScope,
+    ) -> anyhow::Result<SpawnAgentResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn upload_local_handoff_snapshot(
+        &self,
+        _: UploadLocalHandoffSnapshotRequest,
+    ) -> anyhow::Result<UploadLocalHandoffSnapshotResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn fork_conversation(
+        &self,
+        _: String,
+        _: Option<String>,
+    ) -> anyhow::Result<ForkConversationResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn rename_conversation(
+        &self,
+        _: String,
+        _: String,
+    ) -> anyhow::Result<RenameConversationResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn list_ambient_agent_tasks(
+        &self,
+        _: i32,
+        _: TaskListFilter,
+        _: Option<RequestTeamScope>,
+    ) -> anyhow::Result<Vec<AmbientAgentTask>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn list_agent_runs_raw(
+        &self,
+        _: i32,
+        _: TaskListFilter,
+        _: Option<RequestTeamScope>,
+    ) -> anyhow::Result<serde_json::Value, anyhow::Error> {
+        Ok(serde_json::json!({ "runs": [] }))
+    }
+
+    async fn get_ambient_agent_task(
+        &self,
+        _: &AmbientAgentTaskId,
+    ) -> anyhow::Result<AmbientAgentTask, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_agent_run_raw(
+        &self,
+        _: &AmbientAgentTaskId,
+    ) -> anyhow::Result<serde_json::Value, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    async fn download_run_transcript(
+        &self,
+        _: &AmbientAgentTaskId,
+    ) -> anyhow::Result<Bytes, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    async fn download_run_transcript_to_path(
+        &self,
+        _: &AmbientAgentTaskId,
+        _: &Path,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    async fn download_conversation_transcript(
+        &self,
+        _: &str,
+    ) -> anyhow::Result<Bytes, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    async fn download_conversation_transcript_to_path(
+        &self,
+        _: &str,
+        _: &Path,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn submit_run_followup(
+        &self,
+        _: &AmbientAgentTaskId,
+        _: RunFollowupRequest,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_scheduled_agent_history(
+        &self,
+        _: &str,
+    ) -> anyhow::Result<ScheduledAgentHistory, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_ai_conversation(
+        &self,
+        _: ServerConversationToken,
+    ) -> anyhow::Result<(ConversationData, ServerAIConversationMetadata), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn list_ai_conversation_metadata(
+        &self,
+        _: Option<Vec<String>>,
+    ) -> anyhow::Result<Vec<ServerAIConversationMetadata>> {
+        Ok(Vec::new())
+    }
+
+    async fn get_ai_conversation_format(
+        &self,
+        _: ServerConversationToken,
+    ) -> anyhow::Result<AIAgentConversationFormat, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_block_snapshot(
+        &self,
+        _: ServerConversationToken,
+    ) -> anyhow::Result<SerializedBlock, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn delete_ai_conversation(&self, _: String) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn list_skills(
+        &self,
+        _: Option<String>,
+        _: RequestTeamScope,
+    ) -> anyhow::Result<Vec<AgentSkillItem>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn list_agents(
+        &self,
+        _: RequestTeamScope,
+    ) -> anyhow::Result<Vec<AgentResponse>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn list_agents_raw(
+        &self,
+        _: RequestTeamScope,
+    ) -> anyhow::Result<serde_json::Value, anyhow::Error> {
+        Ok(serde_json::json!({ "agents": [] }))
+    }
+
+    async fn get_agent(&self, _: &str) -> anyhow::Result<AgentResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_agent_raw(&self, _: &str) -> anyhow::Result<serde_json::Value, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn create_agent(
+        &self,
+        _: CreateAgentRequest,
+        _: RequestTeamScope,
+    ) -> anyhow::Result<AgentResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn create_agent_raw(
+        &self,
+        _: CreateAgentRequest,
+        _: RequestTeamScope,
+    ) -> anyhow::Result<serde_json::Value, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn update_agent(
+        &self,
+        _: &str,
+        _: UpdateAgentRequest,
+    ) -> anyhow::Result<AgentResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn update_agent_raw(
+        &self,
+        _: &str,
+        _: UpdateAgentRequest,
+    ) -> anyhow::Result<serde_json::Value, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn delete_agent(&self, _: &str) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn list_memory_stores(
+        &self,
+        _: RequestTeamScope,
+    ) -> anyhow::Result<Vec<MemoryStoreItem>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn list_memory_store_memories(
+        &self,
+        _: &str,
+    ) -> anyhow::Result<Vec<MemoryItem>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn create_memory_store_memory(
+        &self,
+        _: &str,
+        _: CreateMemoryRequest,
+    ) -> anyhow::Result<CreateMemoryResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn update_memory_store_memory(
+        &self,
+        _: &str,
+        _: &str,
+        _: UpdateMemoryRequest,
+    ) -> anyhow::Result<UpdateMemoryResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn delete_memory_store_memory(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_memory_store(&self, _: &str) -> anyhow::Result<MemoryStoreItem, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn update_memory_store(
+        &self,
+        _: &str,
+        _: UpdateMemoryStoreRequest,
+    ) -> anyhow::Result<MemoryStoreItem, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn list_memory_store_agents(
+        &self,
+        _: &str,
+    ) -> anyhow::Result<Vec<AgentAttachmentItem>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn list_memory_versions(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> anyhow::Result<Vec<MemoryVersionItem>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn cancel_ambient_agent_task(
+        &self,
+        _: &AmbientAgentTaskId,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_task_git_credentials(
+        &self,
+        _: String,
+        _: String,
+        _: bool,
+    ) -> Result<TaskGitCredentialsResponse, TaskGitCredentialsError> {
+        Err(TaskGitCredentialsError::Unstructured {
+            message: LOCAL_ONLY_ERROR_MESSAGE.to_string(),
+        })
+    }
+
+    async fn setup_failure_debug_authorization(
+        &self,
+        _: AmbientAgentTaskId,
+        _: String,
+        _: String,
+    ) -> anyhow::Result<bool, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_task_attachments(
+        &self,
+        _: String,
+    ) -> anyhow::Result<Vec<TaskAttachment>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn create_file_artifact_upload_target(
+        &self,
+        _: CreateFileArtifactUploadRequest,
+    ) -> anyhow::Result<CreateFileArtifactUploadResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn confirm_file_artifact_upload(
+        &self,
+        _: String,
+        _: String,
+    ) -> anyhow::Result<FileArtifactRecord, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_artifact_download(
+        &self,
+        _: &str,
+    ) -> anyhow::Result<ArtifactDownloadResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn download_stored_screenshot(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> anyhow::Result<Bytes, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn prepare_attachments_for_upload(
+        &self,
+        _: &AmbientAgentTaskId,
+        _: &[AttachmentFileInfo],
+    ) -> anyhow::Result<PrepareAttachmentUploadsResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn download_task_attachments(
+        &self,
+        _: &AmbientAgentTaskId,
+        _: &[String],
+    ) -> anyhow::Result<DownloadAttachmentsResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_handoff_snapshot_attachments(
+        &self,
+        _: &AmbientAgentTaskId,
+    ) -> anyhow::Result<Vec<TaskAttachment>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn send_agent_message(
+        &self,
+        _: SendAgentMessageRequest,
+    ) -> anyhow::Result<SendAgentMessageResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn list_agent_messages(
+        &self,
+        _: &str,
+        _: ListAgentMessagesRequest,
+    ) -> anyhow::Result<Vec<AgentMessageHeader>, anyhow::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn update_event_sequence_on_server(
+        &self,
+        _: &str,
+        _: i64,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn report_agent_event(
+        &self,
+        _: &str,
+        _: ReportAgentEventRequest,
+    ) -> anyhow::Result<ReportAgentEventResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn post_agent_run_client_event(
+        &self,
+        _: &AmbientAgentTaskId,
+        _: AgentRunClientEventRequest,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn post_agent_run_environment_snapshot(
+        &self,
+        _: &AmbientAgentTaskId,
+        _: AgentRunEnvironmentSnapshotRequest,
+    ) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn mark_message_delivered(&self, _: &str) -> anyhow::Result<(), anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn read_agent_message(
+        &self,
+        _: &str,
+    ) -> anyhow::Result<ReadAgentMessageResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_public_conversation(
+        &self,
+        _: &str,
+    ) -> anyhow::Result<serde_json::Value, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn get_run_conversation(
+        &self,
+        _: &str,
+    ) -> anyhow::Result<serde_json::Value, anyhow::Error> {
+        Err(local_only_error())
+    }
+
+    async fn generate_code_review_content(
+        &self,
+        _: GenerateCodeReviewContentRequest,
+    ) -> Result<GenerateCodeReviewContentResponse, anyhow::Error> {
+        Err(local_only_error())
+    }
+}
+
 impl TryFrom<warp_graphql::queries::get_feature_model_choices::FeatureModelChoice>
     for ModelsByFeature
 {
@@ -3655,6 +4307,7 @@ impl From<warp_graphql::workspace::DisableReason> for DisableReason {
 
 // Conversions for AIConversationMetadata from GraphQL types
 
+#[cfg(test)]
 fn convert_harness(harness: warp_graphql::ai::AgentHarness) -> AIAgentHarness {
     match harness {
         warp_graphql::ai::AgentHarness::Oz => AIAgentHarness::Oz,
@@ -3672,6 +4325,7 @@ fn convert_harness(harness: warp_graphql::ai::AgentHarness) -> AIAgentHarness {
     }
 }
 
+#[cfg(test)]
 fn convert_block_snapshot_format(
     format: warp_graphql::ai::SerializedBlockFormat,
 ) -> AIAgentSerializedBlockFormat {
@@ -3680,6 +4334,7 @@ fn convert_block_snapshot_format(
     }
 }
 
+#[cfg(test)]
 fn convert_conversation_format(
     format: warp_graphql::ai::AIConversationFormat,
 ) -> AIAgentConversationFormat {
@@ -3689,6 +4344,7 @@ fn convert_conversation_format(
     }
 }
 
+#[cfg(test)]
 impl TryFrom<warp_graphql::ai::AIConversation> for ServerAIConversationMetadata {
     type Error = anyhow::Error;
 
@@ -3729,6 +4385,7 @@ impl TryFrom<warp_graphql::ai::AIConversation> for ServerAIConversationMetadata 
     }
 }
 
+#[cfg(test)]
 impl TryFrom<warp_graphql::queries::list_ai_conversations::AIConversationMetadata>
     for ServerAIConversationMetadata
 {
@@ -3769,6 +4426,7 @@ impl TryFrom<warp_graphql::queries::list_ai_conversations::AIConversationMetadat
     }
 }
 
+#[cfg(test)]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 impl StoreClient for ServerApi {
@@ -3941,6 +4599,70 @@ impl StoreClient for ServerApi {
                 Err(anyhow!("failed to retrieve codebase context config").into())
             }
         }
+    }
+}
+
+#[cfg(not(test))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+impl StoreClient for ServerApi {
+    async fn update_intermediate_nodes(
+        &self,
+        _: EmbeddingConfig,
+        _: Vec<IntermediateNode>,
+    ) -> Result<HashMap<NodeHash, bool>, full_source_code_embedding::Error> {
+        Err(local_only_embedding_error())
+    }
+
+    async fn generate_embeddings(
+        &self,
+        _: EmbeddingConfig,
+        _: Vec<full_source_code_embedding::Fragment>,
+        _: NodeHash,
+        _: RepoMetadata,
+    ) -> Result<HashMap<ContentHash, bool>, full_source_code_embedding::Error> {
+        Err(local_only_embedding_error())
+    }
+
+    async fn populate_merkle_tree_cache(
+        &self,
+        _: EmbeddingConfig,
+        _: NodeHash,
+        _: RepoMetadata,
+    ) -> Result<bool, full_source_code_embedding::Error> {
+        Err(local_only_embedding_error())
+    }
+
+    async fn sync_merkle_tree(
+        &self,
+        _: Vec<NodeHash>,
+        _: EmbeddingConfig,
+    ) -> Result<HashSet<NodeHash>, full_source_code_embedding::Error> {
+        Err(local_only_embedding_error())
+    }
+
+    async fn rerank_fragments(
+        &self,
+        _: String,
+        fragments: Vec<full_source_code_embedding::Fragment>,
+    ) -> Result<Vec<full_source_code_embedding::Fragment>, full_source_code_embedding::Error> {
+        Ok(fragments)
+    }
+
+    async fn get_relevant_fragments(
+        &self,
+        _: EmbeddingConfig,
+        _: String,
+        _: NodeHash,
+        _: RepoMetadata,
+    ) -> Result<Vec<ContentHash>, full_source_code_embedding::Error> {
+        Ok(Vec::new())
+    }
+
+    async fn codebase_context_config(
+        &self,
+    ) -> Result<CodebaseContextConfig, full_source_code_embedding::Error> {
+        Err(local_only_embedding_error())
     }
 }
 

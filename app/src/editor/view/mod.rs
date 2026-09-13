@@ -59,8 +59,8 @@ use warpui::actions::StandardAction;
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
-    ChildView, Container, CornerRadius, CrossAxisAlignment, DEFAULT_UI_LINE_HEIGHT_RATIO, Flex,
-    Hoverable, MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable,
+    ChildView, CornerRadius, CrossAxisAlignment, DEFAULT_UI_LINE_HEIGHT_RATIO, Flex, Hoverable,
+    MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable,
 };
 use warpui::fonts::{Cache as FontCache, FamilyId, Properties, Weight};
 use warpui::keymap::{EditableBinding, FixedBinding, Keystroke, PerPlatformKeystroke};
@@ -69,13 +69,12 @@ use warpui::platform::{Cursor, FilePickerConfiguration, OperatingSystem};
 use warpui::text::TextBuffer;
 use warpui::text::word_boundaries::WordBoundariesPolicy;
 use warpui::text_layout::TextStyle;
-use warpui::ui_components::button::ButtonTooltipPosition;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+use warpui::ui_components::components::UiComponentStyles;
 use warpui::windowing::WindowManager;
 use warpui::{
     AppContext, BlurContext, CursorInfo, Element, Entity, EntityId, FocusContext, ModelAsRef,
     ModelContext, ModelHandle, SingletonEntity, TypedActionView, View, ViewContext, ViewHandle,
-    WindowId, elements, windowing,
+    WindowId, windowing,
 };
 /// The editor interfaces that we publicly expose to consumers.
 /// This should be a very limited set; if you need to add something here,
@@ -119,8 +118,6 @@ use crate::terminal::grid_size_util::grid_cell_dimensions;
 use crate::terminal::model::block::BlockId;
 use crate::themes::theme::Fill;
 use crate::ui_components::avatar::{Avatar, AvatarContent};
-use crate::ui_components::buttons::icon_button;
-use crate::ui_components::icons;
 use crate::util::bindings::{CustomAction, cmd_or_ctrl_shift, keybinding_name_to_keystroke};
 use crate::util::clipboard::clipboard_content_with_escaped_paths;
 use crate::util::color::{ContrastingColor, MinimumAllowedContrast};
@@ -1760,9 +1757,6 @@ impl ImageContextOptions {
 
 pub struct AIContextMenuState {
     ai_context_menu: ViewHandle<AIContextMenu>,
-
-    /// The mouse handle for the at context menu icon.
-    at_context_menu_button_mouse_handle: MouseStateHandle,
 }
 
 pub struct EditorView {
@@ -1899,9 +1893,6 @@ pub struct EditorView {
     /// Options for attaching image context.
     /// Made public to allow terminal input to access image attachment state and limits.
     pub image_context_options: ImageContextOptions,
-
-    /// The mouse handle for the image context icon.
-    image_context_button_mouse_handle: MouseStateHandle,
 
     /// Because the AIContextMenu also contains a text editor,
     /// we need to avoid infinite recursion and selectively
@@ -3176,10 +3167,7 @@ impl EditorView {
                 },
             );
 
-            Some(AIContextMenuState {
-                at_context_menu_button_mouse_handle: Default::default(),
-                ai_context_menu,
-            })
+            Some(AIContextMenuState { ai_context_menu })
         } else {
             None
         };
@@ -3252,7 +3240,6 @@ impl EditorView {
             convert_newline_to_space: options.convert_newline_to_space,
             context_model: None,
             image_context_options: ImageContextOptions::Disabled,
-            image_context_button_mouse_handle: Default::default(),
             ai_context_menu_state,
             delegate_paste_handling: options.delegate_paste_handling,
             drag_drop_path_transformer: options.drag_drop_path_transformer,
@@ -8076,84 +8063,6 @@ impl EditorView {
         self.user_insert(&input, ctx);
     }
 
-    fn render_menu_button_tooltip(
-        &self,
-        tooltip_text: String,
-        appearance: &Appearance,
-    ) -> Box<dyn FnOnce() -> Box<dyn Element>> {
-        let tooltip_background = appearance.theme().surface_1().into_solid();
-        let tooltip_text_color = appearance
-            .theme()
-            .main_text_color(tooltip_background.into())
-            .into_solid();
-        let ui_builder = appearance.ui_builder().clone();
-
-        Box::new(move || {
-            let tool_tip_style = UiComponentStyles {
-                background: Some(elements::Fill::Solid(tooltip_background)),
-                font_color: Some(tooltip_text_color),
-                ..Default::default()
-            };
-
-            ui_builder
-                .tool_tip(tooltip_text)
-                .with_style(tool_tip_style)
-                .build()
-                .finish()
-        })
-    }
-
-    fn render_image_context_button(
-        &self,
-        disabled: bool,
-        tooltip_text: String,
-        icon_size: f32,
-        appearance: &Appearance,
-    ) -> Box<dyn Element> {
-        let button = icon_button(
-            appearance,
-            icons::Icon::Image,
-            false,
-            self.image_context_button_mouse_handle.clone(),
-        )
-        .with_tooltip_position(ButtonTooltipPosition::Above)
-        .with_tooltip(self.render_menu_button_tooltip(tooltip_text, appearance))
-        .with_style(UiComponentStyles {
-            width: Some(icon_size),
-            height: Some(icon_size),
-            padding: Some(Coords::uniform(icon_size / 10.)),
-            ..Default::default()
-        });
-
-        let button = if disabled {
-            button
-                .with_style(UiComponentStyles {
-                    font_color: Some(
-                        appearance
-                            .theme()
-                            .disabled_text_color(appearance.theme().background())
-                            .into(),
-                    ),
-                    ..Default::default()
-                })
-                .with_hovered_styles(UiComponentStyles {
-                    background: None,
-                    ..Default::default()
-                })
-                .build()
-                .with_cursor(Cursor::Arrow)
-        } else {
-            button
-                .build()
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(EditorAction::AttachFiles);
-                })
-                .with_cursor(Cursor::PointingHand)
-        };
-
-        button.finish()
-    }
-
     pub fn render_ai_context_menu(&self) -> Option<Box<dyn Element>> {
         if let Some(ai_context_menu_state) = &self.ai_context_menu_state {
             Some(ChildView::new(&ai_context_menu_state.ai_context_menu).finish())
@@ -8166,46 +8075,6 @@ impl EditorView {
         self.ai_context_menu_state
             .as_ref()
             .map(|state| &state.ai_context_menu)
-    }
-
-    fn render_at_context_menu_button(
-        &self,
-        icon_size: f32,
-        appearance: &Appearance,
-    ) -> Option<Box<dyn Element>> {
-        let Some(ai_context_menu_state) = &self.ai_context_menu_state else {
-            return None;
-        };
-
-        let button = icon_button(
-            appearance,
-            icons::Icon::AtSign,
-            false,
-            ai_context_menu_state
-                .at_context_menu_button_mouse_handle
-                .clone(),
-        )
-        .with_style(UiComponentStyles {
-            width: Some(icon_size),
-            height: Some(icon_size),
-            padding: Some(Coords::uniform(icon_size / 10.)),
-            ..Default::default()
-        });
-        let button =
-            button
-                .with_tooltip_position(ButtonTooltipPosition::Above)
-                .with_tooltip(self.render_menu_button_tooltip(
-                    "Search files and directories".to_string(),
-                    appearance,
-                ))
-                .build()
-                .with_cursor(Cursor::PointingHand)
-                .on_click(move |ctx, _, _| {
-                    ctx.dispatch_typed_action(EditorAction::SetAIContextMenuOpen(true));
-                })
-                .finish();
-
-        Some(button)
     }
 
     /// Commits the currently composed text from the IME (if there is any) to properly handle one of the following:
@@ -8282,95 +8151,9 @@ impl EditorView {
 
     /// If the editor should show any controls, render them.
     /// Otherwise, return the child element.
-    fn render_controls(&self, ctx: &AppContext) -> Option<Box<dyn Element>> {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "voice_input")] {
-                let should_show_voice = self.voice_transcription_options.should_show_button();
-            } else {
-                let should_show_voice = false;
-            }
-        }
-        let input_settings = InputSettings::as_ref(ctx);
-        let is_universal_input_enabled = input_settings.is_universal_developer_input_enabled(ctx);
-        let is_any_ai_enabled = AISettings::as_ref(ctx).is_any_ai_enabled(ctx);
-        let should_show_image = !FeatureFlag::AgentView.is_enabled()
-            && self.image_context_options.should_show_button()
-            && !is_universal_input_enabled;
-        let should_show_at_context_menu = !FeatureFlag::AgentView.is_enabled()
-            && !is_universal_input_enabled
-            && is_any_ai_enabled
-            && {
-                if !self.is_ai_input {
-                    // In terminal mode, check the setting
-                    if !*InputSettings::as_ref(ctx).at_context_menu_in_terminal_mode {
-                        false
-                    } else {
-                        self.ai_context_menu_state
-                            .as_ref()
-                            .map(|state| state.ai_context_menu.as_ref(ctx).should_render(ctx))
-                            .unwrap_or(false)
-                    }
-                } else {
-                    // In AI mode, always allow if available
-                    self.ai_context_menu_state
-                        .as_ref()
-                        .map(|state| state.ai_context_menu.as_ref(ctx).should_render(ctx))
-                        .unwrap_or(false)
-                }
-            };
-
-        if !should_show_voice && !should_show_image && !should_show_at_context_menu {
-            return None;
-        }
-
-        let appearance = Appearance::as_ref(ctx);
-        let font_cache = ctx.font_cache();
-        let icon_size = self.line_height(font_cache, appearance);
-
-        let mut controls = Flex::row().with_main_axis_size(MainAxisSize::Min);
-
-        if should_show_at_context_menu {
-            let at_context_menu_button = self.render_at_context_menu_button(icon_size, appearance);
-            if let Some(at_context_menu_button) = at_context_menu_button {
-                controls.add_child(
-                    Container::new(at_context_menu_button)
-                        .with_margin_left(4.)
-                        .finish(),
-                );
-            }
-        }
-
-        if should_show_image {
-            controls.add_child(
-                Container::new(self.render_image_context_button(
-                    !self.image_context_options.is_enabled(),
-                    self.image_context_options.tooltip_text(),
-                    icon_size,
-                    appearance,
-                ))
-                .with_margin_left(4.)
-                .finish(),
-            );
-        }
-
-        #[cfg(feature = "voice_input")]
-        if should_show_voice {
-            controls.add_child(
-                Container::new(self.render_voice_transcription_button(icon_size, appearance, ctx))
-                    .with_margin_left(4.)
-                    .finish(),
-            );
-
-            if self.should_show_voice_new_feature_popup(ctx) {
-                controls.add_child(
-                    Container::new(ChildView::new(&self.voice_new_feature_popup).finish())
-                        .with_margin_left(4.)
-                        .finish(),
-                );
-            }
-        }
-
-        Some(controls.finish())
+    fn render_controls(&self, _ctx: &AppContext) -> Option<Box<dyn Element>> {
+        // Commented out: Editor controls (voice input, image attachment, @ AI context menu)
+        None
     }
 }
 

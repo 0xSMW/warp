@@ -9,7 +9,10 @@ pub mod response_stream;
 pub(super) mod shared_session;
 mod slash_command;
 use std::collections::{HashMap, HashSet};
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(
+    not(target_family = "wasm"),
+    feature = "local_claude_codex_child_harnesses"
+))]
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,8 +57,12 @@ use crate::ai::agent::{
     PassiveSuggestionTriggerType, RenderableAIError, RequestCost, RequestMetadata, RunningCommand,
     StaticQueryType, TransientNetworkErrorKind, UserQueryMode, extract_user_query_mode,
 };
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::agent_events::AgentMessageEventMetadata;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(
+    not(target_family = "wasm"),
+    feature = "local_claude_codex_child_harnesses"
+))]
 use crate::ai::agent_sdk::ClaudeHarness;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::document::ai_document_model::{
@@ -71,7 +78,10 @@ use crate::notebooks::editor::model::FileLinkResolutionContext;
 use crate::persistence::ModelEvent;
 use crate::send_telemetry_from_ctx;
 use crate::server::server_api::AIApiError;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(
+    not(target_family = "wasm"),
+    feature = "local_claude_codex_child_harnesses"
+))]
 use crate::server::server_api::ServerApiProvider;
 use crate::server::team_scope::RequestTeamScope;
 use crate::server::telemetry::TelemetryEvent;
@@ -353,7 +363,10 @@ pub struct BlocklistAIController {
     /// These should be cancelled when a new request is sent for the same conversation.
     pending_auto_resume_handles: HashMap<AIConversationId, SpawnedFutureHandle>,
     /// Pending dormant Claude wake preparations for success-idle child conversations.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    #[cfg(all(
+        not(target_family = "wasm"),
+        feature = "local_claude_codex_child_harnesses"
+    ))]
     pending_local_claude_wakes: HashMap<AIConversationId, SpawnedFutureHandle>,
     /// Passive conversations explicitly requested to follow up after actions complete.
     pending_passive_follow_ups: HashSet<AIConversationId>,
@@ -392,16 +405,21 @@ enum WhichTask {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LocalClaudeWakeTrigger {
     PendingEvents,
+    #[cfg(any(test, feature = "integration_tests"))]
     WakeOnlyStream {
         wake_message: AgentMessageEventMetadata,
     },
 }
 
 impl LocalClaudeWakeTrigger {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(
+        not(target_family = "wasm"),
+        feature = "local_claude_codex_child_harnesses"
+    ))]
     fn requires_pending_events(&self) -> bool {
         match self {
             Self::PendingEvents => true,
+            #[cfg(any(test, feature = "integration_tests"))]
             Self::WakeOnlyStream { .. } => false,
         }
     }
@@ -625,6 +643,7 @@ impl BlocklistAIController {
             me.handle_pending_events_ready(*conversation_id, ctx);
         });
         let streamer = OrchestrationEventStreamer::handle(ctx);
+        #[cfg(any(test, feature = "integration_tests"))]
         ctx.subscribe_to_model(&streamer, move |me, _, event, ctx| match event {
             OrchestrationEventStreamerEvent::DormantClaudeWakeReady {
                 conversation_id,
@@ -636,6 +655,10 @@ impl BlocklistAIController {
             OrchestrationEventStreamerEvent::ChildSpawned { .. }
             | OrchestrationEventStreamerEvent::ChildStatusChanged { .. }
             | OrchestrationEventStreamerEvent::WatchedRunStatusChanged { .. } => {}
+        });
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        ctx.subscribe_to_model(&streamer, move |_, _, event, _| match event {
+            OrchestrationEventStreamerEvent::WatchedRunStatusChanged { .. } => {}
         });
         Self {
             input_model,
@@ -651,6 +674,10 @@ impl BlocklistAIController {
             ambient_agent_task_id: None,
             attachments_download_dir: None,
             pending_auto_resume_handles: HashMap::new(),
+            #[cfg(all(
+                not(target_family = "wasm"),
+                feature = "local_claude_codex_child_harnesses"
+            ))]
             pending_local_claude_wakes: HashMap::new(),
             pending_passive_follow_ups: HashSet::new(),
             pending_passive_suggestion_results: HashMap::new(),
@@ -1732,7 +1759,10 @@ impl BlocklistAIController {
         true
     }
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(any(
+        target_family = "wasm",
+        not(feature = "local_claude_codex_child_harnesses")
+    ))]
     fn maybe_prepare_local_claude_wake(
         &mut self,
         _conversation_id: AIConversationId,
@@ -1742,7 +1772,10 @@ impl BlocklistAIController {
         false
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(
+        not(target_family = "wasm"),
+        feature = "local_claude_codex_child_harnesses"
+    ))]
     fn maybe_prepare_local_claude_wake(
         &mut self,
         conversation_id: AIConversationId,
@@ -1788,6 +1821,7 @@ impl BlocklistAIController {
         let task_id = conversation.task_id();
         let wake_message_for_prepare = match &trigger {
             LocalClaudeWakeTrigger::PendingEvents => None,
+            #[cfg(any(test, feature = "integration_tests"))]
             LocalClaudeWakeTrigger::WakeOnlyStream { wake_message } => Some(wake_message.clone()),
         };
         let trigger_for_callback = trigger.clone();
@@ -1811,6 +1845,7 @@ impl BlocklistAIController {
                 me.pending_local_claude_wakes.remove(&conversation_id);
                 match result {
                     Ok(Some(command)) => {
+                        #[cfg(any(test, feature = "integration_tests"))]
                         if let LocalClaudeWakeTrigger::WakeOnlyStream { wake_message } =
                             &trigger_for_callback
                         {
@@ -1851,6 +1886,7 @@ impl BlocklistAIController {
                                 );
                                 me.inject_pending_events_for_request(conversation_id, ctx);
                             }
+                            #[cfg(any(test, feature = "integration_tests"))]
                             LocalClaudeWakeTrigger::WakeOnlyStream { wake_message } => {
                                 log::info!(
                                     "Retrying wake-only dormant Claude eligibility check: conversation_id={conversation_id:?} task_id={task_id:?}"
@@ -1871,6 +1907,7 @@ impl BlocklistAIController {
                             LocalClaudeWakeTrigger::PendingEvents => {
                                 me.schedule_pending_events_ready_retry(conversation_id, ctx);
                             }
+                            #[cfg(any(test, feature = "integration_tests"))]
                             LocalClaudeWakeTrigger::WakeOnlyStream { wake_message } => {
                                 me.schedule_dormant_claude_wake_ready_retry(
                                     conversation_id,
@@ -1888,7 +1925,10 @@ impl BlocklistAIController {
         true
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(
+        not(target_family = "wasm"),
+        feature = "local_claude_codex_child_harnesses"
+    ))]
     fn schedule_pending_events_ready_retry(
         &mut self,
         conversation_id: AIConversationId,
@@ -1902,7 +1942,11 @@ impl BlocklistAIController {
         );
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(
+        not(target_family = "wasm"),
+        feature = "local_claude_codex_child_harnesses",
+        any(test, feature = "integration_tests")
+    ))]
     fn schedule_dormant_claude_wake_ready_retry(
         &mut self,
         conversation_id: AIConversationId,
@@ -1995,6 +2039,7 @@ impl BlocklistAIController {
         self.inject_pending_events_for_request(conversation_id, ctx);
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_dormant_claude_wake_ready(
         &mut self,
         conversation_id: AIConversationId,

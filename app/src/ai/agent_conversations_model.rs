@@ -58,12 +58,14 @@ use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::TaskListFilter;
 use crate::server::server_api::presigned_upload::HttpStatusError;
 use crate::server::team_scope::RequestTeamScope;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::settings::AISettings;
 use crate::ui_components::icons::Icon;
 use crate::workspace::{RestoreConversationLayout, WorkspaceAction};
 use crate::workspaces::user_workspaces::{TeamContextResolver, TeamScope};
 
 const POLLING_INTERVAL: Duration = Duration::from_secs(30);
+#[cfg(any(test, feature = "integration_tests"))]
 const RTC_TASK_REFRESH_THROTTLE: Duration = Duration::from_secs(5);
 const INITIAL_TASK_AMOUNT: i32 = 100;
 
@@ -132,6 +134,7 @@ enum TaskFetchState {
 enum InitialConversationLoadState {
     LoadingLocal,
     WaitingForCloud,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     LoadingCloud,
     Loaded,
     CloudFailed,
@@ -142,12 +145,14 @@ impl InitialConversationLoadState {
         match self {
             InitialConversationLoadState::LoadingLocal => true,
             InitialConversationLoadState::WaitingForCloud
-            | InitialConversationLoadState::LoadingCloud
             | InitialConversationLoadState::Loaded
             | InitialConversationLoadState::CloudFailed => false,
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            InitialConversationLoadState::LoadingCloud => false,
         }
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn can_start_cloud_load(self) -> bool {
         match self {
             InitialConversationLoadState::WaitingForCloud => true,
@@ -164,8 +169,9 @@ impl InitialConversationLoadState {
                 true
             }
             InitialConversationLoadState::LoadingLocal
-            | InitialConversationLoadState::WaitingForCloud
-            | InitialConversationLoadState::LoadingCloud => false,
+            | InitialConversationLoadState::WaitingForCloud => false,
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            InitialConversationLoadState::LoadingCloud => false,
         }
     }
 }
@@ -173,16 +179,19 @@ impl InitialConversationLoadState {
 /// Tracks the cooldown window for RTC-triggered task-list refreshes. Pending events keep
 /// the earliest timestamp in the burst because `updated_after` is a lower bound; using the
 /// latest timestamp could skip tasks that changed earlier in the same window.
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Default)]
 enum RtcTaskRefreshThrottleState {
     #[default]
     Idle,
+    #[cfg(any(test, feature = "integration_tests"))]
     CoolingDown {
         pending_timestamp: Option<DateTime<Utc>>,
         timer_abort_handle: AbortHandle,
     },
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 fn record_earliest_rtc_task_refresh_timestamp(
     pending_timestamp: &mut Option<DateTime<Utc>>,
     timestamp: DateTime<Utc>,
@@ -642,6 +651,7 @@ pub struct AgentConversationsModel {
     /// the meaning of each variant. Tasks that have been successfully fetched live in `tasks`
     /// and are absent from this map.
     task_fetch_state: HashMap<AmbientAgentTaskId, TaskFetchState>,
+    #[cfg(any(test, feature = "integration_tests"))]
     rtc_task_refresh_throttle_state: RtcTaskRefreshThrottleState,
     /// Earliest RTC timestamp received while no list surface was open.
     /// On next `register_view_open`, triggers a single `fetch_tasks_updated_after`.
@@ -694,6 +704,7 @@ impl AgentConversationsModel {
                 active_data_consumers_per_window: HashMap::new(),
                 initial_load_state: InitialConversationLoadState::Loaded,
                 task_fetch_state: HashMap::new(),
+                #[cfg(any(test, feature = "integration_tests"))]
                 rtc_task_refresh_throttle_state: RtcTaskRefreshThrottleState::default(),
                 dirty_since: None,
             };
@@ -733,6 +744,7 @@ impl AgentConversationsModel {
             active_data_consumers_per_window: HashMap::new(),
             initial_load_state: InitialConversationLoadState::LoadingLocal,
             task_fetch_state: HashMap::new(),
+            #[cfg(any(test, feature = "integration_tests"))]
             rtc_task_refresh_throttle_state: RtcTaskRefreshThrottleState::default(),
             dirty_since: None,
         };
@@ -801,12 +813,16 @@ impl AgentConversationsModel {
     ) {
         // When auth completes, start the initial cloud sync if it has not started yet.
         // Only sync if we're not in CLI mode
+        #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
         if matches!(event, AuthManagerEvent::AuthComplete)
             && self.initial_load_state.can_start_cloud_load()
             && AppExecutionMode::as_ref(ctx).can_fetch_agent_runs_for_management()
         {
             self.fetch_ambient_agent_tasks_and_cloud_convo_metadata(ctx);
         }
+
+        #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+        let _ = (event, ctx);
     }
 
     fn handle_update_manager_event(
@@ -815,32 +831,42 @@ impl AgentConversationsModel {
         event: &UpdateManagerEvent,
         ctx: &mut ModelContext<Self>,
     ) {
-        let UpdateManagerEvent::AmbientTaskUpdated { task_id, timestamp } = event else {
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        {
+            let _ = (event, ctx);
             return;
-        };
+        }
 
-        let has_list_consumers = self
-            .active_data_consumers_per_window
-            .values()
-            .any(|views| !views.is_empty());
-        if has_list_consumers {
-            // (a) If management view or conversation list is open, throttled list-fetch.
-            self.handle_rtc_for_list_views(*timestamp, ctx);
-        } else {
-            let has_open_tab = ActiveAgentViewsModel::as_ref(ctx)
-                .get_terminal_view_id_for_ambient_task(*task_id)
-                .is_some();
-            if has_open_tab {
-                // (b) If this task has an open tab (any window), force a re-fetch.
-                self.async_fetch_task(task_id, ctx);
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let UpdateManagerEvent::AmbientTaskUpdated { task_id, timestamp } = event else {
+                return;
+            };
+
+            let has_list_consumers = self
+                .active_data_consumers_per_window
+                .values()
+                .any(|views| !views.is_empty());
+            if has_list_consumers {
+                // (a) If management view or conversation list is open, throttled list-fetch.
+                self.handle_rtc_for_list_views(*timestamp, ctx);
             } else {
-                // (c) No list surface open: record earliest timestamp for flush on next view open.
-                record_earliest_rtc_task_refresh_timestamp(&mut self.dirty_since, *timestamp);
+                let has_open_tab = ActiveAgentViewsModel::as_ref(ctx)
+                    .get_terminal_view_id_for_ambient_task(*task_id)
+                    .is_some();
+                if has_open_tab {
+                    // (b) If this task has an open tab (any window), force a re-fetch.
+                    self.async_fetch_task(task_id, ctx);
+                } else {
+                    // (c) No list surface open: record earliest timestamp for flush on next view open.
+                    record_earliest_rtc_task_refresh_timestamp(&mut self.dirty_since, *timestamp);
+                }
             }
         }
     }
 
     // Handle RTC invalidations for list views, respecting the refresh throttling.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_rtc_for_list_views(
         &mut self,
         timestamp: DateTime<Utc>,
@@ -864,6 +890,7 @@ impl AgentConversationsModel {
         }
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_rtc_task_refresh_throttle_timer(&mut self, ctx: &mut ModelContext<Self>) {
         let future_handle = ctx.spawn(
             async move {
@@ -890,6 +917,7 @@ impl AgentConversationsModel {
         };
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn abort_rtc_task_refresh_throttle(&mut self) {
         if let RtcTaskRefreshThrottleState::CoolingDown {
             timer_abort_handle, ..
@@ -898,6 +926,9 @@ impl AgentConversationsModel {
             timer_abort_handle.abort();
         }
     }
+
+    #[cfg(not(any(test, feature = "integration_tests")))]
+    fn abort_rtc_task_refresh_throttle(&mut self) {}
 
     /// Fetch tasks updated after the given timestamp (minus 1 second buffer since server uses `>` not `>=`).
     fn fetch_tasks_updated_after(
@@ -967,6 +998,7 @@ impl AgentConversationsModel {
 
     /// Fetches tasks and cloud conversation metadata async. Cloud conversation metadata is merged with
     /// metadata stored in local db in the BlocklistAIHistoryModel
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn fetch_ambient_agent_tasks_and_cloud_convo_metadata(&mut self, ctx: &mut ModelContext<Self>) {
         let Some(creator_uid) = AuthStateProvider::as_ref(ctx)
             .get()
@@ -1288,11 +1320,6 @@ impl AgentConversationsModel {
         } else if has_updated_tasks {
             ctx.emit(AgentConversationsModelEvent::TasksUpdated);
         }
-    }
-
-    /// Returns an iterator over all ambient agent tasks.
-    pub fn tasks_iter(&self) -> impl Iterator<Item = &AmbientAgentTask> {
-        self.tasks.values()
     }
 
     /// Seeds the task cache so tests can exercise cache-hit paths without a
@@ -1779,6 +1806,7 @@ impl AgentConversationsModel {
     /// `is_sandbox_running=true` + `session_id` it needs to return `AttachLive`
     /// on the next pill click. `TasksUpdated` is emitted so any pending
     /// re-drives fire immediately.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn update_task_as_running_with_session(
         &mut self,
         task_id: &AmbientAgentTaskId,

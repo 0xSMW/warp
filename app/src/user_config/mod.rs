@@ -138,7 +138,7 @@ impl WarpConfig {
     }
 
     /// Parse errors for `custom_model_routers/` files that failed to load.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    #[cfg(test)]
     pub fn custom_model_router_errors(&self) -> &Vec<ModelConfigError> {
         &self.custom_model_router_errors
     }

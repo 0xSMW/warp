@@ -1050,12 +1050,16 @@ impl MCPServersListPageView {
     ) {
         match event {
             TemplatableMCPServerManagerEvent::StateChanged { uuid: _, state: _ }
-            | TemplatableMCPServerManagerEvent::AuthenticationRequired { uuid: _ }
             | TemplatableMCPServerManagerEvent::CredentialsChanged { uuid: _ }
             | TemplatableMCPServerManagerEvent::ServerInstallationAdded(_)
             | TemplatableMCPServerManagerEvent::ServerInstallationDeleted(_)
             | TemplatableMCPServerManagerEvent::TemplatableMCPServersUpdated
             | TemplatableMCPServerManagerEvent::LegacyServerConverted => {
+                self.refresh_server_cards(ctx);
+                self.refresh_file_based_server_cards(ctx);
+            }
+            #[cfg(test)]
+            TemplatableMCPServerManagerEvent::AuthenticationRequired { uuid: _ } => {
                 self.refresh_server_cards(ctx);
                 self.refresh_file_based_server_cards(ctx);
             }

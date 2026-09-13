@@ -27,6 +27,31 @@ pub struct ChannelConfig {
     pub mcp_static_config: Option<McpStaticConfig>,
 }
 
+impl ChannelConfig {
+    /// Standalone terminal configuration without Warp cloud services or credentials.
+    pub fn local_only() -> Self {
+        Self {
+            app_id: AppId::new("dev", "warp", "Warp-Local"),
+            logfile_name: "warp_local.log".into(),
+            server_config: WarpServerConfig {
+                server_root_url: "http://127.0.0.1:0".into(),
+                rtc_server_url: "ws://127.0.0.1:0/graphql/v2".into(),
+                session_sharing_server_url: None,
+                firebase_auth_api_key: "".into(),
+                iap_config: None,
+            },
+            oz_config: OzConfig {
+                oz_root_url: "http://127.0.0.1:0".into(),
+                workload_audience_url: None,
+            },
+            telemetry_config: None,
+            autoupdate_config: None,
+            crash_reporting_config: None,
+            mcp_static_config: None,
+        }
+    }
+}
+
 /// Configuration for GCP Identity-Aware Proxy authentication, present only on staging builds.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct IapConfig {

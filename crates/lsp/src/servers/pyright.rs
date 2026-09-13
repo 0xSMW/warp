@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-#[cfg(feature = "local_fs")]
+#[cfg(all(feature = "local_fs", test))]
 use anyhow::Context;
 use async_trait::async_trait;
 #[cfg(feature = "local_fs")]
@@ -12,10 +12,13 @@ use crate::language_server_candidate::{LanguageServerCandidate, LanguageServerMe
 #[cfg(feature = "local_fs")]
 use crate::supported_servers::CustomBinaryConfig;
 
-#[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub struct PyrightCandidate {
+    #[cfg(test)]
     client: Arc<http_client::Client>,
 }
+
+#[cfg(all(not(test), feature = "local_fs"))]
+const LOCAL_ONLY_INSTALL_ERROR: &str = "Automatic Pyright installation is unavailable in local-only builds; install Pyright locally with Node.js/npm and ensure pyright-langserver is available on PATH.";
 
 impl PyrightCandidate {
     /// Path to the langserver JS file relative to the pyright install directory.
@@ -27,7 +30,13 @@ impl PyrightCandidate {
     const PYRIGHT_CLI_PATH: &str = "node_modules/pyright/dist/pyright.js";
 
     pub fn new(client: Arc<http_client::Client>) -> Self {
-        Self { client }
+        #[cfg(not(test))]
+        let _ = client;
+
+        Self {
+            #[cfg(test)]
+            client,
+        }
     }
 
     /// Finds the configuration for running pyright from our custom installation.
@@ -135,73 +144,91 @@ impl LanguageServerCandidate for PyrightCandidate {
         metadata: LanguageServerMetadata,
         executor: &CommandBuilder,
     ) -> anyhow::Result<()> {
-        log::info!("Installing pyright version {}", metadata.version);
-
-        let install_dir = warp_core::paths::data_dir().join("pyright");
-
-        // Create the installation directory
-        async_fs::create_dir_all(&install_dir)
-            .await
-            .context("Failed to create pyright installation directory")?;
-
-        // First, check if system node is available and meets requirements
-        let use_system_node = match executor.path_env_var() {
-            Some(path) => node_runtime::detect_system_node(path).await.is_ok(),
-            None => false,
-        };
-
-        let custom_node_paths = if use_system_node {
-            log::info!("Using system Node.js for pyright installation");
-            None
-        } else {
-            log::info!("System Node.js not found or too old, installing custom Node.js");
-            node_runtime::install_npm(&self.client).await?;
-            Some((
-                node_runtime::node_binary_path()?,
-                node_runtime::npm_binary_path()?,
-            ))
-        };
-
-        // Install pyright using npm
-        log::info!("Installing pyright@{} using npm", metadata.version);
-
-        // Build the npm install command:
-        // - System node: run `npm` directly (it's on PATH)
-        // - Custom node: run `node <npm_path>` to avoid relying on shebang resolution
-        let mut cmd = if let Some((node_path, npm_path)) = &custom_node_paths {
-            let mut c = executor.command(node_path);
-            c.arg(npm_path);
-            c
-        } else {
-            executor.command("npm")
-        };
-
-        cmd.arg("install")
-            .arg("--ignore-scripts")
-            .arg(format!("pyright@{}", metadata.version))
-            .current_dir(&install_dir);
-
-        let output = cmd.output().await.context("Failed to run npm install")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to install pyright via npm: {}", stderr);
+        #[cfg(not(test))]
+        {
+            let _ = (metadata, executor);
+            anyhow::bail!("{LOCAL_ONLY_INSTALL_ERROR}");
         }
 
-        log::info!("Pyright installed successfully");
-        Ok(())
+        #[cfg(test)]
+        {
+            log::info!("Installing pyright version {}", metadata.version);
+
+            let install_dir = warp_core::paths::data_dir().join("pyright");
+
+            // Create the installation directory
+            async_fs::create_dir_all(&install_dir)
+                .await
+                .context("Failed to create pyright installation directory")?;
+
+            // First, check if system node is available and meets requirements
+            let use_system_node = match executor.path_env_var() {
+                Some(path) => node_runtime::detect_system_node(path).await.is_ok(),
+                None => false,
+            };
+
+            let custom_node_paths = if use_system_node {
+                log::info!("Using system Node.js for pyright installation");
+                None
+            } else {
+                log::info!("System Node.js not found or too old, installing custom Node.js");
+                node_runtime::install_npm(&self.client).await?;
+                Some((
+                    node_runtime::node_binary_path()?,
+                    node_runtime::npm_binary_path()?,
+                ))
+            };
+
+            // Install pyright using npm
+            log::info!("Installing pyright@{} using npm", metadata.version);
+
+            // Build the npm install command:
+            // - System node: run `npm` directly (it's on PATH)
+            // - Custom node: run `node <npm_path>` to avoid relying on shebang resolution
+            let mut cmd = if let Some((node_path, npm_path)) = &custom_node_paths {
+                let mut c = executor.command(node_path);
+                c.arg(npm_path);
+                c
+            } else {
+                executor.command("npm")
+            };
+
+            cmd.arg("install")
+                .arg("--ignore-scripts")
+                .arg(format!("pyright@{}", metadata.version))
+                .current_dir(&install_dir);
+
+            let output = cmd.output().await.context("Failed to run npm install")?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("Failed to install pyright via npm: {}", stderr);
+            }
+
+            log::info!("Pyright installed successfully");
+            Ok(())
+        }
     }
 
     async fn fetch_latest_server_metadata(&self) -> anyhow::Result<LanguageServerMetadata> {
-        let version = node_runtime::fetch_npm_package_version(&self.client, "pyright")
-            .await
-            .context("Failed to fetch pyright version from npm registry")?;
+        #[cfg(not(test))]
+        {
+            let _ = self;
+            anyhow::bail!("{LOCAL_ONLY_INSTALL_ERROR}");
+        }
 
-        Ok(LanguageServerMetadata {
-            version,
-            url: None, // npm packages don't have direct download URLs
-            digest: None,
-        })
+        #[cfg(test)]
+        {
+            let version = node_runtime::fetch_npm_package_version(&self.client, "pyright")
+                .await
+                .context("Failed to fetch pyright version from npm registry")?;
+
+            Ok(LanguageServerMetadata {
+                version,
+                url: None, // npm packages don't have direct download URLs
+                digest: None,
+            })
+        }
     }
 }
 

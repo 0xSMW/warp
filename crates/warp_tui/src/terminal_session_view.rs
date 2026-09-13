@@ -16,6 +16,8 @@ use warp::settings::{
     AISettings, AISettingsChangedEvent, AppEditorSettings, SettingsFileError, TuiStatuslineConfig,
     TuiTheme, TuiThemeSettings,
 };
+#[cfg(test)]
+use warp::tui_export::ServerConversationToken;
 #[cfg(feature = "voice_input")]
 use warp::tui_export::slash_commands;
 use warp::tui_export::{
@@ -35,7 +37,7 @@ use warp::tui_export::{
     ModelEvent, ParsedSlashCommandInput, PersistenceWriter, PillBarActionKind,
     PillBarInteractionEvent, PillBarPillKind, PillSwitchOutcome, PtyIntent, PtyIntentEvent,
     QueuedQueryEvent, QueuedQueryModel, RepoDetectionSessionType, RepoDetectionSource,
-    ResolvedTeamScope, ServerConversationToken, ServerId, SessionSettings, Sessions, SessionsEvent,
+    ResolvedTeamScope, ServerId, SessionSettings, Sessions, SessionsEvent,
     ShellCommandExecutorEvent, SizeInfo, SizeUpdate, SkillReference, SlashCommandDataSource as _,
     SlashCommandKind, SlashCommandSelectionBehavior, StartAgentExecutorEvent, StartAgentRequest,
     StaticCommand, TelemetryEvent, TerminalModel, TerminalSurface, TerminalSurfaceInit,
@@ -147,7 +149,9 @@ use crate::tui_ask_question_view::TuiAskQuestionView;
 use crate::tui_builder::TuiUiBuilder;
 use crate::tui_cli_subagent_view::{HAND_BACK_KEY_BINDING, TuiCLISubagentView};
 use crate::tui_permission_prompt::TuiPermissionPrompt;
-use crate::ui::{abbreviate_home_prefix, conversation_restore_failed, conversation_restoring};
+use crate::ui::abbreviate_home_prefix;
+#[cfg(test)]
+use crate::ui::{conversation_restore_failed, conversation_restoring};
 use crate::usage::UsageToggle;
 #[cfg(feature = "voice_input")]
 use crate::voice_input::{
@@ -508,6 +512,7 @@ fn render_mcp_menu_footer(
 /// Entry point that requested conversation restoration.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TuiConversationRestoreOrigin {
+    #[cfg(test)]
     Startup,
     ConversationList,
     Fork,
@@ -516,9 +521,12 @@ pub(crate) enum TuiConversationRestoreOrigin {
 impl TuiConversationRestoreOrigin {
     fn agent_view_origin(self) -> AgentViewEntryOrigin {
         match self {
+            #[cfg(test)]
             Self::Startup | Self::ConversationList => {
                 AgentViewEntryOrigin::RestoreExistingConversation
             }
+            #[cfg(not(test))]
+            Self::ConversationList => AgentViewEntryOrigin::RestoreExistingConversation,
             Self::Fork => AgentViewEntryOrigin::Tui,
         }
     }
@@ -531,6 +539,7 @@ impl TuiConversationRestoreOrigin {
 #[derive(Clone, Debug)]
 pub(crate) enum TuiConversationRestoreTarget {
     Local(AIConversationId),
+    #[cfg(test)]
     Server(ServerConversationToken),
 }
 
@@ -538,6 +547,7 @@ impl TuiConversationRestoreTarget {
     fn telemetry_target(&self) -> TuiConversationRestoreTelemetryTarget {
         match self {
             Self::Local(_) => TuiConversationRestoreTelemetryTarget::Local,
+            #[cfg(test)]
             Self::Server(_) => TuiConversationRestoreTelemetryTarget::Server,
         }
     }
@@ -553,6 +563,7 @@ enum ConversationRestoreState {
         request_id: u64,
         future: Option<SpawnedFutureHandle>,
     },
+    #[cfg(test)]
     Failed(String),
 }
 
@@ -762,6 +773,7 @@ pub(crate) struct TuiTerminalSessionView {
     conversation_restore_state: ConversationRestoreState,
     next_restore_request_id: u64,
     exit_summary: TuiExitSummaryHandle,
+    #[cfg(test)]
     handoff: Option<ViewHandle<TuiHandoffBlock>>,
     statusline_config_view: Option<ViewHandle<TuiStatuslineConfigView>>,
     orchestration_tab_bar: ViewHandle<TuiTabBarView>,
@@ -1673,14 +1685,8 @@ impl TuiTerminalSessionView {
         });
         ctx.subscribe_to_model(&slash_commands, |_, _, _, ctx| ctx.notify());
         let window_id = ctx.window_id();
-        let api_keys_team_context = UserWorkspaces::team_context_resolver(ctx.handle());
         let api_keys_menu = ctx.add_model(|ctx| {
-            TuiApiKeysMenuModel::new(
-                input_editor_model.clone(),
-                suggestions_mode.clone(),
-                api_keys_team_context,
-                ctx,
-            )
+            TuiApiKeysMenuModel::new(input_editor_model.clone(), suggestions_mode.clone(), ctx)
         });
         ctx.subscribe_to_model(&api_keys_menu, |_, _, _: &TuiApiKeysMenuEvent, ctx| {
             ctx.notify();
@@ -2105,9 +2111,11 @@ impl TuiTerminalSessionView {
 
         // Trigger the changelog fetch once at startup so `TuiZeroStateView`
         // has data to display.  The re-render subscription lives in the view.
-        ChangelogModel::handle(ctx).update(ctx, |changelog, ctx| {
-            changelog.check_for_changelog(ChangelogRequestType::WindowLaunch, ctx);
-        });
+        if ChannelState::channel() != Channel::Local {
+            ChangelogModel::handle(ctx).update(ctx, |changelog, ctx| {
+                changelog.check_for_changelog(ChangelogRequestType::WindowLaunch, ctx);
+            });
+        }
 
         // Bridge shared shell-tool executor events into terminal-manager PTY intents.
         let shell_command_executor = action_model.as_ref(ctx).shell_command_executor(ctx);
@@ -2356,6 +2364,7 @@ impl TuiTerminalSessionView {
             conversation_restore_state: ConversationRestoreState::Idle,
             next_restore_request_id: 0,
             exit_summary,
+            #[cfg(test)]
             handoff: None,
             statusline_config_view: None,
             orchestration_tab_bar,
@@ -2401,6 +2410,7 @@ impl TuiTerminalSessionView {
 
     /// Starts the first request for a child conversation hosted by this
     /// background session.
+    #[cfg(test)]
     pub(crate) fn start_orchestrated_child(
         &mut self,
         task_id: warp::tui_export::AmbientAgentTaskId,
@@ -2415,6 +2425,7 @@ impl TuiTerminalSessionView {
     }
 
     /// Initializes a background child session with the conversation it owns.
+    #[cfg(test)]
     pub(crate) fn initialize_orchestrated_child_conversation(
         &mut self,
         conversation_id: AIConversationId,
@@ -2435,6 +2446,7 @@ impl TuiTerminalSessionView {
     /// and transcript restoration. It deliberately does **not** relaunch the
     /// child, resend its prompt, or create a server task — the child keeps its
     /// persisted status.
+    #[cfg(test)]
     pub(crate) fn restore_orchestrated_child_conversation(
         &mut self,
         conversation: AIConversation,
@@ -2999,6 +3011,7 @@ impl TuiTerminalSessionView {
                 TuiConversationRestoreTarget::Local(conversation_id) => {
                     history.load_conversation_data(*conversation_id, ctx)
                 }
+                #[cfg(test)]
                 TuiConversationRestoreTarget::Server(server_token) => {
                     history.load_conversation_by_server_token(server_token, ctx)
                 }
@@ -3015,9 +3028,11 @@ impl TuiTerminalSessionView {
             } if *active_request_id == request_id => {
                 *future = Some(future_handle);
             }
-            ConversationRestoreState::Idle
-            | ConversationRestoreState::Failed(_)
-            | ConversationRestoreState::Loading { .. } => future_handle.abort(),
+            ConversationRestoreState::Idle | ConversationRestoreState::Loading { .. } => {
+                future_handle.abort()
+            }
+            #[cfg(test)]
+            ConversationRestoreState::Failed(_) => future_handle.abort(),
         }
     }
 
@@ -3058,6 +3073,7 @@ impl TuiTerminalSessionView {
             TuiConversationRestoreTarget::Local(conversation_id) => {
                 conversation.id() == *conversation_id
             }
+            #[cfg(test)]
             TuiConversationRestoreTarget::Server(server_token) => {
                 conversation.server_conversation_token() == Some(server_token)
             }
@@ -3275,11 +3291,12 @@ impl TuiTerminalSessionView {
                 request_id: active_request_id,
                 ..
             } if *active_request_id == request_id => (*origin, *target),
-            ConversationRestoreState::Idle
-            | ConversationRestoreState::Failed(_)
-            | ConversationRestoreState::Loading { .. } => return,
+            ConversationRestoreState::Idle | ConversationRestoreState::Loading { .. } => return,
+            #[cfg(test)]
+            ConversationRestoreState::Failed(_) => return,
         };
         match origin {
+            #[cfg(test)]
             TuiConversationRestoreOrigin::Startup => {
                 self.conversation_restore_state = ConversationRestoreState::Failed(message);
             }
@@ -3574,6 +3591,7 @@ impl TuiTerminalSessionView {
         if self.cancel_conversation_restore(ctx) {
             return;
         }
+        #[cfg(test)]
         if matches!(
             &self.conversation_restore_state,
             ConversationRestoreState::Failed(_)
@@ -4344,8 +4362,15 @@ impl TuiTerminalSessionView {
             entry.identity.server_conversation_token,
         ) {
             (Some(conversation_id), _) => TuiConversationRestoreTarget::Local(conversation_id),
+            #[cfg(test)]
             (None, Some(server_token)) => TuiConversationRestoreTarget::Server(server_token),
+            #[cfg(test)]
             (None, None) => {
+                self.show_transient_hint(SWITCH_UNAVAILABLE_HINT.to_owned(), ctx);
+                return;
+            }
+            #[cfg(not(test))]
+            (None, Some(_)) | (None, None) => {
                 self.show_transient_hint(SWITCH_UNAVAILABLE_HINT.to_owned(), ctx);
                 return;
             }
@@ -4650,30 +4675,25 @@ impl TuiTerminalSessionView {
                 record_static_slash_command_accepted(command.name, true, ctx);
             }
             SlashCommandKind::ConnectGrok => {
-                self.api_keys_menu
-                    .update(ctx, |menu, ctx| menu.open_and_connect_grok(ctx));
-                record_static_slash_command_accepted(command.name, true, ctx);
+                self.input_view.update(ctx, |input, ctx| input.clear(ctx));
+                self.show_error_hint(
+                    "Connecting Grok is unavailable in the local TUI build".to_owned(),
+                    ctx,
+                );
             }
             SlashCommandKind::Upgrade => {
                 self.input_view.update(ctx, |input, ctx| input.clear(ctx));
-                ctx.open_url(&upgrade_url(ctx));
-                record_static_slash_command_accepted(command.name, true, ctx);
+                self.show_error_hint(
+                    "Upgrading is unavailable in the local TUI build".to_owned(),
+                    ctx,
+                );
             }
             SlashCommandKind::ManageBilling => {
                 self.input_view.update(ctx, |input, ctx| input.clear(ctx));
-                let Some(url) = self
-                    .slash_commands_source
-                    .as_ref(ctx)
-                    .manage_billing_url(ctx)
-                else {
-                    self.show_error_hint(
-                        "Billing management is only available to team admins".to_owned(),
-                        ctx,
-                    );
-                    return;
-                };
-                ctx.open_url(&url);
-                record_static_slash_command_accepted(command.name, true, ctx);
+                self.show_error_hint(
+                    "Billing management is unavailable in the local TUI build".to_owned(),
+                    ctx,
+                );
             }
             SlashCommandKind::Cost => {
                 self.input_view.update(ctx, |input, ctx| input.clear(ctx));
@@ -5309,6 +5329,7 @@ impl TuiTerminalSessionView {
     /// hold-to-talk recording.
     fn render_session_content(&self, ctx: &AppContext) -> (Box<dyn TuiElement>, bool) {
         match &self.conversation_restore_state {
+            #[cfg(test)]
             ConversationRestoreState::Loading {
                 origin: TuiConversationRestoreOrigin::Startup,
                 ..
@@ -5321,6 +5342,7 @@ impl TuiTerminalSessionView {
                 origin: TuiConversationRestoreOrigin::Fork,
                 ..
             } => {}
+            #[cfg(test)]
             ConversationRestoreState::Failed(message) => {
                 return (conversation_restore_failed(message), false);
             }
@@ -5654,7 +5676,10 @@ impl TypedActionView for TuiTerminalSessionView {
     fn handle_action(&mut self, action: &TuiTerminalSessionAction, ctx: &mut ViewContext<Self>) {
         match action {
             TuiTerminalSessionAction::Interrupt => self.handle_interrupt(ctx),
-            TuiTerminalSessionAction::OpenUpgradeUrl => ctx.open_url(&upgrade_url(ctx)),
+            TuiTerminalSessionAction::OpenUpgradeUrl => self.show_error_hint(
+                "Upgrading is unavailable in the local TUI build".to_owned(),
+                ctx,
+            ),
             TuiTerminalSessionAction::Eof => self.handle_eof(ctx),
             TuiTerminalSessionAction::CancelRestore => {
                 self.cancel_conversation_restore(ctx);

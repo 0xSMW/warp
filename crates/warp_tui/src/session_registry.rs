@@ -8,22 +8,27 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use pathfinder_geometry::vector::Vector2F;
+#[cfg(test)]
 use warp::tui_export::{
-    AIConversation, AIConversationAutoexecuteMode, AIConversationId, AmbientAgentTaskId,
-    BannerState, BlocklistAIHistoryModel, GlobalResourceHandlesProvider, IsSharedSessionCreator,
-    LocalTtyTerminalManager, PersistenceWriter, ServerConversationToken,
-    TEAM_CHANGED_DURING_CHILD_LAUNCH_ERROR, TerminalManagerTrait, TerminalSurfaceResult,
-    UserWorkspaces, oz_run_url,
+    AIConversation, AmbientAgentTaskId, TEAM_CHANGED_DURING_CHILD_LAUNCH_ERROR, UserWorkspaces,
+    oz_run_url,
+};
+use warp::tui_export::{
+    AIConversationAutoexecuteMode, AIConversationId, BannerState, BlocklistAIHistoryModel,
+    GlobalResourceHandlesProvider, IsSharedSessionCreator, LocalTtyTerminalManager,
+    PersistenceWriter, TerminalManagerTrait, TerminalSurfaceResult,
 };
 use warpui::SingletonEntity;
 use warpui_core::runtime::TuiDriverHandle;
 use warpui_core::{AppContext, Entity, EntityId, ModelContext, ModelHandle, ViewHandle, WindowId};
 
+#[cfg(test)]
 use crate::cloud_run::TuiCloudRunState;
+#[cfg(test)]
 use crate::cloud_run_view::TuiCloudRunView;
-use crate::orchestration_model::{
-    MaterializedLocalOzChildSession, TuiOrchestrationEvent, TuiOrchestrationModel,
-};
+use crate::orchestration_model::TuiOrchestrationModel;
+#[cfg(test)]
+use crate::orchestration_model::{MaterializedLocalOzChildSession, TuiOrchestrationEvent};
 use crate::resume::TuiExitSummaryHandle;
 use crate::terminal_session_view::{TuiTerminalSessionEvent, TuiTerminalSessionView};
 use crate::transcript_view::TRANSCRIPT_BLOCK_SPACING;
@@ -46,6 +51,7 @@ impl TuiSessionId {
 #[derive(Clone)]
 pub(crate) enum TuiSessionView {
     Terminal(ViewHandle<TuiTerminalSessionView>),
+    #[cfg(test)]
     Cloud(ViewHandle<TuiCloudRunView>),
 }
 
@@ -53,6 +59,7 @@ impl TuiSessionView {
     pub(crate) fn id(&self) -> EntityId {
         match self {
             Self::Terminal(view) => view.id(),
+            #[cfg(test)]
             Self::Cloud(view) => view.id(),
         }
     }
@@ -60,6 +67,7 @@ impl TuiSessionView {
     pub(crate) fn window_id(&self, ctx: &AppContext) -> WindowId {
         match self {
             Self::Terminal(view) => view.window_id(ctx),
+            #[cfg(test)]
             Self::Cloud(view) => view.window_id(ctx),
         }
     }
@@ -67,15 +75,18 @@ impl TuiSessionView {
     pub(crate) fn activate(&self, ctx: &mut AppContext) {
         match self {
             Self::Terminal(view) => view.update(ctx, |view, ctx| view.activate(ctx)),
+            #[cfg(test)]
             Self::Cloud(view) => view.update(ctx, |view, ctx| view.activate(ctx)),
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn refresh_orchestration_tab_state(&self, ctx: &mut AppContext) {
         match self {
             Self::Terminal(view) => {
                 view.update(ctx, |view, ctx| view.refresh_orchestration_tab_state(ctx));
             }
+            #[cfg(test)]
             Self::Cloud(view) => {
                 view.update(ctx, |view, ctx| view.refresh_orchestration_tab_state(ctx));
             }
@@ -89,6 +100,7 @@ impl TuiSessionView {
                     view.set_orchestration_tab_focus(focused, ctx);
                 });
             }
+            #[cfg(test)]
             Self::Cloud(view) => {
                 view.update(ctx, |view, ctx| {
                     view.set_orchestration_tab_focus(focused, ctx);
@@ -107,8 +119,10 @@ pub(crate) struct TuiSession {
 }
 
 /// Retained TUI session resources for a remote child.
+#[cfg(test)]
 pub(crate) struct RemoteChildSession {
     pub(crate) session_id: TuiSessionId,
+    #[cfg(test)]
     pub(crate) cloud_run_state: ModelHandle<TuiCloudRunState>,
 }
 
@@ -122,6 +136,7 @@ impl TuiSession {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TuiSessionsEvent {
     /// A session was removed from the container.
+    #[cfg(test)]
     SessionRemoved(TuiSessionId),
     /// The focused session changed to this id.
     FocusChanged(TuiSessionId),
@@ -136,7 +151,6 @@ pub(crate) struct TuiSessions {
     exit_summary: TuiExitSummaryHandle,
     sessions: Vec<TuiSession>,
     focused_session_id: Option<TuiSessionId>,
-    resume_token: Option<ServerConversationToken>,
     default_autoexecute_mode: AIConversationAutoexecuteMode,
 }
 
@@ -222,6 +236,7 @@ impl TuiSessions {
     }
 
     /// Creates and registers a lightweight cloud-run session.
+    #[cfg(test)]
     pub(crate) fn create_cloud_run_session(
         sessions: &ModelHandle<Self>,
         window_id: WindowId,
@@ -236,6 +251,7 @@ impl TuiSessions {
     }
 
     /// Creates and registers the retained session resources for a remote child.
+    #[cfg(test)]
     pub(crate) fn create_remote_child_session(
         sessions: &ModelHandle<Self>,
         parent_session_id: TuiSessionId,
@@ -264,6 +280,7 @@ impl TuiSessions {
     /// Creates an unfocused local terminal session for a restored child and
     /// restores its persisted transcript onto it, without relaunching the child
     /// or resending its prompt.
+    #[cfg(test)]
     pub(crate) fn create_restored_local_child_session(
         sessions: &ModelHandle<Self>,
         window_id: WindowId,
@@ -290,6 +307,7 @@ impl TuiSessions {
     /// discoverable in the orchestration snapshot. The session starts in the
     /// spawned state from the persisted task/run identity; no new task is
     /// created.
+    #[cfg(test)]
     pub(crate) fn create_restored_remote_child_session(
         sessions: &ModelHandle<Self>,
         window_id: WindowId,
@@ -367,6 +385,7 @@ impl TuiSessions {
         })
     }
 
+    #[cfg(test)]
     fn register_cloud_session(
         sessions: &ModelHandle<Self>,
         view: ViewHandle<TuiCloudRunView>,
@@ -393,6 +412,7 @@ impl TuiSessions {
     }
 
     /// Subscribes the session owner to orchestration lifecycle requests.
+    #[cfg(test)]
     pub(crate) fn wire_orchestration(
         sessions: &ModelHandle<Self>,
         orchestration: &ModelHandle<TuiOrchestrationModel>,
@@ -475,6 +495,7 @@ impl TuiSessions {
                     );
                 });
             }
+            #[cfg(test)]
             TuiOrchestrationEvent::CreateRemoteChildSession {
                 parent_session_id,
                 request,
@@ -525,6 +546,7 @@ impl TuiSessions {
                                 view.cancel_active_conversation(ctx);
                             });
                         }
+                        #[cfg(test)]
                         TuiSessionView::Cloud(_) => {}
                     }
                 }
@@ -563,6 +585,7 @@ impl TuiSessions {
                     );
                 });
             }
+            #[cfg(test)]
             TuiOrchestrationEvent::RestoreRemoteChildSession {
                 root_session_id,
                 conversation,
@@ -599,6 +622,7 @@ impl TuiSessions {
                     sessions.remove_session(*session_id, ctx);
                 });
             }
+            #[cfg(test)]
             TuiOrchestrationEvent::RestoredRemoteChildStatusUpdated { .. } => {}
         });
     }
@@ -607,7 +631,6 @@ impl TuiSessions {
     pub(crate) fn new(
         driver: TuiDriverHandle,
         exit_summary: TuiExitSummaryHandle,
-        resume_token: Option<ServerConversationToken>,
         default_autoexecute_mode: AIConversationAutoexecuteMode,
     ) -> Self {
         let keyboard_enhancement_supported = driver.keyboard_enhancement_supported();
@@ -617,7 +640,6 @@ impl TuiSessions {
             exit_summary,
             sessions: Vec::new(),
             focused_session_id: None,
-            resume_token,
             default_autoexecute_mode,
         }
     }
@@ -631,7 +653,6 @@ impl TuiSessions {
             exit_summary: TuiExitSummaryHandle::default(),
             sessions: Vec::new(),
             focused_session_id: None,
-            resume_token: None,
             default_autoexecute_mode: AIConversationAutoexecuteMode::RespectUserSettings,
         }
     }
@@ -653,6 +674,7 @@ impl TuiSessions {
             .iter()
             .filter_map(|session| match &session.view {
                 TuiSessionView::Terminal(view) => Some(view.clone()),
+                #[cfg(test)]
                 TuiSessionView::Cloud(_) => None,
             })
             .collect::<Vec<_>>();
@@ -671,6 +693,7 @@ impl TuiSessions {
 
     /// Removes a session. When the focused session is removed, focus falls
     /// back to the most recently added remaining session, if any.
+    #[cfg(test)]
     pub(crate) fn remove_session(&mut self, id: TuiSessionId, ctx: &mut ModelContext<Self>) {
         let before = self.sessions.len();
         self.sessions.retain(|session| session.id != id);
@@ -693,6 +716,7 @@ impl TuiSessions {
     }
 
     /// Removes every retained session without focusing an intermediate fallback.
+    #[cfg(test)]
     pub(crate) fn clear(&mut self, ctx: &mut ModelContext<Self>) {
         let removed_ids = self
             .sessions
@@ -786,11 +810,6 @@ impl TuiSessions {
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.sessions.len()
-    }
-
-    /// Consumes the startup resume token.
-    pub(crate) fn take_resume_token(&mut self) -> Option<ServerConversationToken> {
-        self.resume_token.take()
     }
 }
 

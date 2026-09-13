@@ -427,6 +427,7 @@ pub(crate) fn render_orchestration_child_selected_tab_footer(
     .finish()
 }
 
+#[cfg(test)]
 pub(crate) fn render_cloud_orchestration_tab_footer(
     builder: &TuiUiBuilder,
     nested_descendants: usize,

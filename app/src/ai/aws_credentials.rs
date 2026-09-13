@@ -1,30 +1,55 @@
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+#[cfg(test)]
+use std::time::Duration;
+#[cfg(test)]
+use std::time::SystemTime;
 
+#[cfg(test)]
 pub use ai::api_keys::AwsCredentials;
-use ai::api_keys::{ApiKeyManager, AwsCredentialsRefreshStrategy, AwsCredentialsState};
+#[cfg(test)]
+use ai::api_keys::AwsCredentialsRefreshStrategy;
+use ai::api_keys::{ApiKeyManager, AwsCredentialsState};
+#[cfg(test)]
 use anyhow::Context;
+#[cfg(test)]
 use aws_credential_types::provider::ProvideCredentials;
+#[cfg(test)]
 use aws_credential_types::provider::error::CredentialsError;
+#[cfg(test)]
 use futures::channel::oneshot::channel;
+#[cfg(test)]
 use futures::future::BoxFuture;
 use parking_lot::FairMutex;
+#[cfg(test)]
 use tokio::sync::Mutex;
+#[cfg(test)]
 use vec1::vec1;
+#[cfg(test)]
 use warp_errors::report_error;
+#[cfg(test)]
 use warp_managed_secrets::client::IdentityTokenOptions;
-use warpui::{ModelContext, ModelHandle, SingletonEntity};
+#[cfg(test)]
+use warpui::SingletonEntity;
+use warpui::{ModelContext, ModelHandle};
 
+#[cfg(test)]
 use crate::server::server_api::managed_secrets::AppManagedSecretManager as ManagedSecretManager;
+#[cfg(test)]
 use crate::settings::{AISettings, AISettingsChangedEvent};
+#[cfg(test)]
 use crate::terminal::event::{AfterBlockCompletedEvent, BlockType};
 use crate::terminal::model::terminal_model::TerminalModel;
-use crate::terminal::model_events::{ModelEvent, ModelEventDispatcher};
+#[cfg(test)]
+use crate::terminal::model_events::ModelEvent;
+use crate::terminal::model_events::ModelEventDispatcher;
+#[cfg(test)]
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 
 /// Errors that can occur when loading AWS credentials.
+#[cfg(test)]
 #[derive(Debug, Clone)]
 pub enum LoadAwsCredentialsError {
+    #[cfg(test)]
     /// No AWS credentials are configured on this machine.
     /// The user needs to configure credentials via environment variables,
     /// shared credentials file (~/.aws/credentials), or other AWS credential sources.
@@ -35,9 +60,11 @@ pub enum LoadAwsCredentialsError {
     CredentialsLoadFailed(String),
 }
 
+#[cfg(test)]
 impl std::fmt::Display for LoadAwsCredentialsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(test)]
             Self::NotConfigured => write!(f, "No AWS credentials configured"),
             Self::CredentialsLoadFailed(msg) => {
                 write!(f, "Failed to load AWS credentials: {msg}")
@@ -46,6 +73,7 @@ impl std::fmt::Display for LoadAwsCredentialsError {
     }
 }
 
+#[cfg(test)]
 fn aws_profile_reference_for_message(profile: &str, capitalize_first_word: bool) -> String {
     let profile = profile.trim();
     if profile.is_empty() {
@@ -60,6 +88,7 @@ fn aws_profile_reference_for_message(profile: &str, capitalize_first_word: bool)
     }
 }
 
+#[cfg(test)]
 fn user_facing_aws_credentials_error_message(err: &CredentialsError, profile: &str) -> String {
     match err {
         CredentialsError::CredentialsNotLoaded(_) => format!(
@@ -86,11 +115,15 @@ fn user_facing_aws_credentials_error_message(err: &CredentialsError, profile: &s
     }
 }
 
+#[cfg(test)]
 impl std::error::Error for LoadAwsCredentialsError {}
 
+#[cfg(test)]
 pub(crate) const AWS_BEDROCK_STS_AUDIENCE: &str = "sts.amazonaws.com";
+#[cfg(test)]
 pub(crate) const BEDROCK_IDENTITY_TOKEN_DURATION: Duration = Duration::from_secs(60 * 60);
 
+#[cfg(test)]
 pub(crate) fn aws_role_session_name(run_id: &str) -> String {
     format!("Oz_Run_{run_id}")
 }
@@ -101,8 +134,10 @@ pub(crate) fn aws_role_session_name(run_id: &str) -> String {
 /// `AssumeRoleWithWebIdentity` is unauthenticated (the web identity token is the
 /// credential), so we skip the default credentials chain via `no_credentials()`
 /// and reuse a single client across refreshes.
+#[cfg(test)]
 static STS_CLIENT_CACHE: Mutex<Option<(String, aws_sdk_sts::Client)>> = Mutex::const_new(None);
 
+#[cfg(test)]
 pub(crate) async fn sts_client(region: &str) -> aws_sdk_sts::Client {
     let mut cache = STS_CLIENT_CACHE.lock().await;
     if let Some((cached_region, client)) = cache.as_ref()
@@ -121,6 +156,7 @@ pub(crate) async fn sts_client(region: &str) -> aws_sdk_sts::Client {
     client
 }
 
+#[cfg(test)]
 fn aws_credentials_state_for_error(err: LoadAwsCredentialsError) -> AwsCredentialsState {
     match err {
         LoadAwsCredentialsError::NotConfigured => AwsCredentialsState::Missing,
@@ -135,6 +171,7 @@ fn aws_credentials_state_for_error(err: LoadAwsCredentialsError) -> AwsCredentia
 /// # Arguments
 /// * `profile` - AWS profile name. If empty, uses the default AWS SDK behavior
 ///   (checks AWS_PROFILE env var, then uses "default").
+#[cfg(test)]
 pub async fn load_aws_credentials_from_sdk(
     profile: &str,
 ) -> Result<AwsCredentials, LoadAwsCredentialsError> {
@@ -192,6 +229,7 @@ pub trait AwsCredentialRefresher {
 }
 
 impl AwsCredentialRefresher for ApiKeyManager {
+    #[cfg(test)]
     fn register_model_event_dispatcher(
         &mut self,
         model_events: &ModelHandle<ModelEventDispatcher>,
@@ -223,6 +261,18 @@ impl AwsCredentialRefresher for ApiKeyManager {
         });
     }
 
+    #[cfg(not(test))]
+    fn register_model_event_dispatcher(
+        &mut self,
+        model_events: &ModelHandle<ModelEventDispatcher>,
+        terminal_model: Arc<FairMutex<TerminalModel>>,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let _ = (model_events, terminal_model);
+        self.set_aws_credentials_state(AwsCredentialsState::Disabled, ctx);
+    }
+
+    #[cfg(test)]
     fn subscribe_to_settings_changes(&mut self, ctx: &mut ModelContext<Self>) {
         // Subscribe to UserWorkspaces events to refresh AWS credentials when workspace settings change
         // (this also initializes AWS credentials on app startup via TeamsChanged)
@@ -248,12 +298,18 @@ impl AwsCredentialRefresher for ApiKeyManager {
             }
         });
     }
+
+    #[cfg(not(test))]
+    fn subscribe_to_settings_changes(&mut self, ctx: &mut ModelContext<Self>) {
+        self.set_aws_credentials_state(AwsCredentialsState::Disabled, ctx);
+    }
 }
 /// Refreshes AWS credentials, dispatching to the appropriate strategy.
 ///
 /// Returns a future that resolves when the refresh completes. Subscription-triggered
 /// callers that don't need to wait should drop the returned future — the underlying
 /// work has already been scheduled on the executor by the time this returns.
+#[cfg(test)]
 pub(crate) fn refresh_aws_credentials(
     manager: &mut ApiKeyManager,
     ctx: &mut ModelContext<ApiKeyManager>,
@@ -271,6 +327,7 @@ pub(crate) fn refresh_aws_credentials(
 }
 
 /// Refreshes credentials from the local AWS SDK credential chain (~/.aws).
+#[cfg(test)]
 fn refresh_aws_credentials_local_chain(
     manager: &mut ApiKeyManager,
     ctx: &mut ModelContext<ApiKeyManager>,
@@ -320,6 +377,7 @@ fn refresh_aws_credentials_local_chain(
 }
 
 /// Refreshes credentials via OIDC identity token + STS AssumeRoleWithWebIdentity.
+#[cfg(test)]
 fn refresh_aws_credentials_oidc(
     task_id: Option<String>,
     role_arn: String,

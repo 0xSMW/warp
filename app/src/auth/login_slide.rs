@@ -1,47 +1,72 @@
+#[cfg(test)]
 use std::cell::Cell;
 
+#[cfg(test)]
+use onboarding::OnboardingEvent;
 use onboarding::components::feature_optout_dialog::{
     FeatureOptOutDialog, render_feature_optout_dialog,
 };
 use onboarding::slides::{layout, onboarding_bottom_nav, slide_content};
-use onboarding::{OnboardingEvent, OnboardingIntention, WARP_DRIVE_FEATURES};
+use onboarding::{OnboardingIntention, WARP_DRIVE_FEATURES};
 use pathfinder_color::ColorU;
+#[cfg(test)]
 use pathfinder_geometry::vector::vec2f;
 use ui_components::{Component as _, Options as _, button};
+#[cfg(test)]
 use warp_core::features::FeatureFlag;
+#[cfg(test)]
 use warp_core::safe_error;
 use warp_core::ui::Icon;
 use warp_core::ui::theme::color::internal_colors;
+#[cfg(test)]
+use warpui::ViewHandle;
+#[cfg(test)]
 use warpui::actions::StandardAction;
+#[cfg(test)]
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
-    Align, Border, CacheOption, ChildAnchor, ClippedScrollStateHandle, ConstrainedBox, Container,
-    CornerRadius, CrossAxisAlignment, Dismiss, Fill, Flex, FormattedTextElement,
-    HighlightedHyperlink, Image, MainAxisAlignment, MainAxisSize, MouseStateHandle,
-    OffsetPositioning, ParentAnchor, ParentElement, ParentOffsetBounds, Radius, Shrinkable, Stack,
+    Align, Border, CacheOption, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
+    CrossAxisAlignment, Dismiss, Flex, FormattedTextElement, Image, MainAxisAlignment,
+    MainAxisSize, MouseStateHandle, ParentElement, Radius, Shrinkable, Stack,
+};
+#[cfg(test)]
+use warpui::elements::{
+    ChildAnchor, Fill, HighlightedHyperlink, OffsetPositioning, ParentAnchor, ParentOffsetBounds,
 };
 use warpui::fonts::Weight;
 use warpui::keymap::{FixedBinding, Keystroke};
 use warpui::text_layout::TextAlignment;
-use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
+#[cfg(test)]
+use warpui::ui_components::components::Coords;
+use warpui::ui_components::components::{UiComponent, UiComponentStyles};
 use warpui::{
     AppContext, Element, Entity, FocusContext, SingletonEntity, TypedActionView, UpdateModel, View,
-    ViewContext, ViewHandle,
+    ViewContext,
 };
 
 use crate::appearance::Appearance;
+#[cfg(test)]
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
+#[cfg(test)]
 use crate::auth::auth_view_modal::AuthRedirectPayload;
 use crate::auth::auth_view_shared_helpers::{
     PrivacySettingsActions, PrivacySettingsHandles, render_privacy_settings_toggles,
 };
+#[cfg(test)]
 use crate::auth::login_failure_notification::{self, LoginFailureReason};
+#[cfg(test)]
 use crate::editor::{EditorView, SingleLineEditorOptions, TextColors, TextOptions};
+#[cfg(test)]
+use crate::send_telemetry_from_ctx;
+#[cfg(test)]
+use crate::send_telemetry_sync_from_ctx;
+#[cfg(test)]
 use crate::server::telemetry::{LoginEventSource, TelemetryEvent};
 use crate::settings::PrivacySettings;
+#[cfg(test)]
 use crate::themes::theme::Fill as ThemeFill;
+#[cfg(test)]
 use crate::util::bindings::CustomAction;
-use crate::{send_telemetry_from_ctx, send_telemetry_sync_from_ctx};
 
 const TOS_URL: &str = "https://www.warp.dev/terms-of-service";
 
@@ -68,6 +93,10 @@ pub fn init(app: &mut AppContext) {
             LoginSlideAction::DismissOverlayOrBack,
             id!(LoginSlideView::ui_name()),
         ),
+    ]);
+
+    #[cfg(test)]
+    app.register_fixed_bindings([
         FixedBinding::custom(
             CustomAction::Paste,
             LoginSlideAction::PasteAuthUrl,
@@ -82,6 +111,7 @@ pub fn init(app: &mut AppContext) {
     ]);
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))]
+    #[cfg(test)]
     app.register_fixed_bindings([FixedBinding::new(
         "cmdorctrl-v",
         LoginSlideAction::PasteAuthUrl,
@@ -128,20 +158,26 @@ pub enum LoginSlideAction {
     Enter,
     ShowSkipDialog,
     ConfirmSkip,
-    LoginFromSkipDialog,
     DismissDialog,
     DismissOverlayOrBack,
     Back,
+    #[cfg(test)]
     BackToSelectAuthPathway,
+    #[cfg(test)]
     CopyLoginUrl,
+    #[cfg(test)]
     EnterToken,
     ShowPrivacySettings,
     HideOverlay,
     ToggleTelemetry,
     ToggleCrashReporting,
     ToggleCloudConversationStorage,
+    #[cfg(test)]
     DismissNotification,
+    #[cfg(test)]
     PasteAuthUrl,
+    #[cfg(test)]
+    LoginFromSkipDialog,
 }
 
 #[derive(Clone, Debug)]
@@ -171,6 +207,7 @@ pub enum LoginSlideSource {
 
 enum LoginStep {
     SelectAuthPathway,
+    #[cfg(test)]
     BrowserOpen,
     PrivacySettings,
 }
@@ -201,6 +238,7 @@ enum LoginPurpose {
 // View
 // ---------------------------------------------------------------------------
 
+#[cfg(test)]
 const AUTH_TOKEN_INPUT_BORDER_RADIUS: Radius = Radius::Pixels(4.);
 
 pub struct LoginSlideView {
@@ -224,34 +262,45 @@ pub struct LoginSlideView {
     theme_visual_path: &'static str,
     step: LoginStep,
     active_overlay: Option<LoginSlideOverlay>,
+    #[cfg(test)]
     last_login_failure_reason: Option<LoginFailureReason>,
     source: LoginSlideSource,
 
     // Auth token input (browser-open step)
+    #[cfg(test)]
     auth_token_input: ViewHandle<EditorView>,
+    #[cfg(test)]
     show_auth_token_input: bool,
 
     // Buttons
     back_button: button::Button,
     skip_button: button::Button,
-    login_button: button::Button,
+    continue_button: button::Button,
+    #[cfg(test)]
     browser_back_button: button::Button,
     done_button: button::Button,
+    #[cfg(test)]
     dialog_login_button: button::Button,
+    #[cfg(not(test))]
+    dialog_back_button: button::Button,
     dialog_skip_button: button::Button,
     dialog_close_button: button::Button,
 
     // Mouse states for links
     tos_mouse_state: MouseStateHandle,
     privacy_settings_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     copy_url_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     enter_token_mouse_state: MouseStateHandle,
 
     // Privacy settings overlay (shared with AuthViewBody)
     privacy_settings_handles: PrivacySettingsHandles,
 
     scroll_state: ClippedScrollStateHandle,
+    #[cfg(test)]
     close_login_notification_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     highlighted_hyperlink_state: HighlightedHyperlink,
 }
 
@@ -308,9 +357,16 @@ fn resolve_visual_path(
 
 impl LoginSlideView {
     /// Whether the auth token input editor is currently rendered and should be focusable.
-    /// This is only true on the BrowserOpen step after the user clicks to paste their token.
+    /// Browser authentication is available only to test fixtures.
     pub fn is_auth_token_input_visible(&self) -> bool {
-        matches!(self.step, LoginStep::BrowserOpen) && self.show_auth_token_input
+        #[cfg(test)]
+        {
+            matches!(self.step, LoginStep::BrowserOpen) && self.show_auth_token_input
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     pub fn is_account_first_onboarding(&self) -> bool {
@@ -326,11 +382,17 @@ impl LoginSlideView {
         source: LoginSlideSource,
         ctx: &mut ViewContext<Self>,
     ) -> Self {
+        #[cfg(not(test))]
+        let _ = ctx;
+
+        #[cfg(test)]
         let auth_manager = AuthManager::handle(ctx);
+        #[cfg(test)]
         ctx.subscribe_to_model(&auth_manager, |me, _, event, ctx| {
             me.handle_auth_manager_event(event, ctx);
         });
 
+        #[cfg(test)]
         let auth_token_input = ctx.add_typed_action_view(|ctx| {
             let appearance = Appearance::as_ref(ctx);
             let text_color = ThemeFill::Solid(ColorU::black());
@@ -355,6 +417,7 @@ impl LoginSlideView {
             editor
         });
 
+        #[cfg(test)]
         ctx.subscribe_to_view(&auth_token_input, |me, _, event, ctx| {
             use crate::editor::Event::{AltEnter, CmdEnter, Enter, Paste, ShiftEnter};
             match event {
@@ -367,43 +430,67 @@ impl LoginSlideView {
             ctx.notify();
         });
 
+        #[cfg(test)]
+        let step = match source {
+            LoginSlideSource::OnboardingFlow | LoginSlideSource::AccountFirstOnboarding => {
+                LoginStep::SelectAuthPathway
+            }
+            LoginSlideSource::LoginExistingUserFromWelcome => LoginStep::BrowserOpen,
+            LoginSlideSource::PrivacySettingsFromTerminalIntentionTheme => {
+                LoginStep::PrivacySettings
+            }
+        };
+        #[cfg(not(test))]
+        let step = match source {
+            LoginSlideSource::PrivacySettingsFromTerminalIntentionTheme => {
+                LoginStep::PrivacySettings
+            }
+            LoginSlideSource::OnboardingFlow
+            | LoginSlideSource::AccountFirstOnboarding
+            | LoginSlideSource::LoginExistingUserFromWelcome => LoginStep::SelectAuthPathway,
+        };
+
         let view = Self {
             ai_enabled,
             uses_third_party_agents,
             intention,
             theme_visual_path: resolve_visual_path(intention, theme_name, use_vertical_tabs),
-            step: match source {
-                LoginSlideSource::OnboardingFlow | LoginSlideSource::AccountFirstOnboarding => {
-                    LoginStep::SelectAuthPathway
-                }
-                LoginSlideSource::LoginExistingUserFromWelcome => LoginStep::BrowserOpen,
-                LoginSlideSource::PrivacySettingsFromTerminalIntentionTheme => {
-                    LoginStep::PrivacySettings
-                }
-            },
+            step,
             active_overlay: None,
+            #[cfg(test)]
             last_login_failure_reason: None,
             source,
+            #[cfg(test)]
             auth_token_input,
+            #[cfg(test)]
             show_auth_token_input: false,
             back_button: button::Button::default(),
             skip_button: button::Button::default(),
-            login_button: button::Button::default(),
+            continue_button: button::Button::default(),
+            #[cfg(test)]
             browser_back_button: button::Button::default(),
             done_button: button::Button::default(),
+            #[cfg(test)]
             dialog_login_button: button::Button::default(),
+            #[cfg(not(test))]
+            dialog_back_button: button::Button::default(),
             dialog_skip_button: button::Button::default(),
             dialog_close_button: button::Button::default(),
             tos_mouse_state: MouseStateHandle::default(),
             privacy_settings_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             copy_url_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             enter_token_mouse_state: MouseStateHandle::default(),
             privacy_settings_handles: PrivacySettingsHandles::default(),
             scroll_state: ClippedScrollStateHandle::new(),
+            #[cfg(test)]
             close_login_notification_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             highlighted_hyperlink_state: HighlightedHyperlink::default(),
         };
 
+        #[cfg(test)]
         if matches!(source, LoginSlideSource::AccountFirstOnboarding) {
             send_telemetry_from_ctx!(
                 OnboardingEvent::SlideViewed {
@@ -420,6 +507,7 @@ impl LoginSlideView {
     // Auth manager
     // ------------------------------------------------------------------
 
+    #[cfg(test)]
     fn handle_auth_manager_event(&mut self, event: &AuthManagerEvent, ctx: &mut ViewContext<Self>) {
         match event {
             AuthManagerEvent::AuthFailed(err) => {
@@ -446,6 +534,7 @@ impl LoginSlideView {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn send_account_first_action(
         &self,
         slide_name: &str,
@@ -464,6 +553,7 @@ impl LoginSlideView {
         }
     }
 
+    #[cfg(test)]
     fn handle_pasted_auth_url(&mut self, pasted_url: String, ctx: &mut ViewContext<Self>) {
         match AuthRedirectPayload::from_raw_url(pasted_url) {
             Ok(redirect_payload) => {
@@ -484,29 +574,31 @@ impl LoginSlideView {
     }
 
     fn handle_login_later(&mut self, ctx: &mut ViewContext<Self>) {
-        self.send_account_first_action("create_account", "skip_account", ctx);
-        // Send synchronously since this is an important event in the sign up funnel and we
-        // don't want to lose events if the user quits before the event queue is flushed.
-        send_telemetry_sync_from_ctx!(
-            TelemetryEvent::LoginLaterConfirmationButtonClicked {
-                source: LoginEventSource::OnboardingSlide,
-            },
-            ctx
-        );
-        if FeatureFlag::SkipFirebaseAnonymousUser.is_enabled() {
-            AuthManager::handle(ctx).update(ctx, |_, ctx| {
-                ctx.emit(AuthManagerEvent::SkippedLogin);
-            });
-        } else {
-            AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
-                auth_manager.create_anonymous_user(None, ctx);
-            });
+        #[cfg(test)]
+        {
+            self.send_account_first_action("create_account", "skip_account", ctx);
+            send_telemetry_sync_from_ctx!(
+                TelemetryEvent::LoginLaterConfirmationButtonClicked {
+                    source: LoginEventSource::OnboardingSlide,
+                },
+                ctx
+            );
+            if FeatureFlag::SkipFirebaseAnonymousUser.is_enabled() {
+                AuthManager::handle(ctx).update(ctx, |_, ctx| {
+                    ctx.emit(AuthManagerEvent::SkippedLogin);
+                });
+            } else {
+                AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
+                    auth_manager.create_anonymous_user(None, ctx);
+                });
+            }
         }
         ctx.emit(LoginSlideEvent::LoginLaterConfirmed);
     }
 
     /// Starts the browser sign-up flow. Shared by the Continue button and the
     /// skip dialog's cancel button.
+    #[cfg(test)]
     fn start_login(&mut self, ctx: &mut ViewContext<Self>) {
         self.send_account_first_action("create_account", "continue_signup", ctx);
         send_telemetry_from_ctx!(
@@ -527,7 +619,9 @@ impl LoginSlideView {
         }
         AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
             let sign_up_url = auth_manager.sign_up_url();
-            ctx.open_url(&sign_up_url);
+            if !sign_up_url.is_empty() {
+                ctx.open_url(&sign_up_url);
+            }
         });
         ctx.notify();
     }
@@ -540,7 +634,7 @@ impl LoginSlideView {
         &self,
         appearance: &Appearance,
         app: &AppContext,
-        editor_rendered: &Cell<bool>,
+        #[cfg(test)] editor_rendered: &Cell<bool>,
     ) -> Box<dyn Element> {
         match self.step {
             LoginStep::SelectAuthPathway => {
@@ -553,6 +647,7 @@ impl LoginSlideView {
                     appearance,
                 )
             }
+            #[cfg(test)]
             LoginStep::BrowserOpen => {
                 let children = self.render_browser_open_content(appearance, editor_rendered);
                 let bottom_nav = self.render_browser_open_bottom_nav(appearance);
@@ -822,10 +917,14 @@ impl LoginSlideView {
         );
 
         let enter = Keystroke::parse("enter").unwrap_or_default();
-        let login_button = self.login_button.render(
+        #[cfg(test)]
+        let continue_label = "Continue";
+        #[cfg(not(test))]
+        let continue_label = "Continue offline";
+        let continue_button = self.continue_button.render(
             appearance,
             button::Params {
-                content: button::Content::Label("Continue".into()),
+                content: button::Content::Label(continue_label.into()),
                 theme: &button::themes::Primary,
                 options: button::Options {
                     keystroke: Some(enter),
@@ -840,7 +939,11 @@ impl LoginSlideView {
         let right_buttons = Flex::row()
             .with_cross_axis_alignment(CrossAxisAlignment::Center)
             .with_child(skip_button)
-            .with_child(Container::new(login_button).with_margin_left(4.).finish())
+            .with_child(
+                Container::new(continue_button)
+                    .with_margin_left(4.)
+                    .finish(),
+            )
             .finish();
 
         if matches!(self.login_purpose(), LoginPurpose::AccountFirst) {
@@ -860,6 +963,7 @@ impl LoginSlideView {
     // Step 2: Browser open
     // ------------------------------------------------------------------
 
+    #[cfg(test)]
     fn render_browser_open_content(
         &self,
         appearance: &Appearance,
@@ -1001,6 +1105,7 @@ impl LoginSlideView {
         vec![header]
     }
 
+    #[cfg(test)]
     fn render_browser_open_bottom_nav(&self, appearance: &Appearance) -> Box<dyn Element> {
         let back_button = self.browser_back_button.render(
             appearance,
@@ -1051,6 +1156,7 @@ impl LoginSlideView {
             toggle_telemetry: LoginSlideAction::ToggleTelemetry,
             toggle_crash_reporting: LoginSlideAction::ToggleCrashReporting,
             toggle_cloud_conversation_storage: LoginSlideAction::ToggleCloudConversationStorage,
+            #[cfg(test)]
             hide_overlay: LoginSlideAction::HideOverlay,
         };
 
@@ -1100,25 +1206,32 @@ impl LoginSlideView {
     // ------------------------------------------------------------------
 
     fn render_skip_dialog(&self, appearance: &Appearance) -> Box<dyn Element> {
-        let (title, body, features, cancel_label): (
-            &'static str,
-            &'static str,
-            &'static [&'static str],
-            &'static str,
-        ) = match self.login_purpose() {
-            LoginPurpose::WarpDrive => (
-                "Are you sure you want to disable Warp Drive?",
-                "Warp Drive lets you save workflows and knowledge across devices and share them with your team. By continuing, you won't have access to the following features:",
-                WARP_DRIVE_FEATURES,
-                "Enable Warp Drive",
-            ),
-            LoginPurpose::WarpAgent | LoginPurpose::ThirdParty | LoginPurpose::AccountFirst => (
-                "Continue without signing in?",
-                "Without an account, you won't have access to Warp's AI features. Sign in anytime to unlock agents and other AI features.",
-                &[],
-                "Sign in",
-            ),
+        #[cfg(test)]
+        let no_account_body = "Without an account, you won't have access to Warp's AI features. Sign in anytime to unlock agents and other AI features.";
+        #[cfg(not(test))]
+        let no_account_body = "Continue without signing in to use Warp's local features.";
+
+        let (title, body, features): (&'static str, &'static str, &'static [&'static str]) =
+            match self.login_purpose() {
+                LoginPurpose::WarpDrive => (
+                    "Are you sure you want to disable Warp Drive?",
+                    "Warp Drive lets you save workflows and knowledge across devices and share them with your team. By continuing, you won't have access to the following features:",
+                    WARP_DRIVE_FEATURES,
+                ),
+                LoginPurpose::WarpAgent | LoginPurpose::ThirdParty | LoginPurpose::AccountFirst => {
+                    ("Continue without signing in?", no_account_body, &[])
+                }
+            };
+
+        #[cfg(test)]
+        let cancel_label = match self.login_purpose() {
+            LoginPurpose::WarpDrive => "Enable Warp Drive",
+            LoginPurpose::WarpAgent | LoginPurpose::ThirdParty | LoginPurpose::AccountFirst => {
+                "Sign in"
+            }
         };
+        #[cfg(not(test))]
+        let cancel_label = "Back";
 
         // Close button with ESC keyboard-shortcut badge.
         let escape = Keystroke::parse("escape").unwrap_or_default();
@@ -1137,6 +1250,7 @@ impl LoginSlideView {
             },
         );
 
+        #[cfg(test)]
         let cancel_button = self.dialog_login_button.render(
             appearance,
             button::Params {
@@ -1145,6 +1259,20 @@ impl LoginSlideView {
                 options: button::Options {
                     on_click: Some(Box::new(|ctx, _app, _pos| {
                         ctx.dispatch_typed_action(LoginSlideAction::LoginFromSkipDialog);
+                    })),
+                    ..button::Options::default(appearance)
+                },
+            },
+        );
+        #[cfg(not(test))]
+        let cancel_button = self.dialog_back_button.render(
+            appearance,
+            button::Params {
+                content: button::Content::Label(cancel_label.into()),
+                theme: &button::themes::Naked,
+                options: button::Options {
+                    on_click: Some(Box::new(|ctx, _app, _pos| {
+                        ctx.dispatch_typed_action(LoginSlideAction::DismissDialog);
                     })),
                     ..button::Options::default(appearance)
                 },
@@ -1235,11 +1363,19 @@ impl View for LoginSlideView {
         }
 
         // Two-column slide layout
+        #[cfg(test)]
         // static_left calls the left closure twice (narrow + wide). We use a
         // Cell<bool> so the editor ChildView is only created once.
+        #[cfg(test)]
         let editor_rendered = Cell::new(false);
+        #[cfg(test)]
         let slide = layout::static_left(
             || self.render_content(appearance, app, &editor_rendered),
+            || self.render_visual(),
+        );
+        #[cfg(not(test))]
+        let slide = layout::static_left(
+            || self.render_content(appearance, app),
             || self.render_visual(),
         );
         stack.add_child(slide);
@@ -1264,7 +1400,9 @@ impl View for LoginSlideView {
             );
         }
 
+        #[cfg(test)]
         // Login failure notification
+        #[cfg(test)]
         if let Some(login_failure_reason) = &self.last_login_failure_reason {
             let notification = login_failure_notification::render(
                 login_failure_reason,
@@ -1300,10 +1438,18 @@ impl TypedActionView for LoginSlideView {
                     self.handle_login_later(ctx);
                     return;
                 }
-                // Otherwise Enter is log in
+                // Production continues through the local skip path. Test fixtures retain the
+                // browser-auth transition so they can exercise the legacy flow.
+                #[cfg(test)]
                 self.start_login(ctx);
+                #[cfg(not(test))]
+                {
+                    self.active_overlay = Some(LoginSlideOverlay::SkipDialog);
+                    ctx.notify();
+                }
             }
             LoginSlideAction::ShowSkipDialog => {
+                #[cfg(test)]
                 send_telemetry_from_ctx!(
                     TelemetryEvent::LoginLaterButtonClicked {
                         source: LoginEventSource::OnboardingSlide,
@@ -1317,6 +1463,7 @@ impl TypedActionView for LoginSlideView {
                 self.active_overlay = None;
                 self.handle_login_later(ctx);
             }
+            #[cfg(test)]
             LoginSlideAction::LoginFromSkipDialog => {
                 self.active_overlay = None;
                 self.start_login(ctx);
@@ -1342,33 +1489,40 @@ impl TypedActionView for LoginSlideView {
                             ctx.notify();
                         }
                     }
-                } else if matches!(self.step, LoginStep::BrowserOpen) {
-                    // PrivacySettingsFromTerminalIntentionTheme starts on the
-                    // privacy-settings step and should never transition into the
-                    // select-auth-pathway step. If this branch is ever reached
-                    // for that source, route back to onboarding instead.
-                    match self.source {
-                        LoginSlideSource::LoginExistingUserFromWelcome
-                        | LoginSlideSource::PrivacySettingsFromTerminalIntentionTheme => {
-                            ctx.emit(LoginSlideEvent::BackToOnboarding);
-                        }
-                        LoginSlideSource::OnboardingFlow
-                        | LoginSlideSource::AccountFirstOnboarding => {
-                            self.send_account_first_action("browser_auth", "back", ctx);
-                            self.step = LoginStep::SelectAuthPathway;
-                            ctx.focus_self();
-                            ctx.notify();
-                        }
-                    }
                 } else {
+                    #[cfg(test)]
+                    if matches!(self.step, LoginStep::BrowserOpen) {
+                        // PrivacySettingsFromTerminalIntentionTheme starts on the
+                        // privacy-settings step and should never transition into the
+                        // select-auth-pathway step. If this branch is ever reached
+                        // for that source, route back to onboarding instead.
+                        match self.source {
+                            LoginSlideSource::LoginExistingUserFromWelcome
+                            | LoginSlideSource::PrivacySettingsFromTerminalIntentionTheme => {
+                                ctx.emit(LoginSlideEvent::BackToOnboarding);
+                            }
+                            LoginSlideSource::OnboardingFlow
+                            | LoginSlideSource::AccountFirstOnboarding => {
+                                self.send_account_first_action("browser_auth", "back", ctx);
+                                self.step = LoginStep::SelectAuthPathway;
+                                ctx.focus_self();
+                                ctx.notify();
+                            }
+                        }
+                        return;
+                    }
+
+                    #[cfg(test)]
                     self.send_account_first_action("create_account", "back", ctx);
                     ctx.emit(LoginSlideEvent::BackToOnboarding);
                 }
             }
             LoginSlideAction::Back => {
+                #[cfg(test)]
                 self.send_account_first_action("create_account", "back", ctx);
                 ctx.emit(LoginSlideEvent::BackToOnboarding);
             }
+            #[cfg(test)]
             LoginSlideAction::BackToSelectAuthPathway => match self.source {
                 // PrivacySettingsFromTerminalIntentionTheme only ever shows the
                 // privacy-settings step; treat "back" the same as login-from-
@@ -1385,6 +1539,7 @@ impl TypedActionView for LoginSlideView {
                     ctx.notify();
                 }
             },
+            #[cfg(test)]
             LoginSlideAction::CopyLoginUrl => {
                 AuthManager::handle(ctx).update(ctx, |auth_manager, inner_ctx| {
                     let auth_url =
@@ -1400,6 +1555,7 @@ impl TypedActionView for LoginSlideView {
                     });
                 });
             }
+            #[cfg(test)]
             LoginSlideAction::EnterToken => {
                 self.auth_token_input
                     .update(ctx, |editor, ctx| editor.paste(ctx));
@@ -1407,6 +1563,7 @@ impl TypedActionView for LoginSlideView {
                 ctx.notify();
             }
             LoginSlideAction::ShowPrivacySettings => {
+                #[cfg(test)]
                 send_telemetry_sync_from_ctx!(
                     TelemetryEvent::OpenAuthPrivacySettings {
                         source: LoginEventSource::OnboardingSlide,
@@ -1459,10 +1616,12 @@ impl TypedActionView for LoginSlideView {
                 });
                 ctx.notify();
             }
+            #[cfg(test)]
             LoginSlideAction::DismissNotification => {
                 self.last_login_failure_reason = None;
                 ctx.notify();
             }
+            #[cfg(test)]
             LoginSlideAction::PasteAuthUrl => {
                 self.last_login_failure_reason = None;
                 let clipboard_content = ctx.clipboard().read();

@@ -5,20 +5,34 @@
 
 use std::sync::Arc;
 
+#[cfg(test)]
 use futures::StreamExt;
 use http::Uri;
+#[cfg(test)]
 use reqwest::header::ACCEPT;
+#[cfg(test)]
 use sse_stream::SseStream;
 
 use super::sse_client::{SseClient, SseClientConfig, SseClientTransport, SseTransportError};
 
+#[cfg(test)]
 const HEADER_LAST_EVENT_ID: &str = "Last-Event-Id";
+#[cfg(test)]
 const EVENT_STREAM_MIME_TYPE: &str = "text/event-stream";
 
 impl From<reqwest::Error> for SseTransportError<reqwest::Error> {
     fn from(e: reqwest::Error) -> Self {
         SseTransportError::Client(e)
     }
+}
+
+#[cfg(not(test))]
+const LOCAL_ONLY_SSE_TRANSPORT_ERROR: &str =
+    "MCP SSE transport is disabled in local-only mode; use a local stdio transport instead.";
+
+#[cfg(not(test))]
+fn local_only_sse_transport_error() -> SseTransportError<reqwest::Error> {
+    SseTransportError::UnexpectedContentType(Some(LOCAL_ONLY_SSE_TRANSPORT_ERROR.to_owned()))
 }
 
 impl SseClient for reqwest::Client {
@@ -30,16 +44,25 @@ impl SseClient for reqwest::Client {
         message: rmcp::model::ClientJsonRpcMessage,
         auth_token: Option<String>,
     ) -> Result<(), SseTransportError<Self::Error>> {
-        let mut request_builder = self.post(uri.to_string()).json(&message);
-        if let Some(auth_header) = auth_token {
-            request_builder = request_builder.bearer_auth(auth_header);
+        #[cfg(not(test))]
+        {
+            let _ = (uri, message, auth_token);
+            return Err(local_only_sse_transport_error());
         }
-        request_builder
-            .send()
-            .await
-            .and_then(|resp| resp.error_for_status())
-            .map_err(SseTransportError::from)
-            .map(drop)
+
+        #[cfg(test)]
+        {
+            let mut request_builder = self.post(uri.to_string()).json(&message);
+            if let Some(auth_header) = auth_token {
+                request_builder = request_builder.bearer_auth(auth_header);
+            }
+            request_builder
+                .send()
+                .await
+                .and_then(|resp| resp.error_for_status())
+                .map_err(SseTransportError::from)
+                .map(drop)
+        }
     }
 
     async fn get_stream(
@@ -48,31 +71,40 @@ impl SseClient for reqwest::Client {
         last_event_id: Option<String>,
         auth_token: Option<String>,
     ) -> Result<super::client_side_sse::BoxedSseResponse, SseTransportError<Self::Error>> {
-        let mut request_builder = self
-            .get(uri.to_string())
-            .header(ACCEPT, EVENT_STREAM_MIME_TYPE);
-        if let Some(auth_header) = auth_token {
-            request_builder = request_builder.bearer_auth(auth_header);
+        #[cfg(not(test))]
+        {
+            let _ = (uri, last_event_id, auth_token);
+            return Err(local_only_sse_transport_error());
         }
-        if let Some(last_event_id) = last_event_id {
-            request_builder = request_builder.header(HEADER_LAST_EVENT_ID, last_event_id);
-        }
-        let response = request_builder.send().await?;
-        let response = response.error_for_status()?;
-        match response.headers().get(reqwest::header::CONTENT_TYPE) {
-            Some(ct) => {
-                if !ct.as_bytes().starts_with(EVENT_STREAM_MIME_TYPE.as_bytes()) {
-                    return Err(SseTransportError::UnexpectedContentType(Some(
-                        String::from_utf8_lossy(ct.as_bytes()).to_string(),
-                    )));
+
+        #[cfg(test)]
+        {
+            let mut request_builder = self
+                .get(uri.to_string())
+                .header(ACCEPT, EVENT_STREAM_MIME_TYPE);
+            if let Some(auth_header) = auth_token {
+                request_builder = request_builder.bearer_auth(auth_header);
+            }
+            if let Some(last_event_id) = last_event_id {
+                request_builder = request_builder.header(HEADER_LAST_EVENT_ID, last_event_id);
+            }
+            let response = request_builder.send().await?;
+            let response = response.error_for_status()?;
+            match response.headers().get(reqwest::header::CONTENT_TYPE) {
+                Some(ct) => {
+                    if !ct.as_bytes().starts_with(EVENT_STREAM_MIME_TYPE.as_bytes()) {
+                        return Err(SseTransportError::UnexpectedContentType(Some(
+                            String::from_utf8_lossy(ct.as_bytes()).to_string(),
+                        )));
+                    }
+                }
+                None => {
+                    return Err(SseTransportError::UnexpectedContentType(None));
                 }
             }
-            None => {
-                return Err(SseTransportError::UnexpectedContentType(None));
-            }
+            let event_stream = SseStream::from_byte_stream(response.bytes_stream()).boxed();
+            Ok(event_stream)
         }
-        let event_stream = SseStream::from_byte_stream(response.bytes_stream()).boxed();
-        Ok(event_stream)
     }
 }
 

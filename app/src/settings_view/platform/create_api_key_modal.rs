@@ -147,10 +147,12 @@ enum RequestState {
 impl CreateApiKeyModal {
     pub fn new(ctx: &mut ViewContext<Self>) -> Self {
         let font_family = Appearance::as_ref(ctx).ui_font_family();
+        let local_mode = crate::is_local_mode();
 
-        let has_team = FeatureFlag::TeamApiKeys.is_enabled()
+        let has_team = !local_mode
+            && FeatureFlag::TeamApiKeys.is_enabled()
             && UserWorkspaces::as_ref(ctx).team_for_view(ctx).is_some();
-        let has_named_agents = FeatureFlag::NamedAgents.is_enabled();
+        let has_named_agents = !local_mode && FeatureFlag::NamedAgents.is_enabled();
 
         let name_editor = ctx.add_typed_action_view(|ctx| {
             let options = SingleLineEditorOptions {
@@ -280,6 +282,10 @@ impl CreateApiKeyModal {
     }
 
     fn fetch_agents(&mut self, ctx: &mut ViewContext<Self>) {
+        if crate::is_local_mode() {
+            return;
+        }
+
         self.is_loading_agents = true;
         ctx.notify();
         let team_scope = UserWorkspaces::as_ref(ctx).team_context_for_operation(ctx);
@@ -350,6 +356,10 @@ impl CreateApiKeyModal {
     }
 
     fn create(&mut self, ctx: &mut ViewContext<Self>) {
+        if crate::is_local_mode() {
+            return;
+        }
+
         if self.request_state == RequestState::Pending {
             return;
         }
@@ -456,15 +466,17 @@ impl CreateApiKeyModal {
 
     pub fn on_open(&mut self, ctx: &mut ViewContext<Self>) {
         ctx.focus(&self.name_editor);
-        if self.has_named_agents {
+        if self.has_named_agents && !crate::is_local_mode() {
             self.fetch_agents(ctx);
         }
     }
 
     fn update_has_team(&mut self, ctx: &mut ViewContext<Self>) {
-        let new_has_team = FeatureFlag::TeamApiKeys.is_enabled()
+        let local_mode = crate::is_local_mode();
+        let new_has_team = !local_mode
+            && FeatureFlag::TeamApiKeys.is_enabled()
             && UserWorkspaces::as_ref(ctx).team_for_view(ctx).is_some();
-        let new_has_named_agents = FeatureFlag::NamedAgents.is_enabled();
+        let new_has_named_agents = !local_mode && FeatureFlag::NamedAgents.is_enabled();
 
         if new_has_team != self.has_team || new_has_named_agents != self.has_named_agents {
             self.has_team = new_has_team;
@@ -499,7 +511,8 @@ impl CreateApiKeyModal {
     }
 
     fn is_create_disabled(&self, selected_key_type: ApiKeyType) -> bool {
-        self.request_state == RequestState::Pending
+        crate::is_local_mode()
+            || self.request_state == RequestState::Pending
             || (selected_key_type == ApiKeyType::Agent
                 && (self.selected_agent_uid.is_none() || self.is_loading_agents))
     }
@@ -630,6 +643,7 @@ impl View for CreateApiKeyModal {
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
         let appearance = Appearance::as_ref(app);
         let theme = appearance.theme();
+        let local_mode = crate::is_local_mode();
 
         let button_style = UiComponentStyles {
             font_size: Some(14.),
@@ -641,7 +655,7 @@ impl View for CreateApiKeyModal {
             RequestState::Succeeded => self.render_success_content(app),
             _ => {
                 let selected_key_type = self.api_key_type_control.as_ref(app).selected_option();
-                let description_text = if selected_key_type == ApiKeyType::Agent {
+                let description_text = if selected_key_type == ApiKeyType::Agent && !local_mode {
                     FormattedTextElement::new(
                         FormattedText::new([FormattedTextLine::Line(vec![
                             FormattedTextFragment::plain_text(selected_key_type.description()),
@@ -656,7 +670,9 @@ impl View for CreateApiKeyModal {
                     )
                     .with_hyperlink_font_color(theme.accent().into_solid())
                     .register_default_click_handlers(|url, _, ctx| {
-                        ctx.open_url(&url.url);
+                        if !crate::is_local_mode() {
+                            ctx.open_url(&url.url);
+                        }
                     })
                     .finish()
                 } else {
@@ -748,7 +764,7 @@ impl View for CreateApiKeyModal {
                         .finish(),
                 );
 
-                if selected_key_type == ApiKeyType::Agent {
+                if selected_key_type == ApiKeyType::Agent && !local_mode {
                     let agent_label =
                         Text::new("Agent", appearance.ui_font_family(), LABEL_FONT_SIZE)
                             .with_color(theme.active_ui_text_color().into())
@@ -916,7 +932,9 @@ impl TypedActionView for CreateApiKeyModal {
                 ctx.notify();
             }
             CreateApiKeyModalAction::CreateNewAgent => {
-                ctx.open_url(OZ_AGENTS_URL);
+                if !crate::is_local_mode() {
+                    ctx.open_url(OZ_AGENTS_URL);
+                }
             }
         }
     }

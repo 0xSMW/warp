@@ -1,3 +1,9 @@
+//! Bedrock credential refresh is intentionally disabled in the local-only client.
+//!
+//! Local Bedrock settings and credential loading remain in `aws_credentials`; this module
+//! must not expose a background refresh or network credential-update path.
+
+/*
 /// Proactive Bedrock OIDC credential refresh for cloud agent sandboxes.
 ///
 /// The `OidcManaged` Bedrock credential path mints an OIDC token at agent startup,
@@ -172,3 +178,4 @@ pub(crate) async fn refresh_loop(
         }
     }
 }
+*/

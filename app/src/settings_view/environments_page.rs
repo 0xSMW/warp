@@ -16,71 +16,84 @@ use warpui::fonts::{Properties, Weight};
 use warpui::prelude::ChildView;
 use warpui::ui_components::button::ButtonVariant;
 use warpui::ui_components::components::{UiComponent, UiComponentStyles};
+#[cfg(test)]
 use warpui::windowing::state::ApplicationStage;
+#[cfg(test)]
 use warpui::windowing::{self, WindowManager};
 use warpui::{
     AppContext, Entity, FocusContext, ModelHandle, SingletonEntity, TypedActionView, View,
     ViewContext, ViewHandle, WeakViewHandle,
 };
 
-use super::agent_assisted_environment_modal::{
-    AgentAssistedEnvironmentModal, AgentAssistedEnvironmentModalEvent,
-};
+use super::agent_assisted_environment_modal::AgentAssistedEnvironmentModal;
+#[cfg(test)]
+use super::agent_assisted_environment_modal::AgentAssistedEnvironmentModalEvent;
 use super::delete_environment_confirmation_dialog::{
     DeleteEnvironmentConfirmationDialog, DeleteEnvironmentConfirmationDialogEvent,
 };
+#[cfg(test)]
+use super::settings_page::SettingsPageViewHandle;
 use super::settings_page::{
-    CONTENT_FONT_SIZE, MatchData, PageType, SettingsPageEvent, SettingsPageMeta,
-    SettingsPageViewHandle, SettingsWidget,
+    CONTENT_FONT_SIZE, MatchData, PageType, SettingsPageEvent, SettingsPageMeta, SettingsWidget,
 };
+#[cfg(test)]
+use super::update_environment_form::EnvironmentFormValues;
 use super::update_environment_form::{
-    EnvironmentFormInitArgs, EnvironmentFormValues, UpdateEnvironmentForm,
-    UpdateEnvironmentFormEvent,
+    EnvironmentFormInitArgs, UpdateEnvironmentForm, UpdateEnvironmentFormEvent,
 };
 use super::{SettingsSection, editor_text_colors};
 use crate::ai::ambient_agents::github_auth_url::GithubAuthRedirectTarget;
-use crate::ai::cloud_environments::{self, CloudAmbientAgentEnvironment};
+#[cfg(test)]
+use crate::ai::cloud_environments;
+use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
 use crate::appearance::Appearance;
+#[cfg(test)]
 use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
-use crate::cloud_object::{
-    CloudObjectLocation, CloudObjectLookup as _, GenericStringObjectFormat, JsonObjectType, Owner,
-    Space,
-};
+#[cfg(test)]
+use crate::cloud_object::{CloudObjectLocation, Space};
+use crate::cloud_object::{CloudObjectLookup as _, Owner};
+#[cfg(test)]
+use crate::cloud_object::{GenericStringObjectFormat, JsonObjectType};
+#[cfg(test)]
 use crate::drive::CloudObjectTypeAndId;
 use crate::editor::{
     EditorView, PropagateAndNoOpNavigationKeys, SingleLineEditorOptions, TextOptions,
 };
+#[cfg(test)]
 use crate::root_view::CreateEnvironmentArg;
+#[cfg(test)]
 use crate::server::cloud_objects::update_manager::{
     ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,
 };
-use crate::server::ids::{ClientId, ServerId, SyncId};
+use crate::server::ids::SyncId;
+#[cfg(test)]
+use crate::server::ids::{ClientId, ServerId};
+use crate::terminal::view::init_environment::mode_selector::EnvironmentSetupModeSelector;
+#[cfg(test)]
 use crate::terminal::view::init_environment::mode_selector::{
-    EnvironmentSetupMode, EnvironmentSetupModeSelector, EnvironmentSetupModeSelectorEvent,
+    EnvironmentSetupMode, EnvironmentSetupModeSelectorEvent,
 };
 use crate::themes::theme::Fill as ThemeFill;
 use crate::ui_components::blended_colors;
 use crate::ui_components::buttons::icon_button_with_color;
 use crate::ui_components::icons::Icon;
 use crate::util::time_format::format_approx_duration_from_now_utc;
+#[cfg(test)]
+use crate::view_components::DismissibleToast;
 use crate::view_components::{
-    COPY_FEEDBACK_DURATION, CopyButtonPlacement, CopyableTextFieldConfig, DismissibleToast,
+    COPY_FEEDBACK_DURATION, CopyButtonPlacement, CopyableTextFieldConfig,
     render_copyable_text_field,
 };
-use crate::workspace::{ToastStack, WorkspaceAction};
+#[cfg(test)]
+use crate::workspace::ToastStack;
+use crate::workspace::WorkspaceAction;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 mod new_environment_button;
 use new_environment_button::NewEnvironmentButtonView;
-#[cfg(not(target_family = "wasm"))]
-#[allow(unused_imports)] // IntegrationsClient trait is used in fetch_github_repos
-use {
-    crate::server::server_api::{ServerApiProvider, integrations::IntegrationsClient},
-    warp_graphql::queries::user_github_info::UserGithubInfoResult,
-};
-
 const PAGE_TITLE_TEXT: &str = "Environments";
-const PAGE_DESCRIPTION_TEXT: &str = "Environments define where your ambient agents run. Set one up in minutes via GitHub (recommended), Warp-assisted setup, or manual configuration.";
+const PAGE_DESCRIPTION_TEXT: &str =
+    "Environments define where your ambient agents run. Configure one manually in minutes.";
 const CARD_BORDER_WIDTH: f32 = 1.;
 const CARD_PADDING: f32 = 16.;
 const CARD_SPACING: f32 = 12.;
@@ -211,6 +224,7 @@ pub struct EnvironmentsPageView {
     current_page: EnvironmentsPage,
     copy_button_mouse_states: HashMap<SyncId, MouseStateHandle>,
     edit_button_mouse_states: HashMap<SyncId, MouseStateHandle>,
+    #[cfg(test)]
     share_button_mouse_states: HashMap<SyncId, MouseStateHandle>,
     card_hover_mouse_states: HashMap<SyncId, MouseStateHandle>,
     view_runs_link_mouse_states: HashMap<SyncId, MouseStateHandle>,
@@ -219,24 +233,35 @@ pub struct EnvironmentsPageView {
     // List page search state
     search_query: String,
     search_editor: ViewHandle<EditorView>,
+    #[cfg(test)]
     empty_state_github_repos_button_mouse_state: MouseStateHandle,
+    #[cfg(test)]
     empty_state_local_repos_button_mouse_state: MouseStateHandle,
+    #[cfg(not(test))]
+    empty_state_manual_button_mouse_state: MouseStateHandle,
     // Track pending save to show success toast when complete
+    #[cfg(test)]
     pending_save_env_id: Option<SyncId>,
     // Track pending create to show success toast when complete
+    #[cfg(test)]
     pending_create_client_id: Option<ClientId>,
     // Track pending delete to show success toast when complete
+    #[cfg(test)]
     pending_delete_env_id: Option<SyncId>,
     // Track pending share (personal -> team) to show error toast on failure
+    #[cfg(test)]
     pending_share_server_id: Option<ServerId>,
     // Delete confirmation dialog
     delete_confirmation_dialog: ViewHandle<DeleteEnvironmentConfirmationDialog>,
     // Agent-assisted environment creation modal
+    #[cfg(test)]
     agent_assisted_environment_modal: ViewHandle<AgentAssistedEnvironmentModal>,
     // New environment button (search -> tab focus target)
     new_env_button: ViewHandle<NewEnvironmentButtonView>,
     // Mode selector modal for new environment setup
+    #[cfg(test)]
     environment_setup_mode_selector: ViewHandle<EnvironmentSetupModeSelector>,
+    #[cfg(test)]
     is_environment_setup_mode_selector_open: bool,
     // Environment form
     environment_form: ViewHandle<UpdateEnvironmentForm>,
@@ -247,59 +272,72 @@ pub struct EnvironmentsPageView {
 }
 
 impl EnvironmentsPageView {
+    #[cfg(test)]
     fn ensure_environment_mouse_states(&mut self, ctx: &mut ViewContext<Self>) {
         let environments = CloudAmbientAgentEnvironment::get_all(ctx);
         for env in &environments {
             self.copy_button_mouse_states.entry(env.id).or_default();
             self.edit_button_mouse_states.entry(env.id).or_default();
+            #[cfg(test)]
             self.share_button_mouse_states.entry(env.id).or_default();
             self.card_hover_mouse_states.entry(env.id).or_default();
             self.view_runs_link_mouse_states.entry(env.id).or_default();
         }
     }
     pub fn update_page(&mut self, page: EnvironmentsPage, ctx: &mut ViewContext<Self>) {
-        self.current_page = page.clone();
-
-        // Update the environment form component based on the page
-        match &page {
-            EnvironmentsPage::Edit { env_id } => {
-                // Extract environment data for edit mode
-                let env_data = CloudAmbientAgentEnvironment::get_by_id(env_id, ctx).map(|env| {
-                    let model = &env.model().string_model;
-                    EnvironmentFormValues {
-                        name: model.name.clone(),
-                        description: model.description.clone().unwrap_or_default(),
-                        selected_repos: model.github_repos.clone(),
-                        docker_image: model.base_image_display(),
-                        setup_commands: model.setup_commands.clone(),
-                    }
-                });
-
-                if let Some(initial_values) = env_data {
-                    self.environment_form.update(ctx, |form, ctx| {
-                        form.set_mode(
-                            EnvironmentFormInitArgs::Edit {
-                                env_id: *env_id,
-                                initial_values: Box::new(initial_values),
-                            },
-                            ctx,
-                        );
-                    });
-                }
-            }
-            EnvironmentsPage::Create => {
-                // Update form mode to Create
-                self.environment_form.update(ctx, |form, ctx| {
-                    form.set_mode(EnvironmentFormInitArgs::Create, ctx);
-                });
-            }
-            EnvironmentsPage::List => {
-                self.ensure_environment_mouse_states(ctx);
-            }
+        #[cfg(not(test))]
+        {
+            let _ = (page, ctx);
+            log::warn!("Cloud environment management is unavailable in local-only mode");
+            return;
         }
 
-        self.focus(ctx);
-        ctx.notify();
+        #[cfg(test)]
+        {
+            self.current_page = page.clone();
+
+            // Update the environment form component based on the page
+            match &page {
+                EnvironmentsPage::Edit { env_id } => {
+                    // Extract environment data for edit mode
+                    let env_data =
+                        CloudAmbientAgentEnvironment::get_by_id(env_id, ctx).map(|env| {
+                            let model = &env.model().string_model;
+                            EnvironmentFormValues {
+                                name: model.name.clone(),
+                                description: model.description.clone().unwrap_or_default(),
+                                selected_repos: model.github_repos.clone(),
+                                docker_image: model.base_image_display(),
+                                setup_commands: model.setup_commands.clone(),
+                            }
+                        });
+
+                    if let Some(initial_values) = env_data {
+                        self.environment_form.update(ctx, |form, ctx| {
+                            form.set_mode(
+                                EnvironmentFormInitArgs::Edit {
+                                    env_id: *env_id,
+                                    initial_values: Box::new(initial_values),
+                                },
+                                ctx,
+                            );
+                        });
+                    }
+                }
+                EnvironmentsPage::Create => {
+                    // Update form mode to Create
+                    self.environment_form.update(ctx, |form, ctx| {
+                        form.set_mode(EnvironmentFormInitArgs::Create, ctx);
+                    });
+                }
+                EnvironmentsPage::List => {
+                    self.ensure_environment_mouse_states(ctx);
+                }
+            }
+
+            self.focus(ctx);
+            ctx.notify();
+        }
     }
 
     fn create_single_line_editor(
@@ -340,6 +378,7 @@ impl EnvironmentsPageView {
         // Subscribe to CloudModel to refresh when environments change.
         // Per-object events are suppressed during the initial load at the source,
         // so only runtime changes and InitialLoadCompleted arrive here.
+        #[cfg(test)]
         ctx.subscribe_to_model(&CloudModel::handle(ctx), |view, _, event, ctx| {
             match event {
                 // Events that can add/remove environments: refresh mouse states.
@@ -365,6 +404,7 @@ impl EnvironmentsPageView {
         });
 
         // Subscribe to UpdateManager to show success toast when environment update completes
+        #[cfg(test)]
         ctx.subscribe_to_model(&UpdateManager::handle(ctx), |view, _, event, ctx| {
             view.handle_update_manager_event(event, ctx);
         });
@@ -398,8 +438,10 @@ impl EnvironmentsPageView {
             me.handle_delete_confirmation_event(event, ctx);
         });
 
+        #[cfg(test)]
         let agent_assisted_environment_modal =
             ctx.add_typed_action_view(AgentAssistedEnvironmentModal::new);
+        #[cfg(test)]
         ctx.subscribe_to_view(
             &agent_assisted_environment_modal,
             |me, _, event, ctx| match event {
@@ -448,8 +490,10 @@ impl EnvironmentsPageView {
             },
         );
 
+        #[cfg(test)]
         let environment_setup_mode_selector =
             ctx.add_typed_action_view(EnvironmentSetupModeSelector::new);
+        #[cfg(test)]
         ctx.subscribe_to_view(&environment_setup_mode_selector, |me, _, event, ctx| {
             me.handle_environment_setup_mode_selector_event(event, ctx);
         });
@@ -458,12 +502,16 @@ impl EnvironmentsPageView {
         let environment_form = ctx.add_typed_action_view(|ctx| {
             UpdateEnvironmentForm::new(EnvironmentFormInitArgs::Create, ctx)
         });
+        #[cfg(not(test))]
+        environment_form.update(ctx, |form, ctx| {
+            form.set_show_share_with_team_controls(false, ctx);
+        });
         ctx.subscribe_to_view(&environment_form, |me, _, event, ctx| {
             me.handle_environment_form_event(event, ctx);
         });
 
-        // Refetch GitHub repos when the app regains focus, in case the user
-        // just completed the OAuth flow in the browser.
+        // GitHub auth and repository refresh are intentionally disabled here.
+        #[cfg(test)]
         ctx.subscribe_to_model(&WindowManager::handle(ctx), |me, _, evt, ctx| {
             let windowing::StateEvent::ValueChanged { current, previous } = evt;
             if previous.stage == ApplicationStage::Inactive
@@ -482,11 +530,25 @@ impl EnvironmentsPageView {
         });
 
         // Initialize mouse states for existing environments
+        #[cfg(test)]
         let mut copy_button_mouse_states = HashMap::new();
+        #[cfg(not(test))]
+        let copy_button_mouse_states = HashMap::new();
+        #[cfg(test)]
         let mut edit_button_mouse_states = HashMap::new();
+        #[cfg(not(test))]
+        let edit_button_mouse_states = HashMap::new();
+        #[cfg(test)]
         let mut share_button_mouse_states = HashMap::new();
+        #[cfg(test)]
         let mut card_hover_mouse_states = HashMap::new();
+        #[cfg(not(test))]
+        let card_hover_mouse_states = HashMap::new();
+        #[cfg(test)]
         let mut view_runs_link_mouse_states = HashMap::new();
+        #[cfg(not(test))]
+        let view_runs_link_mouse_states = HashMap::new();
+        #[cfg(test)]
         for env in CloudAmbientAgentEnvironment::get_all(ctx) {
             copy_button_mouse_states
                 .entry(env.id)
@@ -494,6 +556,7 @@ impl EnvironmentsPageView {
             edit_button_mouse_states
                 .entry(env.id)
                 .or_insert_with(MouseStateHandle::default);
+            #[cfg(test)]
             share_button_mouse_states
                 .entry(env.id)
                 .or_insert_with(MouseStateHandle::default);
@@ -519,28 +582,41 @@ impl EnvironmentsPageView {
             current_page: EnvironmentsPage::default(),
             copy_button_mouse_states,
             edit_button_mouse_states,
+            #[cfg(test)]
             share_button_mouse_states,
             card_hover_mouse_states,
             view_runs_link_mouse_states,
             copy_feedback_times: HashMap::new(),
             search_query: String::new(),
             search_editor,
+            #[cfg(test)]
             empty_state_github_repos_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             empty_state_local_repos_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(not(test))]
+            empty_state_manual_button_mouse_state: MouseStateHandle::default(),
+            #[cfg(test)]
             pending_save_env_id: None,
+            #[cfg(test)]
             pending_create_client_id: None,
+            #[cfg(test)]
             pending_delete_env_id: None,
+            #[cfg(test)]
             pending_share_server_id: None,
             delete_confirmation_dialog,
+            #[cfg(test)]
             agent_assisted_environment_modal,
             new_env_button,
+            #[cfg(test)]
             environment_setup_mode_selector,
+            #[cfg(test)]
             is_environment_setup_mode_selector_open: false,
             environment_form,
             pane_configuration,
             focus_handle: None,
         };
 
+        #[cfg(test)]
         view.ensure_environment_mouse_states(ctx);
         view.update_search_editor_text_colors(ctx);
 
@@ -553,6 +629,7 @@ impl EnvironmentsPageView {
     }
 
     /// Returns the environment setup mode selector view handle for tab-level rendering.
+    #[cfg(test)]
     pub fn environment_setup_mode_selector_handle(
         &self,
     ) -> Option<&ViewHandle<EnvironmentSetupModeSelector>> {
@@ -560,7 +637,16 @@ impl EnvironmentsPageView {
             .then_some(&self.environment_setup_mode_selector)
     }
 
+    /// The production settings surface uses the manual form directly.
+    #[cfg(not(test))]
+    pub fn environment_setup_mode_selector_handle(
+        &self,
+    ) -> Option<&ViewHandle<EnvironmentSetupModeSelector>> {
+        None
+    }
+
     /// Returns the agent-assisted environment modal view handle for tab-level rendering.
+    #[cfg(test)]
     pub fn agent_assisted_environment_modal_handle(
         &self,
         app: &AppContext,
@@ -571,10 +657,21 @@ impl EnvironmentsPageView {
             .then_some(&self.agent_assisted_environment_modal)
     }
 
+    /// The production settings surface does not expose the agent-assisted flow.
+    #[cfg(not(test))]
+    pub fn agent_assisted_environment_modal_handle(
+        &self,
+        _app: &AppContext,
+    ) -> Option<&ViewHandle<AgentAssistedEnvironmentModal>> {
+        None
+    }
+
     /// Returns the pane configuration for BackingView support.
     pub fn pane_configuration(&self) -> ModelHandle<crate::pane_group::pane::PaneConfiguration> {
         self.pane_configuration.clone()
     }
+
+    #[cfg(test)]
     pub fn set_github_auth_redirect_target(
         &mut self,
         target: GithubAuthRedirectTarget,
@@ -582,6 +679,14 @@ impl EnvironmentsPageView {
     ) {
         self.environment_form
             .update(ctx, |form, _| form.set_github_auth_redirect_target(target));
+    }
+
+    #[cfg(not(test))]
+    pub fn set_github_auth_redirect_target(
+        &mut self,
+        _target: GithubAuthRedirectTarget,
+        _ctx: &mut ViewContext<Self>,
+    ) {
     }
 
     /// Focus the environments page view.
@@ -597,6 +702,7 @@ impl EnvironmentsPageView {
         }
     }
 
+    #[cfg(test)]
     fn show_error_toast(&self, message: String, ctx: &mut ViewContext<Self>) {
         let window_id = ctx.window_id();
         ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
@@ -604,6 +710,7 @@ impl EnvironmentsPageView {
         });
     }
 
+    #[cfg(test)]
     fn show_success_toast(&self, message: String, ctx: &mut ViewContext<Self>) {
         let window_id = ctx.window_id();
         ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
@@ -611,6 +718,7 @@ impl EnvironmentsPageView {
         });
     }
 
+    #[cfg(test)]
     fn handle_update_manager_event(
         &mut self,
         event: &UpdateManagerEvent,
@@ -620,96 +728,117 @@ impl EnvironmentsPageView {
             return;
         };
 
-        // Check if this is a successful update for our pending save
-        if let (ObjectOperation::Update, OperationSuccessType::Success) =
-            (&result.operation, &result.success_type)
+        #[cfg(test)]
         {
-            let Some(server_id) = &result.server_id else {
-                return;
-            };
+            // Check if this is a successful update for our pending save
+            if let (ObjectOperation::Update, OperationSuccessType::Success) =
+                (&result.operation, &result.success_type)
+            {
+                let Some(server_id) = &result.server_id else {
+                    return;
+                };
 
-            let should_handle = self
-                .pending_save_env_id
-                .is_some_and(|pending_env_id| server_id.uid() == pending_env_id.uid());
+                let should_handle = self
+                    .pending_save_env_id
+                    .is_some_and(|pending_env_id| server_id.uid() == pending_env_id.uid());
 
-            if should_handle {
-                self.pending_save_env_id = None;
-                self.show_success_toast("Successfully updated environment".to_string(), ctx);
+                if should_handle {
+                    self.pending_save_env_id = None;
+                    self.show_success_toast("Successfully updated environment".to_string(), ctx);
 
-                // No need to force a global cloud-object refresh here: on update success the
-                // sync pipeline updates this environment's `revision_ts` (used for "Last edited")
-                // in-memory via `CloudModel::set_latest_revision_and_editor`.
+                    // No need to force a global cloud-object refresh here: on update success the
+                    // sync pipeline updates this environment's `revision_ts` (used for "Last edited")
+                    // in-memory via `CloudModel::set_latest_revision_and_editor`.
+                    ctx.notify();
+                }
+            }
+
+            // Check if this is a successful create for our pending create
+            if let (ObjectOperation::Create { .. }, OperationSuccessType::Success) =
+                (&result.operation, &result.success_type)
+                && let Some(pending_client_id) = self.pending_create_client_id.take()
+            {
+                // Check if the client_id in the result matches our pending client_id
+                if let Some(result_client_id) = &result.client_id
+                    && *result_client_id == pending_client_id
+                {
+                    self.show_success_toast("Successfully created environment".to_string(), ctx);
+                }
+            }
+        }
+
+        #[cfg(test)]
+        {
+            // Check if this is a successful delete for our pending delete
+            if let (ObjectOperation::Delete { .. }, OperationSuccessType::Success) =
+                (&result.operation, &result.success_type)
+                && let Some(pending_env_id) = self.pending_delete_env_id.take()
+            {
+                // Check if the server_id matches our pending environment
+                if let Some(server_id) = &result.server_id
+                    && server_id.uid() == pending_env_id.uid()
+                {
+                    self.show_success_toast("Environment deleted successfully".to_string(), ctx);
+                }
+            }
+        }
+
+        #[cfg(test)]
+        {
+            // Check if this is a completion event for our pending share (personal -> team)
+            if matches!(&result.operation, ObjectOperation::MoveToDrive) {
+                let (Some(pending_server_id), Some(result_server_id)) =
+                    (self.pending_share_server_id, result.server_id)
+                else {
+                    return;
+                };
+
+                if pending_server_id != result_server_id {
+                    return;
+                }
+
+                self.pending_share_server_id = None;
+
+                if matches!(result.success_type, OperationSuccessType::Success) {
+                    self.show_success_toast("Successfully shared environment".to_string(), ctx);
+                } else {
+                    self.show_error_toast("Failed to share environment with team".to_string(), ctx);
+                }
+
                 ctx.notify();
             }
-        }
-
-        // Check if this is a successful create for our pending create
-        if let (ObjectOperation::Create { .. }, OperationSuccessType::Success) =
-            (&result.operation, &result.success_type)
-            && let Some(pending_client_id) = self.pending_create_client_id.take()
-        {
-            // Check if the client_id in the result matches our pending client_id
-            if let Some(result_client_id) = &result.client_id
-                && *result_client_id == pending_client_id
-            {
-                self.show_success_toast("Successfully created environment".to_string(), ctx);
-            }
-        }
-
-        // Check if this is a successful delete for our pending delete
-        if let (ObjectOperation::Delete { .. }, OperationSuccessType::Success) =
-            (&result.operation, &result.success_type)
-            && let Some(pending_env_id) = self.pending_delete_env_id.take()
-        {
-            // Check if the server_id matches our pending environment
-            if let Some(server_id) = &result.server_id
-                && server_id.uid() == pending_env_id.uid()
-            {
-                self.show_success_toast("Environment deleted successfully".to_string(), ctx);
-            }
-        }
-
-        // Check if this is a completion event for our pending share (personal -> team)
-        if matches!(&result.operation, ObjectOperation::MoveToDrive) {
-            let (Some(pending_server_id), Some(result_server_id)) =
-                (self.pending_share_server_id, result.server_id)
-            else {
-                return;
-            };
-
-            if pending_server_id != result_server_id {
-                return;
-            }
-
-            self.pending_share_server_id = None;
-
-            if matches!(result.success_type, OperationSuccessType::Success) {
-                self.show_success_toast("Successfully shared environment".to_string(), ctx);
-            } else {
-                self.show_error_toast("Failed to share environment with team".to_string(), ctx);
-            }
-
-            ctx.notify();
         }
     }
 
     fn delete_environment(&mut self, env_id: SyncId, ctx: &mut ViewContext<Self>) {
-        // Track the pending delete to show success toast when complete
-        self.pending_delete_env_id = Some(env_id);
+        #[cfg(not(test))]
+        {
+            let _ = (env_id, ctx);
+            log::warn!("Cloud environment deletion is unavailable in local-only mode");
+            return;
+        }
 
-        // Delete via UpdateManager
-        UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
-            update_manager.delete_object_by_user(
-                CloudObjectTypeAndId::GenericStringObject {
-                    object_type: GenericStringObjectFormat::Json(JsonObjectType::CloudEnvironment),
-                    id: env_id,
-                },
-                ctx,
-            );
-        });
+        #[cfg(test)]
+        {
+            // Track the pending delete to show success toast when complete
+            self.pending_delete_env_id = Some(env_id);
 
-        // Navigate back to list
-        self.update_page(EnvironmentsPage::List, ctx);
+            // Delete via UpdateManager
+            UpdateManager::handle(ctx).update(ctx, |update_manager, ctx| {
+                update_manager.delete_object_by_user(
+                    CloudObjectTypeAndId::GenericStringObject {
+                        object_type: GenericStringObjectFormat::Json(
+                            JsonObjectType::CloudEnvironment,
+                        ),
+                        id: env_id,
+                    },
+                    ctx,
+                );
+            });
+
+            // Navigate back to list
+            self.update_page(EnvironmentsPage::List, ctx);
+        }
     }
 
     fn handle_delete_confirmation_event(
@@ -739,7 +868,11 @@ impl EnvironmentsPageView {
         event: &UpdateEnvironmentFormEvent,
         ctx: &mut ViewContext<Self>,
     ) {
+        #[cfg(not(test))]
+        let _ = ctx;
+
         match event {
+            #[cfg(test)]
             UpdateEnvironmentFormEvent::Created {
                 environment,
                 share_with_team,
@@ -775,6 +908,11 @@ impl EnvironmentsPageView {
                 // Navigate back to list
                 self.update_page(EnvironmentsPage::List, ctx);
             }
+            #[cfg(not(test))]
+            UpdateEnvironmentFormEvent::Created { .. } => {
+                log::warn!("Cloud environment creation is unavailable in local-only mode");
+            }
+            #[cfg(test)]
             UpdateEnvironmentFormEvent::Updated {
                 env_id,
                 environment,
@@ -808,6 +946,11 @@ impl EnvironmentsPageView {
                 // Navigate back to list
                 self.update_page(EnvironmentsPage::List, ctx);
             }
+            #[cfg(not(test))]
+            UpdateEnvironmentFormEvent::Updated { .. } => {
+                log::warn!("Cloud environment updates are unavailable in local-only mode");
+            }
+            #[cfg(test)]
             UpdateEnvironmentFormEvent::DeleteRequested { env_id } => {
                 // Get the environment name for the confirmation dialog
                 if let Some(env) = CloudAmbientAgentEnvironment::get_by_id(env_id, ctx) {
@@ -818,13 +961,23 @@ impl EnvironmentsPageView {
                     ctx.notify();
                 }
             }
+            #[cfg(not(test))]
+            UpdateEnvironmentFormEvent::DeleteRequested { .. } => {
+                log::warn!("Cloud environment deletion is unavailable in local-only mode");
+            }
+            #[cfg(test)]
             UpdateEnvironmentFormEvent::Cancelled => {
                 // Navigate back to list
                 self.update_page(EnvironmentsPage::List, ctx);
             }
+            #[cfg(not(test))]
+            UpdateEnvironmentFormEvent::Cancelled => {
+                log::warn!("Cloud environment management is unavailable in local-only mode");
+            }
         }
     }
 
+    #[cfg(test)]
     fn open_agent_assisted_environment_modal(&mut self, ctx: &mut ViewContext<Self>) {
         self.agent_assisted_environment_modal
             .update(ctx, |modal, ctx| {
@@ -834,6 +987,7 @@ impl EnvironmentsPageView {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn open_environment_setup_mode_selector(&mut self, ctx: &mut ViewContext<Self>) {
         if self.is_environment_setup_mode_selector_open {
             return;
@@ -845,6 +999,7 @@ impl EnvironmentsPageView {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn close_environment_setup_mode_selector(&mut self, ctx: &mut ViewContext<Self>) {
         if !self.is_environment_setup_mode_selector_open {
             return;
@@ -855,6 +1010,7 @@ impl EnvironmentsPageView {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn handle_environment_setup_mode_selector_event(
         &mut self,
         event: &EnvironmentSetupModeSelectorEvent,
@@ -884,13 +1040,18 @@ impl EnvironmentsPageView {
 #[derive(Debug, Clone)]
 pub enum EnvironmentsPageAction {
     OpenEditPage(SyncId),
+    #[cfg(test)]
     RetryFetchGithubRepos,
+    #[cfg(test)]
     OpenUrl(String),
+    #[cfg(test)]
     StartGithubAuth,
     CopyEnvId(SyncId, String),
     OpenCreatePage,
+    #[cfg(test)]
     OpenAgentAssistedCreateModal,
     OpenEnvironmentSetupModeSelector,
+    #[cfg(test)]
     ShareToTeam(SyncId),
 }
 impl Entity for EnvironmentsPageView {
@@ -903,16 +1064,25 @@ impl TypedActionView for EnvironmentsPageView {
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
         match action {
             EnvironmentsPageAction::OpenEditPage(env_id) => {
+                #[cfg(test)]
                 self.update_page(EnvironmentsPage::Edit { env_id: *env_id }, ctx);
+                #[cfg(not(test))]
+                {
+                    let _ = env_id;
+                    log::warn!("Cloud environment editing is unavailable in local-only mode");
+                }
             }
+            #[cfg(test)]
             EnvironmentsPageAction::RetryFetchGithubRepos => {
                 self.environment_form.update(ctx, |form, ctx| {
                     form.fetch_github_repos(ctx);
                 });
             }
+            #[cfg(test)]
             EnvironmentsPageAction::OpenUrl(url) => {
                 ctx.open_url(url);
             }
+            #[cfg(test)]
             EnvironmentsPageAction::StartGithubAuth => {
                 self.environment_form.update(ctx, |form, ctx| {
                     form.start_github_auth(ctx);
@@ -941,14 +1111,22 @@ impl TypedActionView for EnvironmentsPageView {
                 ctx.notify();
             }
             EnvironmentsPageAction::OpenCreatePage => {
+                #[cfg(test)]
                 self.update_page(EnvironmentsPage::Create, ctx);
+                #[cfg(not(test))]
+                log::warn!("Cloud environment creation is unavailable in local-only mode");
             }
+            #[cfg(test)]
             EnvironmentsPageAction::OpenAgentAssistedCreateModal => {
                 self.open_agent_assisted_environment_modal(ctx);
             }
             EnvironmentsPageAction::OpenEnvironmentSetupModeSelector => {
+                #[cfg(test)]
                 self.open_environment_setup_mode_selector(ctx);
+                #[cfg(not(test))]
+                log::warn!("Cloud environment setup is unavailable in local-only mode");
             }
+            #[cfg(test)]
             EnvironmentsPageAction::ShareToTeam(env_id) => {
                 let Some(team_uid) = UserWorkspaces::as_ref(ctx)
                     .team_for_view(ctx)
@@ -1019,6 +1197,7 @@ struct EnvironmentsPageWidget;
 struct EnvironmentCardRenderState<'a> {
     copy_button_mouse_states: &'a HashMap<SyncId, MouseStateHandle>,
     edit_button_mouse_states: &'a HashMap<SyncId, MouseStateHandle>,
+    #[cfg(test)]
     share_button_mouse_states: &'a HashMap<SyncId, MouseStateHandle>,
     card_hover_mouse_states: &'a HashMap<SyncId, MouseStateHandle>,
     view_runs_link_mouse_states: &'a HashMap<SyncId, MouseStateHandle>,
@@ -1034,8 +1213,14 @@ enum EnvironmentListScope {
 impl SettingsWidget for EnvironmentsPageWidget {
     type View = EnvironmentsPageView;
 
+    #[cfg(test)]
     fn search_terms(&self) -> &str {
         "environments environment ambient agents github warp assisted manual configuration"
+    }
+
+    #[cfg(not(test))]
+    fn search_terms(&self) -> &str {
+        "environments environment ambient agents manual configuration local setup"
     }
 
     fn render(
@@ -1044,6 +1229,10 @@ impl SettingsWidget for EnvironmentsPageWidget {
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
+        if !cfg!(test) {
+            return Self::render_local_only_state(appearance);
+        }
+
         match &view.current_page {
             EnvironmentsPage::List => Self::render_list_page(view, appearance, app),
             EnvironmentsPage::Edit { .. } => Self::render_edit_page(view),
@@ -1053,6 +1242,21 @@ impl SettingsWidget for EnvironmentsPageWidget {
 }
 
 impl EnvironmentsPageWidget {
+    fn render_local_only_state(appearance: &Appearance) -> Box<dyn Element> {
+        let theme = appearance.theme();
+        Container::new(
+            Text::new(
+                "Cloud environment management is unavailable in local-only mode.",
+                appearance.ui_font_family(),
+                appearance.ui_font_size(),
+            )
+            .with_color(theme.nonactive_ui_text_color().into())
+            .finish(),
+        )
+        .with_uniform_padding(CARD_PADDING)
+        .finish()
+    }
+
     fn render_list_page(
         view: &EnvironmentsPageView,
         appearance: &Appearance,
@@ -1155,6 +1359,7 @@ impl EnvironmentsPageWidget {
                 let card_render_state = EnvironmentCardRenderState {
                     copy_button_mouse_states: &view.copy_button_mouse_states,
                     edit_button_mouse_states: &view.edit_button_mouse_states,
+                    #[cfg(test)]
                     share_button_mouse_states: &view.share_button_mouse_states,
                     card_hover_mouse_states: &view.card_hover_mouse_states,
                     view_runs_link_mouse_states: &view.view_runs_link_mouse_states,
@@ -1384,13 +1589,15 @@ impl EnvironmentsPageWidget {
     fn render_empty_state(
         view: &EnvironmentsPageView,
         appearance: &Appearance,
-        app: &AppContext,
+        _app: &AppContext,
     ) -> Box<dyn Element> {
         let theme = appearance.theme();
         let icon_size = appearance.ui_font_size() * 1.3;
 
-        let dropdown_state = view.environment_form.as_ref(app).github_dropdown_state();
+        #[cfg(test)]
+        let dropdown_state = view.environment_form.as_ref(_app).github_dropdown_state();
 
+        #[cfg(test)]
         let github_button_action = if dropdown_state.is_loading {
             None
         } else if dropdown_state.load_error_message.is_some() {
@@ -1401,6 +1608,7 @@ impl EnvironmentsPageWidget {
             Some(EnvironmentsPageAction::OpenCreatePage)
         };
 
+        #[cfg(test)]
         let (github_button_label, github_button_enabled) = if dropdown_state.is_loading {
             ("Loading...", false)
         } else if dropdown_state.load_error_message.is_some() {
@@ -1411,6 +1619,7 @@ impl EnvironmentsPageWidget {
             ("Get started", true)
         };
 
+        #[cfg(test)]
         let github_button = Self::render_empty_state_button(
             appearance,
             github_button_label,
@@ -1419,6 +1628,7 @@ impl EnvironmentsPageWidget {
             github_button_enabled,
             github_button_action.clone(),
         );
+        #[cfg(test)]
         let github_button_compact = Self::render_empty_state_button(
             appearance,
             github_button_label,
@@ -1428,6 +1638,7 @@ impl EnvironmentsPageWidget {
             github_button_action,
         );
 
+        #[cfg(test)]
         let local_repos_button = Self::render_empty_state_button(
             appearance,
             "Launch agent",
@@ -1436,6 +1647,7 @@ impl EnvironmentsPageWidget {
             true,
             Some(EnvironmentsPageAction::OpenAgentAssistedCreateModal),
         );
+        #[cfg(test)]
         let local_repos_button_compact = Self::render_empty_state_button(
             appearance,
             "Launch agent",
@@ -1445,6 +1657,7 @@ impl EnvironmentsPageWidget {
             Some(EnvironmentsPageAction::OpenAgentAssistedCreateModal),
         );
 
+        #[cfg(test)]
         let github_row = Self::render_empty_state_row(
             appearance,
             EmptyStateRowConfig {
@@ -1458,6 +1671,7 @@ impl EnvironmentsPageWidget {
             },
         );
 
+        #[cfg(test)]
         let local_repos_row = Self::render_empty_state_row(
             appearance,
             EmptyStateRowConfig {
@@ -1471,6 +1685,7 @@ impl EnvironmentsPageWidget {
             },
         );
 
+        #[cfg(test)]
         let rows = ConstrainedBox::new(
             Flex::column()
                 .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
@@ -1481,6 +1696,48 @@ impl EnvironmentsPageWidget {
         )
         .with_max_width(DROPDOWN_MAX_WIDTH * EMPTY_STATE_MAX_WIDTH_RATIO)
         .finish();
+
+        #[cfg(not(test))]
+        let rows = {
+            let manual_button = Self::render_empty_state_button(
+                appearance,
+                "Get started",
+                ButtonVariant::Secondary,
+                view.empty_state_manual_button_mouse_state.clone(),
+                true,
+                Some(EnvironmentsPageAction::OpenCreatePage),
+            );
+            let manual_button_compact = Self::render_empty_state_button(
+                appearance,
+                "Get started",
+                ButtonVariant::Secondary,
+                view.empty_state_manual_button_mouse_state.clone(),
+                true,
+                Some(EnvironmentsPageAction::OpenCreatePage),
+            );
+            let manual_row = Self::render_empty_state_row(
+                appearance,
+                EmptyStateRowConfig {
+                    icon: Icon::Terminal,
+                    title: "Manual setup",
+                    badge: None,
+                    subtitle: "Configure the environment name, repositories, image, and setup commands yourself",
+                    action_button: manual_button,
+                    compact_action_button: manual_button_compact,
+                    icon_size,
+                },
+            );
+
+            ConstrainedBox::new(
+                Flex::column()
+                    .with_cross_axis_alignment(CrossAxisAlignment::Stretch)
+                    .with_spacing(8.)
+                    .with_child(manual_row)
+                    .finish(),
+            )
+            .with_max_width(DROPDOWN_MAX_WIDTH * EMPTY_STATE_MAX_WIDTH_RATIO)
+            .finish()
+        };
 
         let header = Text::new(
             "You haven’t set up any environments yet.",
@@ -1711,6 +1968,8 @@ impl EnvironmentsPageWidget {
     ) -> Box<dyn Element> {
         let theme = appearance.theme();
         let env_id = environment.id;
+        #[cfg(not(test))]
+        let _ = (list_scope, is_user_on_team);
 
         // Get card hover state
         let card_hover_mouse_state = card_render_state
@@ -1738,6 +1997,7 @@ impl EnvironmentsPageWidget {
             .cloned()
             .unwrap_or_else(MouseStateHandle::default);
 
+        #[cfg(test)]
         let share_button_mouse_state = card_render_state
             .share_button_mouse_states
             .get(&env_id)
@@ -1921,44 +2181,47 @@ impl EnvironmentsPageWidget {
                 ThemeFill::Solid(warpui::color::ColorU::transparent_black())
             };
 
-            let should_render_share_button = list_scope == EnvironmentListScope::Personal
-                && is_user_on_team
-                && matches!(env_id, SyncId::ServerId(_));
+            #[cfg(test)]
+            {
+                let should_render_share_button = list_scope == EnvironmentListScope::Personal
+                    && is_user_on_team
+                    && matches!(env_id, SyncId::ServerId(_));
 
-            if should_render_share_button {
-                let share_ui_builder = appearance.ui_builder().clone();
-                let share_button_element = if is_card_hovered {
-                    icon_button_with_color(
-                        appearance,
-                        Icon::Share,
-                        false,
-                        share_button_mouse_state.clone(),
-                        icon_color,
-                    )
-                    .with_tooltip(move || {
-                        share_ui_builder
-                            .tool_tip("Share".to_string())
-                            .build()
-                            .finish()
-                    })
-                    .build()
-                    .on_click(move |ctx, _, _| {
-                        ctx.dispatch_typed_action(EnvironmentsPageAction::ShareToTeam(env_id));
-                    })
-                    .finish()
-                } else {
-                    icon_button_with_color(
-                        appearance,
-                        Icon::Share,
-                        false,
-                        share_button_mouse_state.clone(),
-                        icon_color,
-                    )
-                    .build()
-                    .finish()
-                };
+                if should_render_share_button {
+                    let share_ui_builder = appearance.ui_builder().clone();
+                    let share_button_element = if is_card_hovered {
+                        icon_button_with_color(
+                            appearance,
+                            Icon::Share,
+                            false,
+                            share_button_mouse_state.clone(),
+                            icon_color,
+                        )
+                        .with_tooltip(move || {
+                            share_ui_builder
+                                .tool_tip("Share".to_string())
+                                .build()
+                                .finish()
+                        })
+                        .build()
+                        .on_click(move |ctx, _, _| {
+                            ctx.dispatch_typed_action(EnvironmentsPageAction::ShareToTeam(env_id));
+                        })
+                        .finish()
+                    } else {
+                        icon_button_with_color(
+                            appearance,
+                            Icon::Share,
+                            false,
+                            share_button_mouse_state.clone(),
+                            icon_color,
+                        )
+                        .build()
+                        .finish()
+                    };
 
-                card_row.add_child(share_button_element);
+                    card_row.add_child(share_button_element);
+                }
             }
 
             let edit_ui_builder = appearance.ui_builder().clone();
@@ -2011,20 +2274,10 @@ impl SettingsPageMeta for EnvironmentsPageView {
     fn section() -> SettingsSection {
         SettingsSection::CloudEnvironments
     }
-    fn on_page_selected(&mut self, _allow_steal_focus: bool, ctx: &mut ViewContext<Self>) {
-        self.environment_form.update(ctx, |form, ctx| {
-            form.fetch_github_repos(ctx);
-        });
-        // Refresh cloud objects so the environments list reflects recent changes (e.g. a newly
-        // created environment from the terminal flow) without waiting for the next poll.
-        #[cfg(not(any(test, feature = "integration_tests")))]
-        UpdateManager::handle(ctx).update(ctx, |manager, ctx| {
-            manager.refresh_updated_objects(ctx);
-        });
-    }
+    fn on_page_selected(&mut self, _allow_steal_focus: bool, _ctx: &mut ViewContext<Self>) {}
 
     fn should_render(&self, _ctx: &AppContext) -> bool {
-        true
+        cfg!(test)
     }
 
     fn update_filter(&mut self, query: &str, ctx: &mut ViewContext<Self>) -> MatchData {
@@ -2083,6 +2336,7 @@ impl BackingView for EnvironmentsPageView {
     }
 }
 
+#[cfg(test)]
 impl From<ViewHandle<EnvironmentsPageView>> for SettingsPageViewHandle {
     fn from(view_handle: ViewHandle<EnvironmentsPageView>) -> Self {
         SettingsPageViewHandle::CloudEnvironments(view_handle)

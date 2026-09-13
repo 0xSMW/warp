@@ -10,13 +10,16 @@ pub mod spawn;
 pub mod task;
 pub mod telemetry;
 
+#[cfg(test)]
+pub use task::TaskStatusMessage;
 pub use task::{
     AgentConfigSnapshot, AgentSource, AmbientAgentLiveSessionState, AmbientAgentTask,
-    AmbientAgentTaskState, ExecutionLocation, TaskStatusMessage, cancel_task_silently,
-    cancel_task_with_toast,
+    AmbientAgentTaskState, ExecutionLocation, cancel_task_silently, cancel_task_with_toast,
 };
+#[cfg(any(test, feature = "tui"))]
 pub const OUT_OF_CREDITS_TASK_FAILURE_MESSAGE: &str =
     "Out of credits. Upgrade your Warp plan to continue running cloud agents.";
+#[cfg(any(test, feature = "tui"))]
 pub const SERVER_OVERLOADED_TASK_FAILURE_MESSAGE: &str =
     "Warp is temporarily overloaded. Please try again shortly.";
 

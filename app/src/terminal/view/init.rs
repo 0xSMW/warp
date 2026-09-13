@@ -1,35 +1,19 @@
-use warp_core::context_flag::ContextFlag;
 use warpui::AppContext;
-use warpui::keymap::{
-    BindingDescription, ContextPredicate, EditableBinding, FixedBinding, PerPlatformKeystroke,
-};
+use warpui::keymap::{BindingDescription, EditableBinding, FixedBinding, PerPlatformKeystroke};
 use warpui::platform::OperatingSystem;
 use warpui::units::IntoLines;
 
-use super::{
-    AgentOnboardingVersion, AskAISource, ContextMenuAction, OnboardingIntention, OnboardingVersion,
-    TerminalAction,
-};
-use crate::ai::blocklist::agent_view::{
-    AgentViewEntryOrigin, ENTER_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE,
-};
+use super::{AgentOnboardingVersion, OnboardingIntention, OnboardingVersion, TerminalAction};
 use crate::ai::predict::prompt_suggestions::ACCEPT_PROMPT_SUGGESTION_KEYBINDING;
 use crate::channel::{Channel, ChannelState};
 use crate::features::FeatureFlag;
 use crate::server::telemetry::{InteractionSource, ToggleBlockFilterSource};
 use crate::settings_view::flags;
 use crate::terminal::TerminalView;
-use crate::terminal::input::{
-    SET_INPUT_MODE_AGENT_ACTION_NAME, SET_INPUT_MODE_TERMINAL_ACTION_NAME,
-};
 use crate::terminal::model::escape_sequences::{self, EscCodes};
 use crate::terminal::model::selection::SelectionDirection;
-use crate::terminal::shared_session::{SharedSessionActionSource, SharedSessionStatus};
+use crate::terminal::shared_session::SharedSessionStatus;
 use crate::terminal::view::passive_suggestions::PromptSuggestionResolution;
-use crate::terminal::view::{
-    LONG_RUNNING_AGENT_REQUESTED_COMMAND_CONTEXT_KEY,
-    LONG_RUNNING_AGENT_REQUESTED_COMMAND_USER_TOOK_OVER_CONTEXT_KEY,
-};
 use crate::util::bindings;
 use crate::util::bindings::{CustomAction, cmd_or_ctrl_shift, is_binding_pty_compliant};
 
@@ -88,7 +72,8 @@ pub fn init(app: &mut AppContext) {
     init_overlapping_keybindings(app);
     // Register input mode bindings before warpify bindings so ctrl-i warpifies
     // instead of opening inline agent when a warpify banner is visible.
-    register_input_mode_bindings(app);
+    // Commented out: Agent input mode bindings
+    // register_input_mode_bindings(app);
 
     app.register_fixed_bindings([
         FixedBinding::new("up", TerminalAction::Up, id!("Terminal") & !id!("IMEOpen")),
@@ -441,6 +426,8 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(
             id!("Terminal") & ne!("TerminalView_BlockSelectionCardinality", "None"),
         ),
+        // Commented out: Save selected blocks as a team workflow binding
+        /*
         EditableBinding::new(
             "terminal:toggle_teams_modal",
             "Toggle team workflows modal",
@@ -452,6 +439,7 @@ pub fn init(app: &mut AppContext) {
                 & !id!("IMEOpen")
                 & ne!("TerminalView_BlockSelectionCardinality", "None"),
         ),
+        */
         EditableBinding::new(
             "terminal:copy_git_branch",
             "Copy git branch",
@@ -561,6 +549,8 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(
             id!("Terminal") & id!("TerminalView_NonEmptyBlockList") & !id!("AltScreen"),
         ),
+        // Commented out: Share selected block binding
+        /*
         EditableBinding::new(
             "terminal:open_share_block_modal",
             "Share selected block",
@@ -570,6 +560,7 @@ pub fn init(app: &mut AppContext) {
         .with_context_predicate(
             id!("Terminal") & eq!("TerminalView_BlockSelectionCardinality", "One"),
         ),
+        */
         EditableBinding::new(
             "terminal:bookmark_selected_block",
             "Bookmark selected block",
@@ -748,6 +739,8 @@ pub fn init(app: &mut AppContext) {
         ),
     ]);
 
+    // Commented out: Ask Warp AI and attach as Agent Context bindings
+    /*
     app.register_editable_bindings([
         EditableBinding::new(
             "terminal:ask_ai_assistant",
@@ -832,6 +825,7 @@ pub fn init(app: &mut AppContext) {
         .with_key_binding("ctrl-shift-space")
         .with_context_predicate(id!("Input") & id!(flags::IS_ANY_AI_ENABLED)),
     ]);
+    */
 
     if FeatureFlag::CommandCorrectionKey.is_enabled() {
         app.register_editable_bindings([EditableBinding::new(
@@ -928,6 +922,8 @@ pub fn init(app: &mut AppContext) {
     )
     .with_context_predicate(id!("Terminal") & id!(flags::HAS_SETTINGS_TO_IMPORT_FLAG))]);
 
+    // Commented out: Share current session bindings
+    /*
     app.register_editable_bindings([
         EditableBinding::new(
             "terminal:share_current_session",
@@ -955,6 +951,7 @@ pub fn init(app: &mut AppContext) {
             id!("Terminal") & id!(SharedSessionStatus::ActiveSharer.as_keymap_context()),
         ),
     ]);
+    */
 
     app.register_editable_bindings([EditableBinding::new(
         TOGGLE_BLOCK_FILTER_KEYBINDING,
@@ -971,6 +968,8 @@ pub fn init(app: &mut AppContext) {
     )
     .with_context_predicate(id!("Terminal"))]);
 
+    // Commented out: Attach file, auto-execute, and queue-next-prompt bindings
+    /*
     app.register_editable_bindings([
         EditableBinding::new(
             ATTACH_FILE_KEYBINDING,
@@ -1015,7 +1014,10 @@ pub fn init(app: &mut AppContext) {
                 && ChannelState::enable_debug_features()
         }),
     ]);
+    */
 
+    // Commented out: Write codebase index binding
+    /*
     app.register_editable_bindings([EditableBinding::new(
         "workspace:write_codebase_index",
         BindingDescription::new("Write current codebase index snapshot"),
@@ -1023,6 +1025,7 @@ pub fn init(app: &mut AppContext) {
     )
     .with_enabled(|| FeatureFlag::CodebaseIndexPersistence.is_enabled())
     .with_context_predicate(id!("Workspace"))]);
+    */
 
     app.register_editable_bindings([EditableBinding::new(
         "terminal:load_agent_mode_conversation",
@@ -1089,7 +1092,8 @@ pub fn init(app: &mut AppContext) {
         .with_linux_or_windows_key_binding("ctrl-alt-["),
     ]);
 
-    // Register bindings for starting a new cloud agent conversation.
+    // Commented out: Cloud Agent conversation bindings
+    /*
     {
         app.register_fixed_bindings([FixedBinding::new_per_platform(
             PerPlatformKeystroke {
@@ -1118,8 +1122,10 @@ pub fn init(app: &mut AppContext) {
             )]);
         }
     }
+    */
 }
 
+/*
 /// Registers bindings related to input modes.
 fn register_input_mode_bindings(app: &mut AppContext) {
     use warpui::keymap::macros::*;
@@ -1224,3 +1230,4 @@ fn register_input_mode_bindings(app: &mut AppContext) {
         ),
     ]);
 }
+*/

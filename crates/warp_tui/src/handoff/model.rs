@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 //! State and execution model for the TUI local-to-cloud handoff flow.
 //!
 //! The terminal session supplies its concrete terminal/controller handles once
@@ -5,23 +7,31 @@
 //! subscriptions, validation, asynchronous execution, and lifecycle outcomes.
 //! [`super::block::TuiHandoffBlock`] only presents and edits this state.
 
+#[cfg(test)]
 use std::collections::HashSet;
+#[cfg(test)]
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(test)]
 use chrono::Local;
+#[cfg(test)]
 use futures::channel::oneshot;
 use parking_lot::FairMutex;
+#[cfg(test)]
 use warp::settings::{AISettings, PrivacySettings, PrivacySettingsChangedEvent};
 use warp::tui_export::{
-    AIConversationId, AISettingsChangedEvent, AttachmentInput, BlocklistAIContextModel,
-    BlocklistAIController, BlocklistAIHistoryModel, CloudAgentTelemetryEvent,
-    CloudEnvironmentCatalog, HandoffCommitOutcome, HandoffEntryPoint, HandoffLaunchAttachments,
-    HandoffPrepareError, HandoffPrepareInput, HandoffRestoration, HandoffSurface, LLMId,
-    LLMPreferences, LLMPreferencesEvent, OptionRow, OptionSnapshot, OptionSourceStatus,
-    PendingCloudLaunch, PendingHandoff, ServerApiProvider, SnapshotUploadTarget, TerminalModel,
-    UserWorkspaces, UserWorkspacesEvent, execute_handoff, handoff_dispatch_error,
-    oz_model_snapshot, prepare_handoff, suggest_handoff_environment,
+    AIConversationId, BlocklistAIContextModel, BlocklistAIController, CloudEnvironmentCatalog,
+    HandoffRestoration, LLMId, LLMPreferences, OptionRow, OptionSnapshot, OptionSourceStatus,
+    PendingHandoff, TerminalModel, oz_model_snapshot,
+};
+#[cfg(test)]
+use warp::tui_export::{
+    AISettingsChangedEvent, AttachmentInput, BlocklistAIHistoryModel, CloudAgentTelemetryEvent,
+    HandoffCommitOutcome, HandoffEntryPoint, HandoffLaunchAttachments, HandoffPrepareError,
+    HandoffPrepareInput, HandoffSurface, LLMPreferencesEvent, PendingCloudLaunch,
+    ServerApiProvider, SnapshotUploadTarget, UserWorkspaces, UserWorkspacesEvent, execute_handoff,
+    handoff_dispatch_error, prepare_handoff, suggest_handoff_environment,
 };
 use warpui::{AppContext, Entity, EntityId, ModelContext, ModelHandle, SingletonEntity as _};
 
@@ -103,7 +113,9 @@ pub(crate) struct TuiHandoffModel {
     phase: TuiHandoffPhase,
     environments: ModelHandle<CloudEnvironmentCatalog>,
     forked_existing_conversation: bool,
+    #[cfg(test)]
     next_operation_id: u64,
+    #[cfg(test)]
     execution_cancellation: Option<oneshot::Sender<()>>,
     dismissed: bool,
 }
@@ -111,6 +123,45 @@ pub(crate) struct TuiHandoffModel {
 impl TuiHandoffModel {
     /// Prepares a handoff and registers its retained model.
     pub(crate) fn new(
+        terminal_surface_id: EntityId,
+        terminal_model: Arc<FairMutex<TerminalModel>>,
+        controller: ModelHandle<BlocklistAIController>,
+        context: ModelHandle<BlocklistAIContextModel>,
+        current_working_directory: Option<String>,
+        argument: Option<String>,
+        ctx: &mut AppContext,
+    ) -> Result<ModelHandle<Self>, TuiHandoffPreparationFailure> {
+        #[cfg(not(test))]
+        {
+            let _ = (
+                terminal_surface_id,
+                terminal_model,
+                controller,
+                context,
+                current_working_directory,
+                argument,
+                ctx,
+            );
+            return Err(TuiHandoffPreparationFailure {
+                replacement_input: None,
+                message: "Cloud handoff is unavailable.".to_owned(),
+            });
+        }
+
+        #[cfg(test)]
+        Self::new_with_cloud_fixture(
+            terminal_surface_id,
+            terminal_model,
+            controller,
+            context,
+            current_working_directory,
+            argument,
+            ctx,
+        )
+    }
+
+    #[cfg(test)]
+    fn new_with_cloud_fixture(
         terminal_surface_id: EntityId,
         terminal_model: Arc<FairMutex<TerminalModel>>,
         controller: ModelHandle<BlocklistAIController>,
@@ -255,6 +306,7 @@ impl TuiHandoffModel {
         }))
     }
 
+    #[cfg(test)]
     fn collect_attachments(
         context: &ModelHandle<BlocklistAIContextModel>,
         ctx: &AppContext,
@@ -275,6 +327,7 @@ impl TuiHandoffModel {
         }
     }
 
+    #[cfg(test)]
     fn preparation_failure(
         error: HandoffPrepareError,
         source_was_active: bool,
@@ -294,6 +347,7 @@ impl TuiHandoffModel {
         }
     }
 
+    #[cfg(test)]
     fn prepare_error_message(error: &HandoffPrepareError) -> &'static str {
         match error {
             HandoffPrepareError::LongRunningCommand => {
@@ -319,6 +373,7 @@ impl TuiHandoffModel {
         }
     }
 
+    #[cfg(test)]
     fn validation_message(error: &HandoffPrepareError) -> &'static str {
         match error {
             HandoffPrepareError::MissingRequiredEnvironment => {
@@ -566,118 +621,127 @@ impl TuiHandoffModel {
     }
 
     pub(crate) fn confirm(&mut self, ctx: &mut ModelContext<Self>) {
-        if !matches!(
-            self.phase,
-            TuiHandoffPhase::Editable {
-                state: TuiHandoffEditableState::Acceptance { .. },
-                ..
-            }
-        ) || self.no_environments(ctx)
+        #[cfg(not(test))]
         {
+            let _ = ctx;
             return;
         }
-        let validation = self
-            .pending()
-            .expect("editable handoff has pending state")
-            .validate();
-        if let Err(error) = validation {
-            let TuiHandoffPhase::Editable { state, .. } = &mut self.phase else {
-                unreachable!("validated handoff is editable");
-            };
-            *state = TuiHandoffEditableState::Acceptance {
-                validation_error: Some(Self::validation_message(&error).to_owned()),
-            };
-            ctx.emit(TuiHandoffModelEvent::Changed { focus_block: false });
-            ctx.notify();
-            return;
-        }
-        self.next_operation_id = self.next_operation_id.wrapping_add(1);
-        let operation_id = self.next_operation_id;
-        let editable =
-            std::mem::replace(&mut self.phase, TuiHandoffPhase::Committed { operation_id });
-        let TuiHandoffPhase::Editable { pending, .. } = editable else {
-            unreachable!("confirmed handoff is editable");
-        };
-        ctx.notify();
 
-        let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
-        let (cancel, cancellation) = oneshot::channel();
-        self.execution_cancellation = Some(cancel);
-        let execution = execute_handoff(*pending, ai_client, Some(cancellation), None, ctx);
-        ctx.spawn(execution, move |model, outcome, ctx| {
+        #[cfg(test)]
+        {
             if !matches!(
-                model.phase,
-                TuiHandoffPhase::Committed {
-                    operation_id: active_operation_id
-                } if active_operation_id == operation_id
-            ) || model.dismissed
+                self.phase,
+                TuiHandoffPhase::Editable {
+                    state: TuiHandoffEditableState::Acceptance { .. },
+                    ..
+                }
+            ) || self.no_environments(ctx)
             {
                 return;
             }
-            model.execution_cancellation = None;
-            match outcome {
-                HandoffCommitOutcome::Rejected { pending, error } => {
-                    model.phase = TuiHandoffPhase::Editable {
-                        state: TuiHandoffEditableState::Acceptance {
-                            validation_error: Some(Self::validation_message(&error).to_owned()),
-                        },
-                        pending,
-                    };
-                    model.refresh_pending_environments(ctx);
-                    ctx.emit(TuiHandoffModelEvent::Changed { focus_block: true });
-                    ctx.notify();
+            let validation = self
+                .pending()
+                .expect("editable handoff has pending state")
+                .validate();
+            if let Err(error) = validation {
+                let TuiHandoffPhase::Editable { state, .. } = &mut self.phase else {
+                    unreachable!("validated handoff is editable");
+                };
+                *state = TuiHandoffEditableState::Acceptance {
+                    validation_error: Some(Self::validation_message(&error).to_owned()),
+                };
+                ctx.emit(TuiHandoffModelEvent::Changed { focus_block: false });
+                ctx.notify();
+                return;
+            }
+            self.next_operation_id = self.next_operation_id.wrapping_add(1);
+            let operation_id = self.next_operation_id;
+            let editable =
+                std::mem::replace(&mut self.phase, TuiHandoffPhase::Committed { operation_id });
+            let TuiHandoffPhase::Editable { pending, .. } = editable else {
+                unreachable!("confirmed handoff is editable");
+            };
+            ctx.notify();
+
+            let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
+            let (cancel, cancellation) = oneshot::channel();
+            self.execution_cancellation = Some(cancel);
+            let execution = execute_handoff(*pending, ai_client, Some(cancellation), None, ctx);
+            ctx.spawn(execution, move |model, outcome, ctx| {
+                if !matches!(
+                    model.phase,
+                    TuiHandoffPhase::Committed {
+                        operation_id: active_operation_id
+                    } if active_operation_id == operation_id
+                ) || model.dismissed
+                {
+                    return;
                 }
-                HandoffCommitOutcome::Failed(failure) => {
-                    warp::send_telemetry_from_ctx!(
-                        CloudAgentTelemetryEvent::DispatchFailed {
-                            error: handoff_dispatch_error(&failure.issue),
-                        },
-                        ctx
-                    );
-                    if let Some(derived_workspace_had_content) =
-                        failure.derived_workspace_had_content
-                    {
+                model.execution_cancellation = None;
+                match outcome {
+                    HandoffCommitOutcome::Rejected { pending, error } => {
+                        model.phase = TuiHandoffPhase::Editable {
+                            state: TuiHandoffEditableState::Acceptance {
+                                validation_error: Some(Self::validation_message(&error).to_owned()),
+                            },
+                            pending,
+                        };
+                        model.refresh_pending_environments(ctx);
+                        ctx.emit(TuiHandoffModelEvent::Changed { focus_block: true });
+                        ctx.notify();
+                    }
+                    HandoffCommitOutcome::Failed(failure) => {
                         warp::send_telemetry_from_ctx!(
-                            CloudAgentTelemetryEvent::HandoffSnapshotPrepared {
-                                derived_workspace_had_content,
+                            CloudAgentTelemetryEvent::DispatchFailed {
+                                error: handoff_dispatch_error(&failure.issue),
                             },
                             ctx
                         );
+                        if let Some(derived_workspace_had_content) =
+                            failure.derived_workspace_had_content
+                        {
+                            warp::send_telemetry_from_ctx!(
+                                CloudAgentTelemetryEvent::HandoffSnapshotPrepared {
+                                    derived_workspace_had_content,
+                                },
+                                ctx
+                            );
+                        }
+                        model.dismissed = true;
+                        ctx.emit(TuiHandoffModelEvent::Failed {
+                            restoration: failure.restoration,
+                            message:
+                                "Couldn't start the handoff. Check your network connection and try again."
+                                    .to_owned(),
+                        });
+                        ctx.notify();
                     }
-                    model.dismissed = true;
-                    ctx.emit(TuiHandoffModelEvent::Failed {
-                        restoration: failure.restoration,
-                        message:
-                            "Couldn't start the handoff. Check your network connection and try again."
-                                .to_owned(),
-                    });
-                    ctx.notify();
+                    HandoffCommitOutcome::Cancelled => {
+                        model.dismissed = true;
+                        ctx.emit(TuiHandoffModelEvent::Cancelled(None));
+                        ctx.notify();
+                    }
+                    HandoffCommitOutcome::Created(created) => {
+                        warp::send_telemetry_from_ctx!(
+                            CloudAgentTelemetryEvent::HandoffSnapshotPrepared {
+                                derived_workspace_had_content: created
+                                    .derived_workspace_had_content,
+                            },
+                            ctx
+                        );
+                        model.phase = TuiHandoffPhase::Created {
+                            url: created.url,
+                            completed_at: Local::now()
+                                .naive_local()
+                                .format("%B %-d at %-I:%M%P")
+                                .to_string(),
+                        };
+                        ctx.emit(TuiHandoffModelEvent::Changed { focus_block: true });
+                        ctx.notify();
+                    }
                 }
-                HandoffCommitOutcome::Cancelled => {
-                    model.dismissed = true;
-                    ctx.emit(TuiHandoffModelEvent::Cancelled(None));
-                    ctx.notify();
-                }
-                HandoffCommitOutcome::Created(created) => {
-                    warp::send_telemetry_from_ctx!(
-                        CloudAgentTelemetryEvent::HandoffSnapshotPrepared {
-                            derived_workspace_had_content: created
-                                .derived_workspace_had_content,
-                        },
-                        ctx
-                    );
-                    model.phase = TuiHandoffPhase::Created {
-                        url: created.url,
-                        completed_at: Local::now()
-                            .naive_local()
-                            .format("%B %-d at %-I:%M%P")
-                            .to_string(),
-                    };
-                    ctx.emit(TuiHandoffModelEvent::Changed { focus_block: true });
-                    ctx.notify();
-                }
-            }
-        });
+            });
+        }
     }
 
     pub(crate) fn cancel(&mut self, ctx: &mut ModelContext<Self>) {
@@ -687,6 +751,7 @@ impl TuiHandoffModel {
         let restoration = match &mut self.phase {
             TuiHandoffPhase::Editable { pending, .. } => pending.take_restoration(),
             TuiHandoffPhase::Committed { .. } => {
+                #[cfg(test)]
                 if let Some(cancellation) = self.execution_cancellation.take() {
                     let _ = cancellation.send(());
                 }
@@ -725,11 +790,16 @@ impl TuiHandoffModel {
     }
 
     pub(crate) fn refresh_environments(&self, ctx: &mut ModelContext<Self>) {
+        #[cfg(not(test))]
+        let _ = ctx;
+
+        #[cfg(test)]
         self.environments.update(ctx, |catalog, ctx| {
             catalog.refresh_from_server(ctx);
         });
     }
 
+    #[cfg(test)]
     fn refresh_pending_environments(&mut self, ctx: &AppContext) {
         let valid_ids = self
             .environments
@@ -750,6 +820,7 @@ impl TuiHandoffModel {
         }
     }
 
+    #[cfg(test)]
     fn handle_environment_change(&mut self, ctx: &mut ModelContext<Self>) {
         if !self.is_editable() {
             return;

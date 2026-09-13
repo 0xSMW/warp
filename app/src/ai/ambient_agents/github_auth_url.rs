@@ -1,5 +1,7 @@
+#[cfg(test)]
 use url::Url;
 
+#[cfg(test)]
 use crate::ChannelState;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,6 +11,7 @@ pub enum GithubAuthRedirectTarget {
 }
 
 impl GithubAuthRedirectTarget {
+    #[cfg(test)]
     fn next_path(self) -> &'static str {
         match self {
             Self::SettingsEnvironments => "settings/environments",
@@ -28,12 +31,14 @@ pub enum AuthSource {
     CloudSetup,
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 enum OAuthNextPlatform {
     Native,
     Web,
 }
 
+#[cfg(test)]
 pub fn auth_url_with_next(
     base_auth_url: &str,
     target: GithubAuthRedirectTarget,
@@ -42,6 +47,7 @@ pub fn auth_url_with_next(
     let scheme = oauth_next_scheme();
     build_auth_url_with_next(base_auth_url, target, &scheme, auth_source)
 }
+#[cfg(test)]
 pub fn settings_environments_auth_url_with_next(base_auth_url: &str) -> String {
     auth_url_with_next(
         base_auth_url,
@@ -50,6 +56,7 @@ pub fn settings_environments_auth_url_with_next(base_auth_url: &str) -> String {
     )
 }
 
+#[cfg(test)]
 pub fn cloud_setup_auth_url_with_next(base_auth_url: &str) -> String {
     auth_url_with_next(
         base_auth_url,
@@ -58,6 +65,7 @@ pub fn cloud_setup_auth_url_with_next(base_auth_url: &str) -> String {
     )
 }
 
+#[cfg(test)]
 pub(crate) fn build_auth_url_with_next(
     base_auth_url: &str,
     target: GithubAuthRedirectTarget,
@@ -106,6 +114,7 @@ pub(crate) fn build_auth_url_with_next(
     url.to_string()
 }
 
+#[cfg(test)]
 fn build_next_url(
     target: GithubAuthRedirectTarget,
     scheme_for_next: &str,
@@ -149,6 +158,7 @@ fn build_next_url(
     }
 }
 
+#[cfg(test)]
 fn oauth_next_scheme() -> String {
     if let Ok(override_value) = std::env::var("WARP_OAUTH_NEXT_SCHEME")
         && !override_value.is_empty()

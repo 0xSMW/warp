@@ -491,6 +491,7 @@ impl PersistedWorkspace {
     /// When `include_suggested` is `false`, only persisted entries (`Yes`/`No`)
     /// are returned.  When `true`, in-memory `Suggested` entries are included as
     /// well (useful for showing available-for-download servers in the UI).
+    #[cfg(test)]
     pub fn all_lsp_servers(
         &self,
         path: &Path,
@@ -613,6 +614,7 @@ impl PersistedWorkspace {
     ///
     /// When `include_suggested` is `false`, only persisted entries (`Yes`/`No`)
     /// are counted.  When `true`, in-memory `Suggested` entries are counted too.
+    #[cfg(test)]
     pub fn total_lsp_server_count(&self, include_suggested: bool) -> usize {
         self.workspaces
             .values()
@@ -630,6 +632,7 @@ impl PersistedWorkspace {
         Self::maybe_enable_codebase_indexing(ctx);
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn on_user_changed(&self, ctx: &mut ModelContext<Self>) {
         Self::maybe_enable_codebase_indexing(ctx);
     }

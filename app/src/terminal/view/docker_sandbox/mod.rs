@@ -5,51 +5,29 @@ use std::path::PathBuf;
 #[cfg(feature = "local_tty")]
 use std::sync::mpsc::SyncSender;
 
-#[cfg(not(target_family = "wasm"))]
-use warp_cli::agent::Harness;
 #[cfg(any(feature = "local_tty", not(target_family = "wasm")))]
 use warp_errors::report_error;
 #[cfg(feature = "local_tty")]
 use warpui::ModelHandle;
 use warpui::ViewContext;
-#[cfg(not(target_family = "wasm"))]
-use warpui::r#async::FutureExt;
 #[cfg(feature = "local_tty")]
 use warpui::geometry::vector::Vector2F;
 #[cfg(not(target_family = "wasm"))]
 use warpui::{SingletonEntity, View, ViewHandle};
 
 use super::TerminalView;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::agent_sdk::driver::{
-    WARP_DRIVE_SYNC_TIMEOUT,
-    environment::{RepositoryPreparationOptions, prepare_environment},
-    terminal::TerminalDriver,
-};
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::agent_sdk::environment_snapshot::EnvironmentSnapshotReporter;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::agent_sdk::setup_observability::SetupClientEventReporter;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
 #[cfg(all(feature = "local_tty", not(feature = "remote_tty")))]
 use crate::banner::BannerState;
 #[cfg(feature = "local_tty")]
 use crate::pane_group::TerminalViewResources;
 #[cfg(feature = "local_tty")]
 use crate::persistence::ModelEvent;
-#[cfg(not(target_family = "wasm"))]
-use crate::server::cloud_objects::update_manager::UpdateManager;
-#[cfg(not(target_family = "wasm"))]
-use crate::server::ids::{ServerId, SyncId};
 #[cfg(any(feature = "local_tty", not(target_family = "wasm")))]
 use crate::server::server_api::ServerApiProvider;
 #[cfg(feature = "local_tty")]
 use crate::terminal::TerminalManager;
 #[cfg(all(feature = "local_tty", not(feature = "remote_tty")))]
 use crate::terminal::available_shells::AvailableShell;
-#[cfg(not(target_family = "wasm"))]
-use crate::terminal::local_tty::docker_sandbox::DOCKER_SANDBOX_HOME_DIR;
 #[cfg(feature = "local_tty")]
 use crate::terminal::local_tty::docker_sandbox::resolve_sbx_path_from_user_shell;
 #[cfg(all(feature = "local_tty", not(feature = "remote_tty")))]
@@ -66,11 +44,6 @@ use crate::terminal::shared_session::IsSharedSessionCreator;
 ///
 /// `None` means "let sbx pick its own default template".
 ///
-/// TODO(advait): Replace this with the base image read off the associated
-/// `AmbientAgentEnvironment` (see `BaseImage::DockerImage`). Requires moving
-/// the environment lookup ahead of `create_and_push_docker_sandbox`, which
-/// currently happens asynchronously in `initialize_docker_sandbox_environment`
-/// after the PTY is spawned. Tracked in Ben's review comment on PR #24550.
 #[cfg(feature = "local_tty")]
 pub(crate) const DEFAULT_DOCKER_SANDBOX_BASE_IMAGE: Option<&str> = None;
 
@@ -239,23 +212,17 @@ impl TerminalView {
         ctx.notify();
     }
 
-    /// Kick off async environment initialization for a docker sandbox terminal.
+    /// Keep the Docker sandbox initialization hook available to native callers.
     #[cfg(not(target_family = "wasm"))]
     pub(crate) fn initialize_docker_sandbox_environment<V: View>(
         terminal_view: &ViewHandle<TerminalView>,
         ctx: &mut ViewContext<V>,
     ) {
-        let terminal_driver = TerminalDriver::create_from_existing_view(terminal_view.clone(), ctx);
-        // Local Docker sandbox tabs are not backed by an Oz run ID, so setup event reporting is
-        // intentionally disabled for this environment preparation path.
-        let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client().clone();
-        let background = ctx.background_executor();
-        let setup_events = SetupClientEventReporter::noop(ai_client.clone(), background.clone());
-        let environment_snapshot_reporter =
-            EnvironmentSnapshotReporter::noop(ai_client, background.clone());
-
-        let spawner = terminal_driver.update(ctx, |_, ctx| ctx.spawner());
+        let _ = (terminal_view, ctx);
+        // Cloud environment preparation is disabled in local-only mode.
+        #[cfg(any())]
         let sync_future = UpdateManager::as_ref(ctx).initial_load_complete();
+        #[cfg(any())]
         ctx.spawn(
             async move {
                 // Wait for Warp Drive initial sync so environment lookup succeeds.

@@ -1,8 +1,12 @@
+#[cfg(test)]
 use std::fmt::Display;
+#[cfg(test)]
 use std::future::Future;
 use std::time::Duration;
 
+#[cfg(test)]
 use anyhow::Result;
+#[cfg(test)]
 use warpui::r#async::Timer;
 use warpui::{RetryOption, duration_with_jitter};
 
@@ -39,6 +43,7 @@ pub const OUT_OF_BAND_REQUEST_RETRY_STRATEGY: RetryOption = RetryOption::exponen
 .with_jitter(0.5 /* max_jitter_percentage */);
 
 // For listeners, retry up to 5 times, waiting between 10-40 seconds between retries.
+#[cfg(any(test, feature = "integration_tests"))]
 pub const LISTENER_RETRY_STRATEGY: RetryOption = RetryOption::linear(
     Duration::from_secs(25), /* interval */
     5,                       /* max retry count */
@@ -99,6 +104,7 @@ fn is_transient_status(status: u16) -> bool {
 /// invalid" (for example, a cloud-agent task whose token stops working once the
 /// task ends) from generic permanent errors, so they can stop retrying instead
 /// of reconnecting forever.
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) fn is_auth_error(e: &anyhow::Error) -> bool {
     for cause in e.chain() {
         if let Some(http_err) = cause.downcast_ref::<HttpStatusError>() {
@@ -109,6 +115,7 @@ pub(crate) fn is_auth_error(e: &anyhow::Error) -> bool {
 }
 
 /// Maximum total attempts per operation (initial attempt plus retries on transient errors).
+#[cfg(test)]
 pub(crate) const MAX_ATTEMPTS: usize = 3;
 
 /// Base backoff between retry attempts; each subsequent attempt multiplies by [`BACKOFF_FACTOR`].
@@ -120,8 +127,8 @@ const BACKOFF_FACTOR: f32 = 2.0;
 /// Maximum jitter as a fraction of the backoff interval.
 const BACKOFF_JITTER: f32 = 0.3;
 
-/// Ceiling on the backoff exponent, so a caller with a larger budget than
-/// [`MAX_ATTEMPTS`] can't grow the interval without bound (or overflow the
+/// Ceiling on the backoff exponent, so a caller with a larger attempt budget can't grow the
+/// interval without bound (or overflow the
 /// multiplication). At [`BACKOFF_FACTOR`] this caps a single wait at ~32s.
 const BACKOFF_MAX_EXPONENT: i32 = 6;
 
@@ -148,6 +155,7 @@ pub(crate) fn backoff_after_attempts(attempts_made: usize) -> Duration {
 /// Transient errors (per [`is_transient_http_error`]) are retried up to [`MAX_ATTEMPTS`]
 /// total. Permanent errors return immediately. A warning is logged between attempts so
 /// retries are visible in logs.
+#[cfg(test)]
 pub(crate) async fn with_bounded_retry<T, F, Fut>(operation: &str, attempt_fn: F) -> Result<T>
 where
     F: FnMut() -> Fut,
@@ -156,13 +164,16 @@ where
     with_bounded_retry_using(operation, MAX_ATTEMPTS, is_transient_http_error, attempt_fn).await
 }
 
-/// General form of [`with_bounded_retry`] for callers that need a different transient-error
+/// General form of the bounded retry helper for callers that need a different transient-error
 /// classifier than [`is_transient_http_error`] (e.g. [`is_transient_graphql_or_http_error`] for
-/// GraphQL operations), a different attempt budget than [`MAX_ATTEMPTS`], or both.
+/// GraphQL operations), a different attempt budget than the default, or both.
 ///
 /// Otherwise behaves identically: exponential backoff between attempts (see
 /// [`backoff_after_attempts`]), a warning logged before each retry, and the last error
 /// returned once `max_attempts` is reached.
+// Generic retry adapters are cloud/Agent-only; local production uses the classifiers above and
+// the shared backoff helper directly.
+#[cfg(test)]
 pub(crate) async fn with_bounded_retry_using<T, F, Fut>(
     operation: &str,
     max_attempts: usize,
@@ -198,6 +209,7 @@ where
 /// can be retried, `false` if it should abort the operation.
 ///
 /// `backoff_fn` returns the backoff delay to use after N attempts.
+#[cfg(test)]
 pub(crate) async fn with_retry<T, E, F, S, B, R, Fut, SF>(
     operation: &str,
     mut attempt_fn: F,

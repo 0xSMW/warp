@@ -3,24 +3,36 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(test)]
 use shell_words::quote as shell_quote;
+#[cfg(test)]
 use uuid::Uuid;
+#[cfg(test)]
 use warp_cli::agent::Harness;
 
+#[cfg(test)]
 use crate::ai::agent_sdk::driver::AgentDriverError;
+#[cfg(test)]
 use crate::ai::agent_sdk::driver::harness::claude_code::prepare_claude_environment_config;
+#[cfg(test)]
 use crate::ai::agent_sdk::driver::harness::{
     HarnessKind, harness_kind, harness_model_env_vars,
     remove_claude_externally_managed_listener_env_vars,
 };
+#[cfg(test)]
 use crate::ai::agent_sdk::{task_env_vars, validate_cli_installed};
+#[cfg(test)]
+use crate::ai::ambient_agents::AgentConfigSnapshot;
+use crate::ai::ambient_agents::AmbientAgentTaskId;
+#[cfg(test)]
 use crate::ai::ambient_agents::task::{
     HarnessConfig, HarnessModelConfig, normalize_orchestrator_agent_name,
 };
-use crate::ai::ambient_agents::{AgentConfigSnapshot, AmbientAgentTaskId};
+#[cfg(test)]
 use crate::ai::local_harness_setup::local_harness_product_disabled_message;
 use crate::server::server_api::ai::AIClient;
 use crate::server::team_scope::RequestTeamScope;
+#[cfg(test)]
 use crate::terminal::cli_agent_sessions::plugin_manager::{
     CliAgentPluginManager, plugin_manager_for,
 };
@@ -34,6 +46,7 @@ pub(super) struct PreparedLocalHarnessLaunch {
     pub task_id: AmbientAgentTaskId,
 }
 
+#[cfg(test)]
 async fn ensure_local_claude_child_plugins(manager: &dyn CliAgentPluginManager) {
     // Most environments should follow the standard Claude plugin setup path so
     // hidden local children retain the same notification support as regular
@@ -66,10 +79,12 @@ async fn ensure_local_claude_child_plugins(manager: &dyn CliAgentPluginManager) 
     }
 }
 
+#[cfg(test)]
 pub(super) fn normalize_local_child_harness(harness_type: &str) -> Option<Harness> {
     Harness::parse_local_child_harness(harness_type)
 }
 
+#[cfg(test)]
 pub(super) fn validate_local_harness_shell(shell_type: Option<ShellType>) -> Result<(), String> {
     match shell_type {
         Some(ShellType::Bash) | Some(ShellType::Zsh) | Some(ShellType::Fish) => Ok(()),
@@ -84,6 +99,7 @@ pub(super) fn validate_local_harness_shell(shell_type: Option<ShellType>) -> Res
     }
 }
 
+#[cfg(test)]
 const LOCAL_CLAUDE_CHILD_ORCHESTRATION_INSTRUCTIONS: &str = r#"You are a local Claude Code child agent launched by a lead agent in Warp.
 
 Coordinate with the lead agent through the Oz CLI messaging environment:
@@ -111,12 +127,14 @@ If a surfaced message requires acknowledgement, mark it delivered:
 "$OZ_CLI" run message mark-delivered "$MESSAGE_ID"
 "#;
 
+#[cfg(test)]
 pub(super) fn local_claude_child_prompt(task_prompt: &str) -> String {
     format!(
         "{LOCAL_CLAUDE_CHILD_ORCHESTRATION_INSTRUCTIONS}\nTask:\n{}",
         task_prompt
     )
 }
+#[cfg(test)]
 pub(super) fn build_local_claude_child_command(prompt: &str) -> String {
     let session_id = Uuid::new_v4();
     let quoted_prompt = shell_quote(prompt);
@@ -127,15 +145,18 @@ pub(super) fn build_local_claude_child_command(prompt: &str) -> String {
     format!("claude --session-id {session_id} --dangerously-skip-permissions {quoted_prompt}")
 }
 
+#[cfg(test)]
 pub(super) fn build_local_opencode_child_command(prompt: &str) -> String {
     let quoted_prompt = shell_quote(prompt);
     format!("opencode --prompt {quoted_prompt}")
 }
+#[cfg(test)]
 pub(super) fn build_local_codex_child_command(prompt: &str) -> String {
     let quoted_prompt = shell_quote(prompt);
     format!("codex --dangerously-bypass-approvals-and-sandbox {quoted_prompt}")
 }
 
+#[cfg(test)]
 pub(super) fn local_child_task_config(
     harness: Harness,
     agent_name: Option<String>,
@@ -155,6 +176,9 @@ pub(super) fn local_child_task_config(
     }
 }
 
+// External Claude, Codex, Gemini, and OpenCode launches are disabled in local-only production
+// builds. Keep the implementation below for focused unit tests.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn prepare_local_harness_child_launch(
     prompt: String,
@@ -280,6 +304,33 @@ pub(super) async fn prepare_local_harness_child_launch(
         run_id: task_id.to_string(),
         task_id,
     })
+}
+
+#[cfg(not(test))]
+#[allow(clippy::too_many_arguments)]
+pub(super) async fn prepare_local_harness_child_launch(
+    prompt: String,
+    harness_type: String,
+    model_id: Option<String>,
+    parent_run_id: Option<String>,
+    agent_name: Option<String>,
+    shell_type: Option<ShellType>,
+    startup_directory: Option<PathBuf>,
+    ai_client: Arc<dyn AIClient>,
+    team_scope: RequestTeamScope,
+) -> Result<PreparedLocalHarnessLaunch, String> {
+    let _ = (
+        prompt,
+        harness_type,
+        model_id,
+        parent_run_id,
+        agent_name,
+        shell_type,
+        startup_directory,
+        ai_client,
+        team_scope,
+    );
+    Err("Local harness launches are unavailable in local-only mode.".to_string())
 }
 
 #[cfg(test)]

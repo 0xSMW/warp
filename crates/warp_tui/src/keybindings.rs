@@ -26,6 +26,7 @@ use warpui_core::keymap::{
 use warpui_core::{Action, AppContext, TuiView};
 
 use crate::attachment_bar::TuiAttachmentBar;
+#[cfg(test)]
 use crate::cloud_run_view::TuiCloudRunView;
 use crate::editor_interaction::{TuiEditorBindingTarget, TuiEditorCommand, editor_binding_specs};
 use crate::editor_view::{TuiEditorView, TuiEditorViewAction};
@@ -85,6 +86,7 @@ pub(crate) fn init(app: &mut AppContext) {
     // for all non-TUI bindings, while allowing TUI-owned cmd chords.
     app.set_default_binding_validator(is_tui_binding_cross_platform);
     crate::root_view::init(app);
+    #[cfg(test)]
     crate::cloud_run_view::init(app);
     crate::terminal_session_view::init(app);
     crate::attachment_bar::init(app);
@@ -162,6 +164,7 @@ fn context_for_editor_binding(
 /// TUI view's default keymap context must be TUI-owned.
 fn register_binding_validators(app: &mut AppContext) {
     app.register_tui_binding_validator::<RootTuiView>(is_tui_owned_binding);
+    #[cfg(test)]
     app.register_tui_binding_validator::<TuiCloudRunView>(is_tui_owned_binding);
     app.register_tui_binding_validator::<TuiTerminalSessionView>(is_tui_owned_binding);
     app.register_tui_binding_validator::<TuiAttachmentBar>(is_tui_owned_binding);

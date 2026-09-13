@@ -1,3 +1,4 @@
+use warp_core::channel::{Channel, ChannelState};
 use warp_core::context_flag::ContextFlag;
 use warp_core::features::FeatureFlag;
 use warpui::ViewContext;
@@ -8,7 +9,10 @@ use super::{
 };
 
 pub fn sections(ctx: &mut ViewContext<ResourceCenterMainView>) -> Vec<Section> {
-    let mut sections = vec![Section::Changelog()];
+    let mut sections = Vec::new();
+    if ChannelState::channel() != Channel::Local {
+        sections.push(Section::Changelog());
+    }
 
     if FeatureFlag::AvatarInTabBar.is_enabled() {
         return sections;
@@ -95,12 +99,12 @@ fn maximize_warp_items(ctx: &mut ViewContext<ResourceCenterMainView>) -> Vec<Fea
         ctx,
     ));
 
-    maximize_warp_items.push(FeatureItem::new(
-        "AI command search",
-        "Generate shell commands with natural language.",
-        Tip::Action(TipAction::AiCommandSearch),
-        ctx,
-    ));
+    // maximize_warp_items.push(FeatureItem::new(
+    //     "AI command search",
+    //     "Generate shell commands with natural language.",
+    //     Tip::Action(TipAction::AiCommandSearch),
+    //     ctx,
+    // ));
 
     if ContextFlag::CreateNewSession.is_enabled() {
         maximize_warp_items.push(FeatureItem::new(

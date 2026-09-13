@@ -4,8 +4,11 @@ use anyhow::{Result, anyhow};
 use pathfinder_color::ColorU;
 use pathfinder_geometry::vector::vec2f;
 use url::Url;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use warp_core::features::FeatureFlag;
-use warp_core::{safe_anyhow, safe_error};
+use warp_core::safe_anyhow;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+use warp_core::safe_error;
 use warp_errors::{ErrorExt, report_error};
 use warpui::actions::StandardAction;
 use warpui::elements::{
@@ -19,9 +22,11 @@ use warpui::{
     ViewHandle,
 };
 
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use super::UserUid;
 use super::auth_manager::{AuthManager, AuthManagerEvent};
 use super::auth_view_body::{AuthStep, AuthViewBodyAction, AuthViewBodyEvent};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use super::credentials::RefreshToken;
 use super::login_failure_notification::{self, LoginFailureReason};
 use crate::appearance::Appearance;
@@ -83,16 +88,23 @@ pub struct AuthView {
 
 const AUTH_URL_HOST: &str = "auth";
 const AUTH_URL_REFRESH_TOKEN_QUERY_PARAM: &str = "refresh_token";
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 const AUTH_URL_NEW_USER_UID_QUERY_PARAM: &str = "user_uid";
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 const AUTH_URL_DELETED_ANON_USER_QUERY_PARAM: &str = "deleted_anonymous_user";
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 const AUTH_URL_STATE_QUERY_PARAM: &str = "state";
 
 // `AuthRedirectPayload` is returned from the incoming redirect url.
 #[derive(Debug, Clone)]
 pub struct AuthRedirectPayload {
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub refresh_token: RefreshToken,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub user_uid: Option<UserUid>,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub deleted_anonymous_user: Option<bool>,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub state: Option<String>,
 }
 
@@ -107,17 +119,28 @@ impl AuthRedirectPayload {
             ));
         }
         let query_params: HashMap<_, _> = url.query_pairs().into_owned().collect();
-        if let Some(token) = query_params.get(AUTH_URL_REFRESH_TOKEN_QUERY_PARAM) {
+        if query_params.contains_key(AUTH_URL_REFRESH_TOKEN_QUERY_PARAM) {
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            let refresh_token = query_params
+                .get(AUTH_URL_REFRESH_TOKEN_QUERY_PARAM)
+                .map(|token| RefreshToken::new(token))
+                .expect("refresh token presence was checked");
+
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             let user_uid = query_params
                 .get(AUTH_URL_NEW_USER_UID_QUERY_PARAM)
                 .map(|uid| UserUid::new(uid));
 
             Ok(Self {
-                refresh_token: RefreshToken::new(token),
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+                refresh_token,
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
                 user_uid,
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
                 deleted_anonymous_user: query_params
                     .get(AUTH_URL_DELETED_ANON_USER_QUERY_PARAM)
                     .map(|value| value == "true"),
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
                 state: query_params.get(AUTH_URL_STATE_QUERY_PARAM).cloned(),
             })
         } else {
@@ -143,6 +166,7 @@ const MODAL_WIDTH: f32 = 352.;
 pub enum AuthViewVariant {
     Initial,
     RequireLoginCloseable,
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     HitDriveObjectLimitCloseable,
     ShareRequirementCloseable,
 }
@@ -152,14 +176,17 @@ impl AuthView {
         let auth_screen_view = ctx.add_typed_action_view(|ctx| AuthViewBody::new(variant, ctx));
         ctx.subscribe_to_view(&auth_screen_view, |me, _, event, ctx| match event {
             AuthViewBodyEvent::Close => me.close(ctx),
+            #[cfg(test)]
             AuthViewBodyEvent::SignUpButtonClicked => {
                 me.dismiss_error_notification(ctx);
             }
+            #[cfg(test)]
             AuthViewBodyEvent::AuthTokenEntered(token) => {
                 me.last_login_failure_reason = None;
                 me.handle_pasted_auth_url(token.clone(), ctx);
                 ctx.notify();
             }
+            #[cfg(test)]
             AuthViewBodyEvent::LoginLaterClicked => {
                 me.handle_login_later(ctx);
             }
@@ -244,6 +271,7 @@ impl AuthView {
 
     /// Parses the given 'clipboard_content' string into a URL which is assumed to represent the
     /// OAuth redirect URL containing the user's refresh token after the user authenticated Warp.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     fn handle_pasted_auth_url(&mut self, pasted_url: String, ctx: &mut ViewContext<Self>) {
         self.set_auth_token_input_editable(false, ctx);
         match AuthRedirectPayload::from_raw_url(pasted_url) {
@@ -276,6 +304,7 @@ impl AuthView {
             .update(ctx, |modal, ctx| modal.body().update(ctx, cb))
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn handle_login_later(&mut self, ctx: &mut ViewContext<Self>) {
         if FeatureFlag::SkipFirebaseAnonymousUser.is_enabled() {
             AuthManager::handle(ctx).update(ctx, |_, ctx| {
@@ -290,7 +319,12 @@ impl AuthView {
 
     fn handle_auth_manager_event(&mut self, event: &AuthManagerEvent, ctx: &mut ViewContext<Self>) {
         match event {
-            AuthManagerEvent::AuthComplete | AuthManagerEvent::SkippedLogin => {
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            AuthManagerEvent::AuthComplete => {
+                self.close(ctx);
+            }
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            AuthManagerEvent::SkippedLogin => {
                 self.close(ctx);
             }
             AuthManagerEvent::AuthFailed(err) => {
@@ -311,6 +345,7 @@ impl AuthView {
 
                 self.set_auth_token_input_editable(true, ctx);
             }
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AuthManagerEvent::CreateAnonymousUserFailed => {
                 self.last_login_failure_reason = Some(LoginFailureReason::FailedUserAuthentication);
                 self.set_auth_token_input_editable(true, ctx);
@@ -318,6 +353,7 @@ impl AuthView {
             AuthManagerEvent::MintCustomTokenFailed(_err) => {
                 self.last_login_failure_reason = Some(LoginFailureReason::FailedMintCustomToken);
             }
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             _ => {}
         }
         ctx.notify();
@@ -370,9 +406,11 @@ impl View for AuthView {
 
         let background_color = match self.auth_view_variant {
             AuthViewVariant::Initial => appearance.theme().background().into(),
-            AuthViewVariant::RequireLoginCloseable
-            | AuthViewVariant::HitDriveObjectLimitCloseable
-            | AuthViewVariant::ShareRequirementCloseable => ColorU::transparent_black(),
+            AuthViewVariant::RequireLoginCloseable | AuthViewVariant::ShareRequirementCloseable => {
+                ColorU::transparent_black()
+            }
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            AuthViewVariant::HitDriveObjectLimitCloseable => ColorU::transparent_black(),
         };
 
         // TODO(liam): use theme colors for background and window border

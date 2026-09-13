@@ -6,53 +6,74 @@
 //! links, and layout invalidation for the embedded transcript surface.
 //!
 //! Handoff state, validation, environment-catalog updates, and asynchronous
-//! execution remain in [`super::model::TuiHandoffModel`]. This module
+//! execution remain in the handoff model. This module
 //! translates that model state into terminal elements and forwards user intent
 //! back to the model.
 
 use std::cell::Cell;
 
-use warp::tui_export::{AIConversationId, OZ_ENVIRONMENTS_URL};
+use warp::tui_export::AIConversationId;
+#[cfg(test)]
+use warp::tui_export::OZ_ENVIRONMENTS_URL;
+#[cfg(test)]
 use warpui_core::elements::CrossAxisAlignment;
-use warpui_core::elements::tui::{
-    Modifier, TuiChildView, TuiConstraint, TuiContainer, TuiElement, TuiFlex, TuiLayoutContext,
-    TuiSize, TuiText,
-};
+#[cfg(test)]
+use warpui_core::elements::tui::{Modifier, TuiChildView, TuiContainer, TuiText};
+use warpui_core::elements::tui::{TuiConstraint, TuiElement, TuiFlex, TuiLayoutContext, TuiSize};
+#[cfg(test)]
+use warpui_core::keymap::FixedBinding;
+#[cfg(test)]
 use warpui_core::keymap::macros::*;
-use warpui_core::keymap::{self, FixedBinding};
-use warpui_core::{
-    AppContext, Entity, EntityId, FocusContext, ModelHandle, TuiView, TypedActionView, ViewContext,
-    ViewHandle,
-};
+use warpui_core::{AppContext, Entity, EntityId, FocusContext, TuiView, ViewContext, keymap};
+#[cfg(test)]
+use warpui_core::{ModelHandle, TypedActionView, ViewHandle};
 
+#[cfg(test)]
 use super::model::{
     TuiHandoffEditableState, TuiHandoffModel, TuiHandoffModelEvent, TuiHandoffPhase,
     TuiHandoffSelectorKind,
 };
+#[cfg(test)]
 use crate::keybindings::TUI_BINDING_GROUP;
+#[cfg(test)]
 use crate::link::TuiLink;
+#[cfg(test)]
 use crate::option_selector::{
     OptionSelectorHeader, OptionSelectorPage, TuiOptionSelector, TuiOptionSelectorEvent,
 };
+#[cfg(test)]
 use crate::transcript_view::BLOCK_TOP_PADDING_ROWS;
+#[cfg(test)]
 use crate::tui_ask_question_view::PageNavigationDirection;
+#[cfg(test)]
 use crate::tui_builder::TuiUiBuilder;
+#[cfg(test)]
 use crate::ui::horizontally_centered;
 
+#[cfg(test)]
 const HANDOFF_TITLE: &str = "Hand off to cloud";
+#[cfg(test)]
 const EMPTY_CONVERSATION_HANDOFF_EXPLANATION: &str =
     "The agent will work on this session in the cloud.";
+#[cfg(test)]
 const EXISTING_CONVERSATION_HANDOFF_EXPLANATION: &str = "The agent will continue working on your session in the cloud. You will be able to continue the conversation here at any point.";
+#[cfg(test)]
 const HANDOFF_PAGE_SEQUENCE: [TuiHandoffSelectorKind; 2] = [
     TuiHandoffSelectorKind::Environment,
     TuiHandoffSelectorKind::Model,
 ];
+#[cfg(test)]
 const ACCEPTANCE_CONTEXT_FLAG: &str = "TuiHandoffBlockAcceptance";
+#[cfg(test)]
 const CONFIGURING_CONTEXT_FLAG: &str = "TuiHandoffBlockConfiguring";
+#[cfg(test)]
 const NO_ENVIRONMENT_CONTEXT_FLAG: &str = "TuiHandoffBlockNoEnvironment";
+#[cfg(test)]
 const COMMITTED_CONTEXT_FLAG: &str = "TuiHandoffBlockCommitted";
+#[cfg(test)]
 const CREATED_CONTEXT_FLAG: &str = "TuiHandoffBlockCreated";
 
+#[cfg(test)]
 pub(crate) fn init(app: &mut AppContext) {
     let card = || id!(TuiHandoffBlock::ui_name());
     let acceptance = || card() & id!(ACCEPTANCE_CONTEXT_FLAG);
@@ -126,13 +147,18 @@ pub(crate) fn init(app: &mut AppContext) {
     ]);
 }
 
+#[cfg(not(test))]
+pub(crate) fn init(_app: &mut AppContext) {}
+
 /// Events owned by the view rather than the handoff model.
+#[cfg(test)]
 #[derive(Clone)]
 pub(crate) enum TuiHandoffBlockEvent {
     LayoutInvalidated,
 }
 
 /// Keyboard actions supported by the handoff card.
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub(crate) enum TuiHandoffBlockAction {
     Confirm,
@@ -150,16 +176,21 @@ pub(crate) enum TuiHandoffBlockAction {
     StartNewConversation,
 }
 
-/// Keyboard-focused presentation for a [`TuiHandoffModel`].
+/// Keyboard-focused presentation for a handoff.
 pub(crate) struct TuiHandoffBlock {
+    #[cfg(test)]
     model: ModelHandle<TuiHandoffModel>,
+    #[cfg(test)]
     selector: ViewHandle<TuiOptionSelector>,
+    #[cfg(test)]
     pending_page_navigation: Option<PageNavigationDirection>,
+    #[cfg(test)]
     link: TuiLink,
     last_measured_width: Cell<Option<u16>>,
 }
 
 impl TuiHandoffBlock {
+    #[cfg(test)]
     pub(crate) fn new(model: ModelHandle<TuiHandoffModel>, ctx: &mut ViewContext<Self>) -> Self {
         let selector = ctx.add_typed_action_tui_view(TuiOptionSelector::new);
         ctx.subscribe_to_view(&selector, |block, _, event, ctx| {
@@ -177,14 +208,22 @@ impl TuiHandoffBlock {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn is_active(&self, ctx: &AppContext) -> bool {
         self.model.as_ref(ctx).is_active()
     }
 
+    #[cfg(test)]
     pub(crate) fn source_conversation_id(&self, ctx: &AppContext) -> Option<AIConversationId> {
         self.model.as_ref(ctx).source_conversation_id()
     }
 
+    #[cfg(not(test))]
+    pub(crate) fn source_conversation_id(&self, _ctx: &AppContext) -> Option<AIConversationId> {
+        None
+    }
+
+    #[cfg(test)]
     fn handle_model_event(&mut self, event: &TuiHandoffModelEvent, ctx: &mut ViewContext<Self>) {
         if let TuiHandoffModelEvent::Changed { .. } = event {
             self.refresh_selector(ctx);
@@ -192,6 +231,7 @@ impl TuiHandoffBlock {
         }
     }
 
+    #[cfg(test)]
     fn finish_page_confirmation(
         &mut self,
         page: TuiHandoffSelectorKind,
@@ -216,6 +256,7 @@ impl TuiHandoffBlock {
         }
     }
 
+    #[cfg(test)]
     fn navigate_page(&mut self, direction: PageNavigationDirection, ctx: &mut ViewContext<Self>) {
         let TuiHandoffPhase::Editable {
             state: TuiHandoffEditableState::Configuring { page },
@@ -240,6 +281,7 @@ impl TuiHandoffBlock {
         }
     }
 
+    #[cfg(test)]
     fn handle_configure(&mut self, ctx: &mut ViewContext<Self>) {
         if matches!(
             self.model.as_ref(ctx).phase(),
@@ -253,6 +295,7 @@ impl TuiHandoffBlock {
         }
     }
 
+    #[cfg(test)]
     fn handle_arrow_navigation(
         &mut self,
         navigation: PageNavigationDirection,
@@ -268,6 +311,7 @@ impl TuiHandoffBlock {
         }
     }
 
+    #[cfg(test)]
     fn open_page(&mut self, page: TuiHandoffSelectorKind, ctx: &mut ViewContext<Self>) {
         let opened = self
             .model
@@ -301,6 +345,7 @@ impl TuiHandoffBlock {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn return_to_acceptance(&mut self, ctx: &mut ViewContext<Self>) {
         self.model.update(ctx, |model, ctx| {
             model.return_to_acceptance(ctx);
@@ -310,6 +355,7 @@ impl TuiHandoffBlock {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn refresh_selector(&mut self, ctx: &mut ViewContext<Self>) {
         let TuiHandoffPhase::Editable {
             state: TuiHandoffEditableState::Configuring { page },
@@ -324,6 +370,7 @@ impl TuiHandoffBlock {
         });
     }
 
+    #[cfg(test)]
     fn handle_selector_event(
         &mut self,
         event: &TuiOptionSelectorEvent,
@@ -359,6 +406,7 @@ impl TuiHandoffBlock {
         }
     }
 
+    #[cfg(test)]
     fn confirm(&mut self, ctx: &mut ViewContext<Self>) {
         self.model.update(ctx, |model, ctx| model.confirm(ctx));
         if matches!(
@@ -370,6 +418,7 @@ impl TuiHandoffBlock {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn handle_back(&mut self, ctx: &mut ViewContext<Self>) {
         self.pending_page_navigation = None;
         let handled = self
@@ -380,6 +429,7 @@ impl TuiHandoffBlock {
         }
     }
 
+    #[cfg(test)]
     fn render_configuration(
         &self,
         ctx: &AppContext,
@@ -434,6 +484,7 @@ impl TuiHandoffBlock {
         content.finish()
     }
 
+    #[cfg(test)]
     fn render_body(&self, ctx: &AppContext, builder: &TuiUiBuilder) -> Box<dyn TuiElement> {
         match self.model.as_ref(ctx).phase() {
             TuiHandoffPhase::Editable {
@@ -470,6 +521,7 @@ impl TuiHandoffBlock {
         }
     }
 
+    #[cfg(test)]
     fn render_footer(&self, ctx: &AppContext, builder: &TuiUiBuilder) -> Box<dyn TuiElement> {
         let model = self.model.as_ref(ctx);
         let spans = match model.phase() {
@@ -531,6 +583,7 @@ impl TuiHandoffBlock {
         TuiText::from_spans(spans).finish()
     }
 
+    #[cfg(test)]
     fn render_completed(
         &self,
         url: &str,
@@ -601,6 +654,7 @@ impl TuiHandoffBlock {
     }
 }
 
+#[cfg(test)]
 fn render_metadata_line(
     environment: String,
     model: String,
@@ -617,7 +671,10 @@ fn render_metadata_line(
 }
 
 impl Entity for TuiHandoffBlock {
+    #[cfg(test)]
     type Event = TuiHandoffBlockEvent;
+    #[cfg(not(test))]
+    type Event = ();
 }
 
 impl TuiView for TuiHandoffBlock {
@@ -625,10 +682,17 @@ impl TuiView for TuiHandoffBlock {
         "TuiHandoffBlock"
     }
 
+    #[cfg(test)]
     fn child_view_ids(&self, _ctx: &AppContext) -> Vec<EntityId> {
         vec![self.selector.id()]
     }
 
+    #[cfg(not(test))]
+    fn child_view_ids(&self, _ctx: &AppContext) -> Vec<EntityId> {
+        Vec::new()
+    }
+
+    #[cfg(test)]
     fn on_focus(&mut self, focus_ctx: &FocusContext, ctx: &mut ViewContext<Self>) {
         if focus_ctx.is_self_focused()
             && matches!(
@@ -643,6 +707,10 @@ impl TuiView for TuiHandoffBlock {
         }
     }
 
+    #[cfg(not(test))]
+    fn on_focus(&mut self, _focus_ctx: &FocusContext, _ctx: &mut ViewContext<Self>) {}
+
+    #[cfg(test)]
     fn keymap_context(&self, ctx: &AppContext) -> keymap::Context {
         let mut context = keymap::Context::default();
         context.set.insert(Self::ui_name());
@@ -677,6 +745,14 @@ impl TuiView for TuiHandoffBlock {
         context
     }
 
+    #[cfg(not(test))]
+    fn keymap_context(&self, _ctx: &AppContext) -> keymap::Context {
+        let mut context = keymap::Context::default();
+        context.set.insert(Self::ui_name());
+        context
+    }
+
+    #[cfg(test)]
     fn render(&self, ctx: &AppContext) -> Box<dyn TuiElement> {
         if let TuiHandoffPhase::Persisted {
             url,
@@ -717,8 +793,14 @@ impl TuiView for TuiHandoffBlock {
         .with_padding_top(BLOCK_TOP_PADDING_ROWS)
         .finish()
     }
+
+    #[cfg(not(test))]
+    fn render(&self, _ctx: &AppContext) -> Box<dyn TuiElement> {
+        TuiFlex::column().finish()
+    }
 }
 
+#[cfg(test)]
 impl TypedActionView for TuiHandoffBlock {
     type Action = TuiHandoffBlockAction;
 

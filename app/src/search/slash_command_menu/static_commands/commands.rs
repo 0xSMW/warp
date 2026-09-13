@@ -77,16 +77,6 @@ pub const AUTO_APPROVE: StaticCommand = StaticCommand {
     argument: None,
 };
 
-pub const MCP: StaticCommand = StaticCommand {
-    name: "/mcp",
-    description: "View and manage MCP servers",
-    kind: SlashCommandKind::Mcp,
-    supported_surfaces: SlashCommandSurfaces::TuiOnly,
-    availability: Availability::AI_ENABLED,
-    auto_enter_ai_mode: false,
-    argument: None,
-};
-
 pub const VIEW_LOGS: StaticCommand = StaticCommand {
     name: "/view-logs",
     description: "Bundle your logs into a zip archive",
@@ -118,44 +108,6 @@ pub const NATURAL_LANGUAGE_DETECTION: StaticCommand = StaticCommand {
     argument: None,
 };
 
-pub const API_KEYS: StaticCommand = StaticCommand {
-    name: "/api-keys",
-    description: "View and manage API keys",
-    kind: SlashCommandKind::ApiKeys,
-    supported_surfaces: SlashCommandSurfaces::TuiOnly,
-    availability: Availability::AI_ENABLED,
-    auto_enter_ai_mode: false,
-    argument: None,
-};
-
-pub const CONNECT_GROK: StaticCommand = StaticCommand {
-    name: "/connect-grok",
-    description: "Connect your Grok (X Premium / SuperGrok) account",
-    kind: SlashCommandKind::ConnectGrok,
-    supported_surfaces: SlashCommandSurfaces::TuiOnly,
-    availability: Availability::AI_ENABLED,
-    auto_enter_ai_mode: false,
-    argument: None,
-};
-
-pub const MANAGE_BILLING: StaticCommand = StaticCommand {
-    name: "/manage-billing",
-    description: "Open the team billing page in your browser",
-    kind: SlashCommandKind::ManageBilling,
-    supported_surfaces: SlashCommandSurfaces::TuiOnly,
-    availability: Availability::ALWAYS,
-    auto_enter_ai_mode: false,
-    argument: None,
-};
-pub const UPGRADE: StaticCommand = StaticCommand {
-    name: "/upgrade",
-    description: "Open the Warp upgrade page in your browser",
-    kind: SlashCommandKind::Upgrade,
-    supported_surfaces: SlashCommandSurfaces::TuiOnly,
-    availability: Availability::ALWAYS,
-    auto_enter_ai_mode: false,
-    argument: None,
-};
 pub const THEME: StaticCommand = StaticCommand {
     name: "/theme",
     description: "Set color theme",
@@ -972,140 +924,144 @@ fn all_commands(settings_mode: settings::SettingsMode) -> Vec<StaticCommand> {
 
 fn all_commands_for_all_surfaces() -> Vec<StaticCommand> {
     let mut commands = vec![
-        ADD_MCP,
-        ADD_PROMPT.clone(),
-        ADD_RULE,
-        AUTO_APPROVE,
-        COST,
+        // Commented out: Agent, cloud, billing, sharing, and advanced editing slash commands
+        // ADD_MCP,
+        // ADD_PROMPT.clone(),
+        // ADD_RULE,
+        // AUTO_APPROVE,
+        // COST,
         EXIT,
-        FEEDBACK.clone(),
-        INDEX,
-        INIT,
-        API_KEYS,
-        CONNECT_GROK,
-        UPGRADE,
-        MANAGE_BILLING,
+        // FEEDBACK.clone(),
+        // INDEX,
+        // INIT,
         LOGOUT,
-        MCP,
-        OPEN_PROJECT_RULES,
-        OPEN_MCP_SERVERS,
-        OPEN_RULES,
-        AGENT.clone(),
-        CLEAR,
-        NEW.clone(),
-        PLAN.clone(),
-        RENAME_CONVERSATION.clone(),
+        // OPEN_PROJECT_RULES,
+        // OPEN_MCP_SERVERS,
+        // OPEN_RULES,
+        // AGENT.clone(),
+        // CLEAR,
+        // NEW.clone(),
+        // PLAN.clone(),
+        // RENAME_CONVERSATION.clone(),
         RENAME_TAB.clone(),
         SET_TAB_COLOR.clone(),
         STATUSLINE,
         RESET_STATUSLINE,
-        NATURAL_LANGUAGE_DETECTION,
+        // NATURAL_LANGUAGE_DETECTION,
         THEME,
         VIM_MODE,
-        USAGE,
-        CONVERSATIONS,
-        EXPORT_TO_CLIPBOARD,
-        COPY_DEBUGGING_ID,
-        MODEL.clone(),
+        // USAGE,
+        // CONVERSATIONS,
+        // EXPORT_TO_CLIPBOARD,
+        // COPY_DEBUGGING_ID,
+        // MODEL.clone(),
         TEAM,
         STATUS,
         VIEW_LOGS,
-        VOICE,
+        // VOICE,
     ];
 
     if FeatureFlag::LocalDockerSandbox.is_enabled() {
         commands.push(CREATE_DOCKER_SANDBOX);
     }
 
-    if FeatureFlag::CreatingSharedSessions.is_enabled()
-        && FeatureFlag::HOARemoteControl.is_enabled()
-    {
-        commands.push(REMOTE_CONTROL);
-    }
+    // Commented out: Remote control, changelog, prompts, and code review slash commands
+    // if FeatureFlag::CreatingSharedSessions.is_enabled()
+    //     && FeatureFlag::HOARemoteControl.is_enabled()
+    // {
+    //     commands.push(REMOTE_CONTROL);
+    // }
 
-    if FeatureFlag::Changelog.is_enabled() {
-        commands.push(CHANGELOG);
-    }
+    // if FeatureFlag::Changelog.is_enabled() {
+    //     commands.push(CHANGELOG);
+    // }
 
-    if FeatureFlag::AgentView.is_enabled() {
-        commands.push(PROMPTS.clone());
-    }
+    // if FeatureFlag::AgentView.is_enabled() {
+    //     commands.push(PROMPTS.clone());
+    // }
 
-    commands.push(OPEN_CODE_REVIEW);
+    // commands.push(OPEN_CODE_REVIEW);
 
-    if FeatureFlag::CreateEnvironmentSlashCommand.is_enabled() {
-        commands.push(CREATE_ENVIRONMENT.clone());
-    }
+    // Commented out: Cloud environment, conversation-management, and file-export slash commands
+    // if FeatureFlag::CreateEnvironmentSlashCommand.is_enabled() {
+    //     commands.push(CREATE_ENVIRONMENT.clone());
+    // }
 
-    if FeatureFlag::CreateProjectFlow.is_enabled() {
-        commands.push(CREATE_NEW_PROJECT.clone());
-    }
+    // if FeatureFlag::CreateProjectFlow.is_enabled() {
+    //     commands.push(CREATE_NEW_PROJECT.clone());
+    // }
 
-    if FeatureFlag::SummarizationConversationCommand.is_enabled() {
-        commands.push(COMPACT.clone());
-        commands.push(COMPACT_AND.clone());
-    }
+    // if FeatureFlag::SummarizationConversationCommand.is_enabled() {
+    //     commands.push(COMPACT.clone());
+    //     commands.push(COMPACT_AND.clone());
+    // }
 
-    if FeatureFlag::QueueSlashCommand.is_enabled() {
-        commands.push(QUEUE.clone());
-    }
+    // if FeatureFlag::QueueSlashCommand.is_enabled() {
+    //     commands.push(QUEUE.clone());
+    // }
+
+    // if !cfg!(target_family = "wasm") {
+    //     commands.extend([
+    //         FORK.clone(),
+    //         FORK_AND_COMPACT.clone(),
+    //         CONTINUE_LOCALLY.clone(),
+    //     ]);
+
+    //     if FeatureFlag::ForkFromCommand.is_enabled() {
+    //         commands.push(FORK_FROM);
+    //     }
+    // }
 
     if !cfg!(target_family = "wasm") {
-        commands.extend([
-            FORK.clone(),
-            FORK_AND_COMPACT.clone(),
-            CONTINUE_LOCALLY.clone(),
-        ]);
-
-        if FeatureFlag::ForkFromCommand.is_enabled() {
-            commands.push(FORK_FROM);
-        }
+        commands.push(EDIT.clone());
+        // Commented out: Export agent conversation to file slash command
+        // commands.push(EXPORT_TO_FILE.clone());
     }
 
-    if !cfg!(target_family = "wasm") {
-        commands.extend([EDIT.clone(), EXPORT_TO_FILE.clone()]);
-    }
+    // Commented out: Agent skills slash commands
+    // if FeatureFlag::ListSkills.is_enabled() && !cfg!(target_family = "wasm") {
+    //     commands.push(EDIT_SKILL.clone());
+    //     commands.push(INVOKE_SKILL.clone());
+    // }
 
-    if FeatureFlag::ListSkills.is_enabled() && !cfg!(target_family = "wasm") {
-        commands.push(EDIT_SKILL.clone());
-        commands.push(INVOKE_SKILL.clone());
-    }
+    // Commented out: Cloud Agent and agent-profile slash commands
+    // if FeatureFlag::CloudMode.is_enabled() && FeatureFlag::CloudModeFromLocalSession.is_enabled() {
+    //     commands.push(CLOUD_AGENT.clone());
+    // }
 
-    if FeatureFlag::CloudMode.is_enabled() && FeatureFlag::CloudModeFromLocalSession.is_enabled() {
-        commands.push(CLOUD_AGENT.clone());
-    }
+    // if FeatureFlag::OzHandoff.is_enabled()
+    //     && FeatureFlag::HandoffLocalCloud.is_enabled()
+    //     && cfg!(all(feature = "local_fs", not(target_family = "wasm")))
+    // {
+    //     commands.push(MOVE_TO_CLOUD.clone());
+    // }
 
-    if FeatureFlag::OzHandoff.is_enabled()
-        && FeatureFlag::HandoffLocalCloud.is_enabled()
-        && cfg!(all(feature = "local_fs", not(target_family = "wasm")))
-    {
-        commands.push(MOVE_TO_CLOUD.clone());
-    }
+    // if FeatureFlag::InlineProfileSelector.is_enabled() {
+    //     commands.push(PROFILE.clone());
+    // }
 
-    if FeatureFlag::InlineProfileSelector.is_enabled() {
-        commands.push(PROFILE.clone());
-    }
-
-    if FeatureFlag::RevertToCheckpoints.is_enabled() && FeatureFlag::RewindSlashCommand.is_enabled()
-    {
-        commands.push(REWIND);
-    }
+    // if FeatureFlag::RevertToCheckpoints.is_enabled() && FeatureFlag::RewindSlashCommand.is_enabled()
+    // {
+    //     commands.push(REWIND);
+    // }
 
     if FeatureFlag::InlineRepoMenu.is_enabled() && !cfg!(target_family = "wasm") {
         commands.push(OPEN_REPO);
     }
 
-    commands.push(ORCHESTRATE.clone());
+    // Commented out: Agent orchestration slash command
+    // commands.push(ORCHESTRATE.clone());
 
     if FeatureFlag::SettingsFile.is_enabled() && cfg!(feature = "local_fs") {
         commands.push(OPEN_SETTINGS_FILE);
     }
 
-    if FeatureFlag::CloudModeInputV2.is_enabled() {
-        commands.push(HOST.clone());
-        commands.push(HARNESS.clone());
-        commands.push(ENVIRONMENT.clone());
-    }
+    // Commented out: Cloud Agent execution configuration slash commands
+    // if FeatureFlag::CloudModeInputV2.is_enabled() {
+    //     commands.push(HOST.clone());
+    //     commands.push(HARNESS.clone());
+    //     commands.push(ENVIRONMENT.clone());
+    // }
 
     commands
 }

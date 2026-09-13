@@ -1,42 +1,56 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, anyhow};
+#[cfg(test)]
+use anyhow::Context;
+use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+#[cfg(test)]
 use cynic::{MutationBuilder, QueryBuilder};
 use warp_graphql::managed_secrets::{ManagedSecret, ManagedSecretType};
+#[cfg(test)]
 use warp_graphql::mutations::create_managed_secret::{
     CreateManagedSecret, CreateManagedSecretInput, CreateManagedSecretResult,
     CreateManagedSecretVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::delete_managed_secret::{
     DeleteManagedSecret, DeleteManagedSecretInput, DeleteManagedSecretResult,
     DeleteManagedSecretVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::issue_task_identity_token::{
     IssueTaskIdentityToken, IssueTaskIdentityTokenInput, IssueTaskIdentityTokenResult,
     IssueTaskIdentityTokenVariables,
 };
+#[cfg(test)]
 use warp_graphql::mutations::update_managed_secret::{
     UpdateManagedSecret, UpdateManagedSecretInput, UpdateManagedSecretResult,
     UpdateManagedSecretVariables,
 };
+#[cfg(test)]
 use warp_graphql::object_permissions::{Owner, OwnerType};
+#[cfg(test)]
 use warp_graphql::queries::list_harness_auth_secrets::{
     ListHarnessAuthSecrets, ListHarnessAuthSecretsInput, ListHarnessAuthSecretsVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::list_managed_secrets::{
     ListManagedSecrets, ListManagedSecretsVariables, ManagedSecretsInput, ManagedSecretsResult,
 };
+#[cfg(test)]
 use warp_graphql::queries::managed_secret_config::{
     GetManagedSecretConfig, GetManagedSecretConfigVariables, UserResult,
 };
+use warp_graphql::queries::task_secrets::ManagedSecretValue;
+#[cfg(test)]
 use warp_graphql::queries::task_secrets::{
-    ManagedSecretValue, TaskSecrets, TaskSecretsInput, TaskSecretsResult, TaskSecretsVariables,
+    TaskSecrets, TaskSecretsInput, TaskSecretsResult, TaskSecretsVariables,
 };
 pub use warp_managed_secrets::client::{ManagedSecretConfigs, ManagedSecretsClient};
 use warp_managed_secrets::client::{SecretOwner, TaskIdentityToken};
 
 use super::ServerApi;
+#[cfg(test)]
 use crate::server::graphql::{get_request_context, get_user_facing_error_message};
 use crate::server::team_scope::RequestTeamScope;
 
@@ -46,6 +60,7 @@ pub(crate) type AppManagedSecretsClient = dyn ManagedSecretsClient<RequestScope 
 
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg(test)]
 impl ManagedSecretsClient for ServerApi {
     type RequestScope = RequestTeamScope;
 
@@ -352,6 +367,113 @@ impl ManagedSecretsClient for ServerApi {
                 Err(anyhow!("Unknown error while issuing task identity token"))
             }
         }
+    }
+}
+
+#[cfg(not(test))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+impl ManagedSecretsClient for ServerApi {
+    type RequestScope = RequestTeamScope;
+
+    async fn get_managed_secret_configs(
+        &self,
+        request_scope: &Self::RequestScope,
+    ) -> Result<ManagedSecretConfigs> {
+        let _ = (self, request_scope);
+        Err(anyhow!("Managed secrets are disabled in local-only mode"))
+    }
+
+    async fn create_managed_secret(
+        &self,
+        request_scope: &Self::RequestScope,
+        owner: SecretOwner,
+        name: String,
+        secret_type: ManagedSecretType,
+        encrypted_value: String,
+        description: Option<String>,
+    ) -> Result<ManagedSecret> {
+        let _ = (
+            self,
+            request_scope,
+            owner,
+            name,
+            secret_type,
+            encrypted_value,
+            description,
+        );
+        Err(anyhow!(
+            "Creating managed secrets is disabled in local-only mode"
+        ))
+    }
+
+    async fn delete_managed_secret(
+        &self,
+        request_scope: &Self::RequestScope,
+        owner: SecretOwner,
+        name: String,
+    ) -> Result<()> {
+        let _ = (self, request_scope, owner, name);
+        Err(anyhow!(
+            "Deleting managed secrets is disabled in local-only mode"
+        ))
+    }
+
+    async fn update_managed_secret(
+        &self,
+        request_scope: &Self::RequestScope,
+        owner: SecretOwner,
+        name: String,
+        encrypted_value: Option<String>,
+        description: Option<String>,
+    ) -> Result<ManagedSecret> {
+        let _ = (
+            self,
+            request_scope,
+            owner,
+            name,
+            encrypted_value,
+            description,
+        );
+        Err(anyhow!(
+            "Updating managed secrets is disabled in local-only mode"
+        ))
+    }
+
+    async fn list_harness_auth_secrets(
+        &self,
+        request_scope: &Self::RequestScope,
+        harness: warp_graphql::ai::AgentHarness,
+    ) -> Result<Vec<ManagedSecret>> {
+        let _ = (self, request_scope, harness);
+        Ok(Vec::new())
+    }
+
+    async fn list_secrets(
+        &self,
+        request_scope: Option<&Self::RequestScope>,
+    ) -> Result<Vec<ManagedSecret>> {
+        let _ = (self, request_scope);
+        Ok(Vec::new())
+    }
+
+    async fn get_task_secrets(
+        &self,
+        task_id: String,
+        workload_token: String,
+    ) -> Result<HashMap<String, ManagedSecretValue>> {
+        let _ = (self, task_id, workload_token);
+        Err(anyhow!("Task secrets are disabled in local-only mode"))
+    }
+
+    async fn issue_task_identity_token(
+        &self,
+        options: warp_managed_secrets::client::IdentityTokenOptions,
+    ) -> Result<TaskIdentityToken> {
+        let _ = (self, options);
+        Err(anyhow!(
+            "Task identity tokens are disabled in local-only mode"
+        ))
     }
 }
 

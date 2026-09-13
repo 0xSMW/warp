@@ -341,7 +341,11 @@ pub(super) fn render(
             .truncate()
             .finish(),
     );
-    if let Some(manage_billing_url) = info.manage_billing_url.clone() {
+    if let Some(manage_billing_url) = info
+        .manage_billing_url
+        .clone()
+        .filter(|url| !url.is_empty())
+    {
         trailing = trailing
             .child(TuiText::new(" | ").with_style(primary).truncate().finish())
             .child(manage_billing_link.render(
@@ -394,25 +398,27 @@ pub(super) fn render(
         }
     }
 
-    body = body.child(TuiText::new(" ").with_style(muted).truncate().finish());
-    let upgrade_url = upgrade_url.to_owned();
-    let upgrade_link = upgrade_link.render(
-        "Buy more credits or upgrade plan",
-        primary,
-        move |_, app| app.open_url(&upgrade_url),
-    );
-    body = body.child(
-        TuiFlex::row()
-            .child(upgrade_link)
-            .child(TuiText::new(" ").with_style(muted).truncate().finish())
-            .child(
-                TuiText::new("(ctrl+o)")
-                    .with_style(shortcut)
-                    .truncate()
-                    .finish(),
-            )
-            .finish(),
-    );
+    if !upgrade_url.is_empty() {
+        body = body.child(TuiText::new(" ").with_style(muted).truncate().finish());
+        let upgrade_url = upgrade_url.to_owned();
+        let upgrade_link = upgrade_link.render(
+            "Buy more credits or upgrade plan",
+            primary,
+            move |_, app| app.open_url(&upgrade_url),
+        );
+        body = body.child(
+            TuiFlex::row()
+                .child(upgrade_link)
+                .child(TuiText::new(" ").with_style(muted).truncate().finish())
+                .child(
+                    TuiText::new("(ctrl+o)")
+                        .with_style(shortcut)
+                        .truncate()
+                        .finish(),
+                )
+                .finish(),
+        );
+    }
 
     let body = TuiContainer::new(body.finish()).with_padding_x(1).finish();
 

@@ -1,17 +1,32 @@
+#[cfg(test)]
 use std::iter;
 use std::sync::Arc;
 
 use anyhow::Result;
-use channel_versions::{Changelog, ChannelVersions};
+use channel_versions::Changelog;
+#[cfg(test)]
+use channel_versions::ChannelVersions;
+#[cfg(test)]
 use rand::distributions::Alphanumeric;
+#[cfg(test)]
 use rand::{Rng as _, thread_rng};
+#[cfg(test)]
 use warp_errors::report_error;
 
+#[cfg(test)]
 use super::channel_versions::fetch_channel_versions;
+#[cfg(test)]
 use super::release_assets_directory_url;
+#[cfg(test)]
 use crate::channel::{Channel, ChannelState};
 use crate::server::server_api::ServerApi;
 
+#[cfg(not(test))]
+pub async fn get_current_changelog(_server_api: Arc<ServerApi>) -> Result<Option<Changelog>> {
+    Ok(None)
+}
+
+#[cfg(test)]
 pub async fn get_current_changelog(server_api: Arc<ServerApi>) -> Result<Option<Changelog>> {
     let rand: String = {
         let mut rng = thread_rng();
@@ -58,6 +73,7 @@ pub async fn get_current_changelog(server_api: Arc<ServerApi>) -> Result<Option<
 
 /// Fetches the changelog for the running release bundle, using the given http
 /// client and cache-busting nonce.
+#[cfg(test)]
 async fn fetch_current_changelog(client: &http_client::Client, nonce: &str) -> Result<Changelog> {
     let app_version = ChannelState::app_version().unwrap_or_default();
     let url = format!(
@@ -73,6 +89,7 @@ async fn fetch_current_changelog(client: &http_client::Client, nonce: &str) -> R
 
 /// Returns the URL to the changelog for the given version of this release
 /// bundle.
+#[cfg(test)]
 fn changelog_url(channel: Channel, version: &str) -> String {
     format!(
         "{}/changelog.json",
@@ -83,6 +100,7 @@ fn changelog_url(channel: Channel, version: &str) -> String {
 /// Returns whether the app should fetch changelog.json for the current
 /// build (true), or use the changelog information embedded in
 /// channel_versions.json (false).
+#[cfg(test)]
 pub fn should_fetch_changelog_json(channel: Channel) -> bool {
     channel == Channel::Dev
 }

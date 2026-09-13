@@ -161,19 +161,6 @@ impl GuiSlashCommandDataSource {
         }
     }
 
-    pub(crate) fn command_is_active(&self, command: &StaticCommand, ctx: &AppContext) -> bool {
-        let availability = self.availability(ctx);
-        let gates = self.common_command_gates(ctx);
-        command.supports_gui()
-            && self.command_passes_common_gates(command, availability, &gates)
-            && self.command_passes_gui_gates(
-                command,
-                availability,
-                #[cfg(not(target_family = "wasm"))]
-                ctx,
-            )
-    }
-
     fn recompute_active_commands(&mut self, ctx: &mut ModelContext<Self>) {
         let availability = self.availability(ctx);
         let gates = self.common_command_gates(ctx);

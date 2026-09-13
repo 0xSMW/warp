@@ -6,6 +6,7 @@ use settings::{RespectUserSyncSetting, SyncToCloud};
 use warpui::r#async::Timer;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
+use crate::channel::{Channel, ChannelState};
 use crate::cloud_object::CloudObjectEventEntrypoint;
 use crate::cloud_object::model::persistence::CloudModel;
 use crate::server::cloud_objects::update_manager::{
@@ -25,6 +26,7 @@ const MARKER_LOAD_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Account-scoped, monotonic TUI onboarding markers stored as separate global
 /// cloud preferences so concurrent devices cannot overwrite unrelated state.
+/// Local mode keeps both markers disabled because it has no cloud account.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TuiOnboardingMarker {
     FirstZeroState,
@@ -72,6 +74,7 @@ pub enum TuiOnboardingMarkersEvent {
 }
 
 /// Dedicated cloud-preference model for the TUI's once-per-account surfaces.
+/// Local mode uses an immediately ready, disabled marker state.
 pub struct TuiOnboardingMarkers {
     state: TuiOnboardingMarkersState,
     load_generation: u64,
@@ -82,6 +85,11 @@ pub struct TuiOnboardingMarkers {
 
 impl TuiOnboardingMarkers {
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
+        if is_local_mode() {
+            // Commented out for local mode: cloud client construction and preference updates.
+            return Self::local_disabled();
+        }
+
         let onboarding_client = ServerApiProvider::as_ref(ctx).get_tui_onboarding_client();
         ctx.subscribe_to_model(&UpdateManager::handle(ctx), |markers, _, event, ctx| {
             let UpdateManagerEvent::CloudPreferencesUpdated { updated } = event else {
@@ -106,6 +114,19 @@ impl TuiOnboardingMarkers {
         }
     }
 
+    fn local_disabled() -> Self {
+        Self {
+            state: TuiOnboardingMarkersState::Ready {
+                first_zero_state_available: false,
+                first_credit_gate_available: false,
+            },
+            load_generation: 0,
+            persist_markers: false,
+            onboarding_client: None,
+            load_timeout: MARKER_LOAD_TIMEOUT,
+        }
+    }
+
     #[cfg(test)]
     fn new_loading_for_test(
         onboarding_client: Arc<dyn TuiOnboardingClient>,
@@ -122,16 +143,22 @@ impl TuiOnboardingMarkers {
 
     /// Starts a fresh, account-scoped load. Terminal creation never waits for
     /// this request; consumers keep one-time UI hidden until
-    /// [`TuiOnboardingMarkersEvent::Ready`].
+    /// [`TuiOnboardingMarkersEvent::Ready`]. Local mode leaves its disabled
+    /// state unchanged.
     pub fn load_current_account(&mut self, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: GraphQL onboarding marker reads.
+            return;
+        }
+
         self.state = TuiOnboardingMarkersState::Loading;
         self.load_generation = self.load_generation.wrapping_add(1);
         ctx.emit(TuiOnboardingMarkersEvent::Loading);
         let load_generation = self.load_generation;
-        let onboarding_client = self
-            .onboarding_client
-            .clone()
-            .expect("production TUI onboarding marker model must have an API client");
+        let Some(onboarding_client) = self.onboarding_client.clone() else {
+            self.resolve_unavailable(ctx);
+            return;
+        };
         let load_timeout = self.load_timeout;
         ctx.spawn(
             load_markers_with_timeout(onboarding_client, load_timeout),
@@ -145,6 +172,13 @@ impl TuiOnboardingMarkers {
     /// Invalidates the previous account snapshot before a signed-out terminal
     /// can be created for the next browser authentication flow.
     pub fn reset_for_account_transition(&mut self, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: account-scoped cloud marker reloads.
+            self.load_generation = self.load_generation.wrapping_add(1);
+            self.resolve_unavailable(ctx);
+            return;
+        }
+
         self.state = TuiOnboardingMarkersState::Loading;
         self.load_generation = self.load_generation.wrapping_add(1);
         ctx.emit(TuiOnboardingMarkersEvent::Loading);
@@ -156,9 +190,14 @@ impl TuiOnboardingMarkers {
     }
 
     /// Consumes a marker immediately in memory, then queues the monotonic
-    /// cloud write. Returning `false` means the marker was loading or had
-    /// already been consumed in this process/account snapshot.
+    /// cloud write. Returning `false` means the marker was loading, disabled
+    /// for local mode, or already consumed in this process/account snapshot.
     pub fn consume(&mut self, marker: TuiOnboardingMarker, ctx: &mut ModelContext<Self>) -> bool {
+        if is_local_mode() {
+            // Commented out for local mode: cloud-backed marker consumption and writes.
+            return false;
+        }
+
         if !self.take_available(marker) {
             return false;
         }
@@ -248,6 +287,11 @@ impl TuiOnboardingMarkers {
     }
 
     fn persist_consumed_marker(&self, marker: TuiOnboardingMarker, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: cloud preference writes.
+            return;
+        }
+
         let storage_key = marker.storage_key();
         let existing = CloudModel::as_ref(ctx)
             .get_all_cloud_preferences_by_storage_key()
@@ -373,6 +417,10 @@ async fn load_markers_with_timeout(
         futures::future::Either::Left((result, _)) => MarkerLoadResult::Loaded(result),
         futures::future::Either::Right(_) => MarkerLoadResult::TimedOut,
     }
+}
+
+fn is_local_mode() -> bool {
+    matches!(ChannelState::channel(), Channel::Local)
 }
 
 #[cfg(test)]

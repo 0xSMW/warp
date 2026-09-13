@@ -40,11 +40,13 @@ pub fn init(app: &mut AppContext) {
 ///
 /// # Type Parameters
 /// - `T`: The data type for each item
+#[cfg(test)]
 pub struct ToggleableItemBuilder<T> {
     label_fn: ItemLabelFn<T>,
     is_selected_fn: Box<dyn Fn(&T) -> bool>,
 }
 
+#[cfg(test)]
 impl<T> ToggleableItemBuilder<T> {
     pub fn new(
         label_fn: impl Fn(&T, &AppContext) -> Span + 'static,
@@ -81,6 +83,7 @@ pub struct ToggleableItemsView<T> {
 }
 
 impl<T> ToggleableItemsView<T> {
+    #[cfg(test)]
     pub fn new(items: Vec<T>, builder: ToggleableItemBuilder<T>) -> Self {
         let count = items.len();
         let selected_states = items
@@ -99,6 +102,7 @@ impl<T> ToggleableItemsView<T> {
     }
 
     /// Get the currently selected items.
+    #[cfg(test)]
     pub fn get_selected_items(&self) -> impl Iterator<Item = &T> + '_ {
         self.items
             .iter()

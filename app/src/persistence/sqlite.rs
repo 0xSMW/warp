@@ -530,6 +530,7 @@ pub(super) fn remove(sender: SyncSender<ModelEvent>) {
     );
 }
 
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 pub(super) fn reconstruct(sender: SyncSender<ModelEvent>) {
     report_if_error!(
         sender

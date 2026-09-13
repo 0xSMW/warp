@@ -42,10 +42,6 @@ pub(crate) mod view_util;
 #[cfg_attr(not(feature = "tui"), allow(unused_imports))]
 pub use action_model::AIActionStatus;
 pub(crate) use action_model::recording_controller::RecordingController;
-#[cfg(not(target_family = "wasm"))]
-pub(crate) use action_model::recording_finalize::{
-    FinalizeReason, finalize_recording_for_conversation,
-};
 // Consumed by `tui_export` for the `warp_tui` frontend.
 #[cfg(feature = "tui")]
 pub use action_model::{
@@ -139,10 +135,9 @@ pub use queued_query::{QueuedQueryEvent, QueuedQueryModel};
 pub use suggestion_chip_view::*;
 pub use view_util::error_color;
 pub(crate) use view_util::{
-    ATTACH_AS_AGENT_MODE_CONTEXT_TEXT, CLAUDE_ORANGE, NEW_AGENT_PANE_LABEL, ai_brand_color,
-    ai_indicator_height, format_credits, get_ai_block_overflow_menu_element_position_id,
-    get_attached_blocks_chip_element_position_id, render_ai_agent_mode_icon,
-    render_ai_follow_up_icon,
+    CLAUDE_ORANGE, ai_brand_color, ai_indicator_height, format_credits,
+    get_ai_block_overflow_menu_element_position_id, get_attached_blocks_chip_element_position_id,
+    render_ai_agent_mode_icon, render_ai_follow_up_icon,
 };
 
 pub use crate::ai::blocklist::block::{AIBlockResponseRating, TextLocation, secret_redaction};

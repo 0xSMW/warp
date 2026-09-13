@@ -1,36 +1,44 @@
+#![cfg(any(test, feature = "integration_tests"))]
+
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
-#[cfg(not(target_family = "wasm"))]
+#[cfg(any(test, feature = "integration_tests"))]
+use anyhow::Context;
+use anyhow::{Result, anyhow};
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 use futures::future::Either;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 use instant::Instant;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 use reqwest::Error as ReqwestError;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 use warpui::r#async::Timer;
 
 use crate::ai::agent::ReceivedMessageInput;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::server::server_api::ServerApi;
 use crate::server::server_api::ai::{AIClient, AgentRunEvent, ReadAgentMessageResponse};
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 use crate::server::server_api::presigned_upload::HttpStatusError;
 
 pub(crate) const DEFAULT_AGENT_MESSAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 const DEFAULT_AGENT_MESSAGE_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 /// Hydrates `new_message` agent events into full message payloads and delivery
 /// acknowledgements.
 #[derive(Clone)]
 pub(crate) struct MessageHydrator {
+    #[cfg(any(test, feature = "integration_tests"))]
     ai_client: Arc<dyn AIClient>,
+    #[cfg(any(test, feature = "integration_tests"))]
     task_scoped_server_api: Option<Arc<ServerApi>>,
+    #[cfg(any(test, feature = "integration_tests"))]
     task_id: Option<AmbientAgentTaskId>,
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    #[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
     fetch_timeout: Duration,
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    #[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
     retry_delay: Duration,
 }
 
@@ -40,27 +48,41 @@ impl MessageHydrator {
     }
 
     pub(crate) fn for_task(server_api: Arc<ServerApi>, task_id: AmbientAgentTaskId) -> Self {
+        #[cfg(any(test, feature = "integration_tests"))]
         let ai_client: Arc<dyn AIClient> = server_api.clone();
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (server_api, task_id);
         Self {
+            #[cfg(any(test, feature = "integration_tests"))]
             ai_client,
+            #[cfg(any(test, feature = "integration_tests"))]
             task_scoped_server_api: Some(server_api),
+            #[cfg(any(test, feature = "integration_tests"))]
             task_id: Some(task_id),
+            #[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
             fetch_timeout: DEFAULT_AGENT_MESSAGE_FETCH_TIMEOUT,
+            #[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
             retry_delay: DEFAULT_AGENT_MESSAGE_RETRY_DELAY,
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "integration_tests"))]
     pub(crate) fn with_fetch_timing(
         ai_client: Arc<dyn AIClient>,
         fetch_timeout: Duration,
         retry_delay: Duration,
     ) -> Self {
+        #[cfg(all(any(test, feature = "integration_tests"), target_family = "wasm"))]
+        let _ = (fetch_timeout, retry_delay);
         Self {
             ai_client,
+            #[cfg(any(test, feature = "integration_tests"))]
             task_scoped_server_api: None,
+            #[cfg(any(test, feature = "integration_tests"))]
             task_id: None,
+            #[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
             fetch_timeout,
+            #[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
             retry_delay,
         }
     }
@@ -69,25 +91,42 @@ impl MessageHydrator {
         ai_client: Arc<dyn AIClient>,
         fetch_timeout: Duration,
     ) -> Self {
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = ai_client;
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = fetch_timeout;
+        #[cfg(all(any(test, feature = "integration_tests"), target_family = "wasm"))]
+        let _ = fetch_timeout;
         Self {
+            #[cfg(any(test, feature = "integration_tests"))]
             ai_client,
+            #[cfg(any(test, feature = "integration_tests"))]
             task_scoped_server_api: None,
+            #[cfg(any(test, feature = "integration_tests"))]
             task_id: None,
+            #[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
             fetch_timeout,
+            #[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
             retry_delay: DEFAULT_AGENT_MESSAGE_RETRY_DELAY,
         }
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     async fn read_message(&self, message_id: &str) -> Result<ReadAgentMessageResponse> {
         match (self.task_scoped_server_api.as_ref(), self.task_id) {
             (Some(server_api), Some(task_id)) => {
-                server_api
+                return server_api
                     .read_agent_message_for_task(&task_id, message_id)
                     .await
+                    .with_context(|| format!("Failed to read agent message {message_id}"));
             }
-            _ => self.ai_client.read_agent_message(message_id).await,
+            _ => {}
         }
-        .with_context(|| format!("Failed to read agent message {message_id}"))
+
+        self.ai_client
+            .read_agent_message(message_id)
+            .await
+            .with_context(|| format!("Failed to read agent message {message_id}"))
     }
 
     pub(crate) async fn hydrate_event_for_recipient(
@@ -98,39 +137,47 @@ impl MessageHydrator {
         if event.event_type != "new_message" || event.run_id != recipient_run_id {
             return None;
         }
-
-        let message = match self.read_message_from_event_with_timeout(event).await {
-            Ok(message) => message,
-            Err(err) => {
-                log::warn!(
-                    "Failed to hydrate agent message for event ref_id={:?}: {err:#}",
-                    event.ref_id
-                );
-                return None;
-            }
-        };
-        if message.body.is_empty() {
-            log::warn!(
-                "Hydrated empty-body agent message: message_id={} event_sequence={} recipient_run_id={} sender_run_id={} subject={:?} task_id={:?}",
-                message.message_id,
-                event.sequence,
-                recipient_run_id,
-                message.sender_run_id,
-                message.subject,
-                self.task_id.map(|task_id| task_id.to_string())
-            );
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        {
+            return None;
         }
 
-        Some(ReceivedMessageInput {
-            message_id: message.message_id,
-            sender_agent_id: message.sender_run_id,
-            addresses: vec![recipient_run_id.to_string()],
-            subject: message.subject,
-            message_body: message.body,
-        })
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let message = match self.read_message_from_event_with_timeout(event).await {
+                Ok(message) => message,
+                Err(err) => {
+                    log::warn!(
+                        "Failed to hydrate agent message for event ref_id={:?}: {err:#}",
+                        event.ref_id
+                    );
+                    return None;
+                }
+            };
+            if message.body.is_empty() {
+                let task_id = self.task_id.map(|task_id| task_id.to_string());
+                log::warn!(
+                    "Hydrated empty-body agent message: message_id={} event_sequence={} recipient_run_id={} sender_run_id={} subject={:?} task_id={:?}",
+                    message.message_id,
+                    event.sequence,
+                    recipient_run_id,
+                    message.sender_run_id,
+                    message.subject,
+                    task_id
+                );
+            }
+
+            Some(ReceivedMessageInput {
+                message_id: message.message_id,
+                sender_agent_id: message.sender_run_id,
+                addresses: vec![recipient_run_id.to_string()],
+                subject: message.subject,
+                message_body: message.body,
+            })
+        }
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
     pub(crate) async fn read_message_with_timeout(
         &self,
         message_id: &str,
@@ -167,7 +214,7 @@ impl MessageHydrator {
         }
     }
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(any(test, feature = "integration_tests"), target_family = "wasm"))]
     pub(crate) async fn read_message_with_timeout(
         &self,
         message_id: &str,
@@ -175,26 +222,67 @@ impl MessageHydrator {
         self.read_message(message_id).await
     }
 
+    #[cfg(not(any(test, feature = "integration_tests")))]
+    pub(crate) async fn read_message_with_timeout(
+        &self,
+        message_id: &str,
+    ) -> Result<ReadAgentMessageResponse> {
+        let _ = message_id;
+        Err(anyhow!(
+            "Agent message hydration is disabled in local-only mode"
+        ))
+    }
+
     pub(crate) async fn read_message_from_event_with_timeout(
         &self,
         event: &AgentRunEvent,
     ) -> Result<ReadAgentMessageResponse> {
-        let Some(message_id) = event.ref_id.as_deref() else {
-            return Err(anyhow!("Agent event is missing ref_id"));
-        };
-        self.read_message_with_timeout(message_id).await
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        {
+            let _ = event;
+            return Err(anyhow!(
+                "Agent message hydration is disabled in local-only mode"
+            ));
+        }
+
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            let Some(message_id) = event.ref_id.as_deref() else {
+                return Err(anyhow!("Agent event is missing ref_id"));
+            };
+            self.read_message_with_timeout(message_id).await
+        }
     }
 
     pub(crate) async fn mark_message_delivered(&self, message_id: &str) -> Result<()> {
-        match (self.task_scoped_server_api.as_ref(), self.task_id) {
-            (Some(server_api), Some(task_id)) => {
-                server_api
-                    .mark_message_delivered_for_task(&task_id, message_id)
-                    .await
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            match (self.task_scoped_server_api.as_ref(), self.task_id) {
+                (Some(server_api), Some(task_id)) => {
+                    return server_api
+                        .mark_message_delivered_for_task(&task_id, message_id)
+                        .await
+                        .with_context(|| {
+                            format!("Failed to mark agent message {message_id} as delivered")
+                        });
+                }
+                _ => {}
             }
-            _ => self.ai_client.mark_message_delivered(message_id).await,
+
+            return self
+                .ai_client
+                .mark_message_delivered(message_id)
+                .await
+                .with_context(|| {
+                    format!("Failed to mark agent message {message_id} as delivered")
+                });
         }
-        .with_context(|| format!("Failed to mark agent message {message_id} as delivered"))
+
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        {
+            let _ = message_id;
+            Ok(())
+        }
     }
 
     pub(crate) async fn mark_messages_delivered_best_effort<'a, I>(
@@ -217,7 +305,7 @@ impl MessageHydrator {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 fn should_retry_message_read_error(err: &anyhow::Error) -> bool {
     // Immediate read-after-event lag can surface as a short-lived 404 before
     // the message row becomes readable. Restrict retries to status-preserving
@@ -234,7 +322,7 @@ fn should_retry_message_read_error(err: &anyhow::Error) -> bool {
     })
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 fn message_read_error_status(err: &anyhow::Error) -> Option<u16> {
     err.chain().find_map(|cause| {
         cause
@@ -243,12 +331,12 @@ fn message_read_error_status(err: &anyhow::Error) -> Option<u16> {
     })
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 fn is_transient_message_read_transport_error(err: &ReqwestError) -> bool {
     err.is_timeout() || err.is_connect()
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(any(test, feature = "integration_tests"), not(target_family = "wasm")))]
 fn message_read_timeout_error(
     message_id: &str,
     last_error: Option<anyhow::Error>,

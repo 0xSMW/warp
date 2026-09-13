@@ -10,14 +10,6 @@ pub enum ModelCommand {
     List(ListModelsArgs),
 }
 
-impl ModelCommand {
-    pub(crate) fn as_str_for_tracing(&self) -> &'static str {
-        match self {
-            ModelCommand::List(_) => "model list",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Args)]
 pub struct ListModelsArgs {
     #[command(flatten)]

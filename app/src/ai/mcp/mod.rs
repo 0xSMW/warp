@@ -201,8 +201,7 @@ fn items_from_hashmap<T: NameValuePair>(map: &HashMap<String, String>) -> Vec<T>
 }
 
 /// Converts a slice of name/value pair items to a HashMap.
-#[cfg(not(target_family = "wasm"))]
-#[allow(dead_code)]
+#[cfg(all(not(target_family = "wasm"), test))]
 fn items_to_hashmap<T: NameValuePair>(items: &[T]) -> HashMap<String, String> {
     items
         .iter()
@@ -446,6 +445,7 @@ impl MCPServerExt for MCPServer {
         ParsedTemplatableMCPServerResult {
             templatable_mcp_server,
             templatable_mcp_server_installation,
+            #[cfg(any(test, feature = "local_claude_codex_child_harnesses"))]
             variable_values,
         }
     }

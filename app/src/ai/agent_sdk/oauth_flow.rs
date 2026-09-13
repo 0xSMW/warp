@@ -1,8 +1,10 @@
 use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use warp_graphql::queries::get_oauth_connect_tx_status::OauthConnectTxStatus;
+#[cfg(test)]
 use warpui::r#async::Timer;
 
 use crate::server::server_api::integrations::IntegrationsClient;
@@ -11,13 +13,24 @@ use crate::server::server_api::integrations::IntegrationsClient;
 ///
 /// This is used by the integration CLI create flow, and can be reused by
 /// other command flows that rely on the same OAuth connect transaction API.
+#[cfg(not(test))]
+pub async fn poll_oauth_until_terminal(
+    _integrations_client: Arc<dyn IntegrationsClient>,
+    _tx_id: String,
+) -> Result<OauthConnectTxStatus> {
+    Err(anyhow!(
+        "Agent SDK OAuth polling is disabled in local-only mode"
+    ))
+}
+
+#[cfg(test)]
 pub async fn poll_oauth_until_terminal(
     integrations_client: Arc<dyn IntegrationsClient>,
     tx_id: String,
 ) -> Result<OauthConnectTxStatus> {
     const POLL_INTERVAL: Duration = Duration::from_secs(5);
     const MAX_ATTEMPTS: u32 = 120; // 10 minutes total
-    // TODO(bens): render some kind of spinner here
+                                   // TODO(bens): render some kind of spinner here
     println!(
         "Waiting for authorization to complete... If this doesn't update after authorizing, please restart the command and try again.\n"
     );

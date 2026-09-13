@@ -1,46 +1,79 @@
+#[cfg(test)]
 mod changelog;
+#[cfg(test)]
 mod channel_versions;
-#[cfg(target_os = "linux")]
+#[cfg(all(test, target_os = "linux"))]
 pub mod linux;
-#[cfg(target_os = "macos")]
+#[cfg(all(test, target_os = "macos"))]
 mod mac;
-#[cfg(windows)]
+#[cfg(all(test, windows))]
 mod windows;
 
+#[cfg(test)]
 use std::collections::VecDeque;
 use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
 
 use ::channel_versions::{ParsedVersion, VersionInfo};
-use anyhow::{Context as _, Result, anyhow};
+#[cfg(test)]
+use anyhow::Context as _;
+use anyhow::{Result, anyhow};
+#[cfg(test)]
 use chrono::{DateTime, FixedOffset, NaiveDate};
+#[cfg(test)]
 use rand::Rng as _;
+#[cfg(test)]
 use warp_core::execution_mode::AppExecutionMode;
+#[cfg(test)]
 use warp_errors::report_if_error;
+#[cfg(test)]
 use warpui::accessibility::{AccessibilityContent, WarpA11yRole};
+#[cfg(test)]
 use warpui::r#async::Timer;
+#[cfg(test)]
 use warpui::platform::TerminationMode;
+#[cfg(test)]
 use warpui::windowing::state::ApplicationStage;
+#[cfg(test)]
 use warpui::windowing::{self, WindowManager};
 use warpui::{AppContext, Entity, ModelContext, SingletonEntity, ViewContext};
 
+#[cfg(test)]
 pub use self::changelog::get_current_changelog;
+#[cfg(not(test))]
+pub async fn get_current_changelog(
+    server_api: Arc<ServerApi>,
+) -> Result<Option<::channel_versions::Changelog>> {
+    let _ = server_api;
+    Ok(None)
+}
+
+#[cfg(test)]
 use self::channel_versions::fetch_channel_versions;
+#[cfg(test)]
 use crate::channel::Channel;
+use crate::channel::ChannelState;
+#[cfg(test)]
 use crate::features::FeatureFlag;
+#[cfg(test)]
+use crate::send_telemetry_from_ctx;
+#[cfg(test)]
+use crate::send_telemetry_sync_from_app_ctx;
 use crate::server::server_api::ServerApi;
+#[cfg(test)]
 use crate::server::telemetry::TelemetryEvent;
 use crate::workspace::Workspace;
-use crate::{ChannelState, send_telemetry_from_ctx, send_telemetry_sync_from_app_ctx};
 
 /// A successfully downloaded and unpacked target update.
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct DownloadedUpdate {
     pub version: VersionInfo,
     pub update_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum AutoupdateStage {
     /// No update available as of the last check with the server.
     #[default]
@@ -71,6 +104,39 @@ pub enum AutoupdateStage {
     UpdatedPendingRestart { new_version: VersionInfo },
 }
 
+impl Clone for AutoupdateStage {
+    fn clone(&self) -> Self {
+        match self {
+            Self::NoUpdateAvailable => Self::NoUpdateAvailable,
+            Self::CheckingForUpdate => Self::CheckingForUpdate,
+            Self::DownloadingUpdate => Self::DownloadingUpdate,
+            Self::UnableToUpdateToNewVersion { new_version } => Self::UnableToUpdateToNewVersion {
+                new_version: new_version.clone(),
+            },
+            Self::UpdateReady {
+                new_version,
+                update_id,
+            } => Self::UpdateReady {
+                new_version: new_version.clone(),
+                update_id: update_id.clone(),
+            },
+            Self::Updating {
+                new_version,
+                update_id,
+            } => Self::Updating {
+                new_version: new_version.clone(),
+                update_id: update_id.clone(),
+            },
+            Self::UnableToLaunchNewVersion { new_version } => Self::UnableToLaunchNewVersion {
+                new_version: new_version.clone(),
+            },
+            Self::UpdatedPendingRestart { new_version } => Self::UpdatedPendingRestart {
+                new_version: new_version.clone(),
+            },
+        }
+    }
+}
+
 impl AutoupdateStage {
     /// Returns `true` if we're ready to relaunch and apply an update.
     pub fn ready_for_update(&self) -> bool {
@@ -94,20 +160,25 @@ impl AutoupdateStage {
 }
 
 pub struct AutoupdateState {
+    #[cfg(test)]
     /// We only want to hit /client_version/daily about once a day. This field is client state for
     /// implementing the logic so that we (mostly) limit requests to that endpoint to once a day,
     /// though we don't persist that across app-restarts.
     last_successful_daily_update_check: Option<DateTime<FixedOffset>>,
     stage: AutoupdateStage,
+    #[cfg(test)]
     /// The most recently downloaded and extracted update. We need this so that if there are
     /// multiple update checks without a relaunch, we only download the update once.
     downloaded_update: Option<DownloadedUpdate>,
+    #[cfg(test)]
     /// Holds requests for update checks that are awaiting to be executed. We need this because we
     /// prevent update checks from starting if there is another already in-flight. The different
     /// RequestTypes have different behavior and side-effects, so it's important not to skip any
     /// but to queue them instead.
     request_queue: VecDeque<RequestType>,
+    #[cfg(test)]
     server_api: Arc<ServerApi>,
+    #[cfg(test)]
     /// Whether the polling loop has been explicitly started. Requests are silently queued but not
     /// executed until `start_polling` is called. This ensures no version-check requests are made
     /// before onboarding completes.
@@ -116,12 +187,20 @@ pub struct AutoupdateState {
 
 impl AutoupdateState {
     pub fn new(server_api: Arc<ServerApi>) -> Self {
+        #[cfg(not(test))]
+        let _ = server_api;
+
         Self {
+            #[cfg(test)]
             server_api,
+            #[cfg(test)]
             last_successful_daily_update_check: None,
             stage: AutoupdateStage::default(),
+            #[cfg(test)]
             downloaded_update: None,
+            #[cfg(test)]
             request_queue: VecDeque::new(),
+            #[cfg(test)]
             polling_started: false,
         }
     }
@@ -134,6 +213,7 @@ impl AutoupdateState {
     ///
     /// Must be called explicitly once onboarding (if any) has completed. For returning users
     /// who bypass onboarding, this should be called during app startup.
+    #[cfg(test)]
     pub fn start_polling(&mut self, ctx: &mut ModelContext<Self>) {
         if self.polling_started {
             return;
@@ -156,8 +236,14 @@ impl AutoupdateState {
         }
     }
 
+    #[cfg(not(test))]
+    pub fn start_polling(&mut self, ctx: &mut ModelContext<Self>) {
+        self.maybe_daily_check_for_update(ctx);
+    }
+
     /// Check if any requests are pending. If there are and we're ready to submit a new request,
     /// run it.
+    #[cfg(test)]
     fn try_execute_request(&mut self, ctx: &mut ModelContext<Self>) {
         if let Some(next_request) = self.get_next_request(ctx) {
             self.check_for_update(next_request, ctx);
@@ -166,6 +252,7 @@ impl AutoupdateState {
 
     /// Check if there are any requests in the queue. Return the next one, but only if there isn't
     /// already a request in-flight.
+    #[cfg(test)]
     fn get_next_request(&mut self, ctx: &mut ModelContext<Self>) -> Option<RequestType> {
         // WASM cannot apply updates, so no request type should ever contact the server.
         if cfg!(target_family = "wasm") {
@@ -197,6 +284,7 @@ impl AutoupdateState {
     }
 
     /// After queueing the request, immediately try executing it.
+    #[cfg(test)]
     fn enqueue_request(&mut self, request_type: RequestType, ctx: &mut ModelContext<Self>) {
         // WASM cannot execute any update requests; skip enqueuing entirely so the
         // queue never grows with work that can never be consumed.
@@ -208,10 +296,12 @@ impl AutoupdateState {
     }
 
     // Poll for updates once per 10 minutes.
+    #[cfg(test)]
     const AUTOUPDATE_POLL: Duration = Duration::from_secs(10 * 60);
 
     /// This method recursively calls itself after a delay. Call it once and only once to start the
     /// loop.
+    #[cfg(test)]
     fn poll_for_update(&mut self, ctx: &mut ModelContext<Self>) {
         self.enqueue_request(RequestType::Poll, ctx);
         ctx.spawn(
@@ -223,10 +313,20 @@ impl AutoupdateState {
     }
 
     /// User-initiated check for updates.
+    #[cfg(test)]
     pub fn manually_check_for_update(&mut self, ctx: &mut ModelContext<Self>) {
         self.enqueue_request(RequestType::ManualCheck, ctx);
     }
 
+    #[cfg(not(test))]
+    pub fn manually_check_for_update(&mut self, ctx: &mut ModelContext<Self>) {
+        ctx.emit(AutoupdateStateEvent::CheckComplete {
+            result: Box::new(Ok(UpdateReady::No)),
+            request_type: RequestType::ManualCheck,
+        });
+    }
+
+    #[cfg(test)]
     fn should_start_update_check(&self) -> bool {
         !matches!(
             self.stage,
@@ -238,14 +338,24 @@ impl AutoupdateState {
 
     /// Trigger the update check to /client_version/daily, but only go through with sending the
     /// request if we haven't done that today.
+    #[cfg(test)]
     pub fn maybe_daily_check_for_update(&mut self, ctx: &mut ModelContext<Self>) {
         self.enqueue_request(RequestType::DailyCheck, ctx)
+    }
+
+    #[cfg(not(test))]
+    pub fn maybe_daily_check_for_update(&mut self, ctx: &mut ModelContext<Self>) {
+        ctx.emit(AutoupdateStateEvent::CheckComplete {
+            result: Box::new(Ok(UpdateReady::No)),
+            request_type: RequestType::DailyCheck,
+        });
     }
 
     /// Check if an update is available.
     ///
     /// The caller is responsible for checking that we _should_ check for an update. Generally, the
     /// only caller should be [`Self::try_execute_request`].
+    #[cfg(test)]
     fn check_for_update(&mut self, request_type: RequestType, ctx: &mut ModelContext<Self>) {
         let current_date = chrono::Local::now().date_naive();
         let is_daily = self.should_make_daily_request(
@@ -285,6 +395,7 @@ impl AutoupdateState {
     //   2. The app is currently active during this polling period, or if we've explicitly
     //      triggered the daily request rather than waiting for the poll interval. Note that
     //      the app will not be considered active if the system is sleeping.
+    #[cfg(test)]
     fn should_make_daily_request(
         &self,
         request_type: RequestType,
@@ -306,6 +417,7 @@ impl AutoupdateState {
     }
 
     /// Given a newly-available version, check if we should update.
+    #[cfg(test)]
     fn should_update(&mut self, version: VersionInfo, update_id: String) -> UpdateReady {
         let current_version = match ChannelState::app_version() {
             Some(version) => version,
@@ -373,6 +485,7 @@ impl AutoupdateState {
 
     /// Returns whether the current version is ahead of the version reported by the server as the "latest" version
     /// in channel versions.
+    #[cfg(test)]
     fn is_current_version_ahead_of_latest_version(
         &self,
         new_version: &VersionInfo,
@@ -383,6 +496,7 @@ impl AutoupdateState {
         Ok(current_version > new_version)
     }
 
+    #[cfg(test)]
     fn on_update_check_complete(
         &mut self,
         request_type: RequestType,
@@ -455,6 +569,7 @@ impl AutoupdateState {
         self.on_check_complete(update_available, request_type, ctx);
     }
 
+    #[cfg(test)]
     fn download_new_update(
         &mut self,
         update_id: String,
@@ -492,6 +607,7 @@ impl AutoupdateState {
         );
     }
 
+    #[cfg(test)]
     fn on_download_update_complete(
         &mut self,
         request_type: RequestType,
@@ -545,7 +661,7 @@ impl AutoupdateState {
     }
 
     /// Clean up all old autoupdate directories except the current one.
-    #[cfg_attr(not(target_os = "macos"), expect(unused_variables))]
+    #[cfg(test)]
     fn clear_old_autoupdate_dirs(&self, update_id: &str, ctx: &mut ModelContext<Self>) {
         #[cfg(target_os = "macos")]
         {
@@ -558,8 +674,11 @@ impl AutoupdateState {
                 |_, _, _| {},
             );
         }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (update_id, ctx);
     }
 
+    #[cfg(test)]
     fn on_check_complete(
         &mut self,
         update_available: Result<UpdateReady>,
@@ -582,7 +701,7 @@ impl AutoupdateState {
     }
 
     // Reset the most-recently-downloaded update.
-    #[cfg_attr(not(target_os = "macos"), expect(dead_code))]
+    #[cfg(test)]
     fn clear_downloaded_update(&mut self, update_id: &str, ctx: &mut ModelContext<Self>) {
         if self
             .downloaded_update
@@ -596,12 +715,14 @@ impl AutoupdateState {
 
     /// Set the current autoupdate stage. This must *only* be called from within the [`autoupdate`]
     /// module to correctly maintain the update state machine.
+    #[cfg(test)]
     fn set_autoupdate_stage(&mut self, stage: AutoupdateStage, ctx: &mut ModelContext<Self>) {
         self.stage = stage;
         ctx.notify();
     }
 
     /// Record that we did not successfully relaunch to update.
+    #[cfg(test)]
     fn set_unable_to_launch_state(
         &mut self,
         get_next_stage: fn(VersionInfo, String) -> AutoupdateStage,
@@ -629,6 +750,7 @@ impl AutoupdateState {
     }
 
     /// Mark both the autoupdate stage and the relaunch status as failed.
+    #[cfg(test)]
     fn relaunch_failed(&mut self, ctx: &mut ModelContext<Self>) {
         self.set_unable_to_launch_state(
             |new_version, _update_id| AutoupdateStage::UnableToLaunchNewVersion { new_version },
@@ -654,6 +776,18 @@ pub enum AutoupdateStateEvent {
     UpdateAvailable,
 }
 
+impl From<(RequestType, Result<UpdateReady>)> for AutoupdateStateEvent {
+    fn from((request_type, result): (RequestType, Result<UpdateReady>)) -> Self {
+        match result {
+            Ok(UpdateReady::Yes { .. }) => Self::UpdateAvailable,
+            result => Self::CheckComplete {
+                result: Box::new(result),
+                request_type,
+            },
+        }
+    }
+}
+
 impl Entity for AutoupdateState {
     type Event = AutoupdateStateEvent;
 }
@@ -661,8 +795,7 @@ impl Entity for AutoupdateState {
 impl SingletonEntity for AutoupdateState {}
 
 /// Set of results from an update check.
-#[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum UpdateReady {
     /// An update is available and has been downloaded.
     Yes {
@@ -682,7 +815,30 @@ pub enum UpdateReady {
     No,
 }
 
+impl Clone for UpdateReady {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Yes {
+                new_version,
+                update_id,
+            } => Self::Yes {
+                new_version: new_version.clone(),
+                update_id: update_id.clone(),
+            },
+            Self::CanDownload {
+                new_version,
+                update_id,
+            } => Self::CanDownload {
+                new_version: new_version.clone(),
+                update_id: update_id.clone(),
+            },
+            Self::No => Self::No,
+        }
+    }
+}
+
 /// Set of results from downloading an update.
+#[cfg(test)]
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub enum DownloadReady {
     /// The update was downloaded successfully.
@@ -703,14 +859,22 @@ pub enum DownloadReady {
 /// update via their package manager.  After the update completes, we send
 /// ourselves a signal (via a DCS hook) that the update has completed and we're
 /// ready to relaunch.
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub enum ReadyForRelaunch {
     Yes,
     #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
     No,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+impl Clone for ReadyForRelaunch {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Yes => Self::Yes,
+            Self::No => Self::No,
+        }
+    }
+}
+
+#[derive(Copy, Debug, PartialEq, Eq)]
 pub enum RequestType {
     /// For when the user triggers the check manually in the settings page.
     ManualCheck,
@@ -724,9 +888,20 @@ pub enum RequestType {
     DailyCheck,
 }
 
+impl Clone for RequestType {
+    fn clone(&self) -> Self {
+        match self {
+            Self::ManualCheck => Self::ManualCheck,
+            Self::Poll => Self::Poll,
+            Self::DailyCheck => Self::DailyCheck,
+        }
+    }
+}
+
 // We only want to announce autoupdates when there's manual check. Otherwise, the autoupdate check
 // may clash with other announcements, such as log in form or referral form.
 // Users will still get the autoupdate on the next relaunch anyways, so for now it's ok.
+#[cfg(test)]
 pub fn accessibility_content(
     update_available: &Result<UpdateReady>,
     request_type: RequestType,
@@ -757,6 +932,7 @@ fn get_curr_parsed_version() -> Option<ParsedVersion> {
 }
 
 /// Generate a new random update ID.
+#[cfg(test)]
 fn new_update_id() -> String {
     let mut rng = rand::thread_rng();
     std::iter::repeat(())
@@ -767,6 +943,7 @@ fn new_update_id() -> String {
 }
 
 /// Fetch the current version on the given channel.
+#[cfg(test)]
 async fn fetch_version(
     channel: &Channel,
     is_daily: bool,
@@ -796,15 +973,20 @@ async fn fetch_version(
     Ok(version_info)
 }
 
-// This method is unimplemented on wasm, so we allow unused variables.
-#[cfg_attr(target_family = "wasm", allow(unused_variables))]
+#[cfg(test)]
 async fn download_update(
     version_info: VersionInfo,
     update_id: String,
-    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
     last_successful_update_id: Option<String>,
     server_api: Arc<ServerApi>,
 ) -> Result<DownloadReady> {
+    let _ = (
+        &version_info,
+        &update_id,
+        &last_successful_update_id,
+        &server_api,
+    );
+
     if ChannelState::app_version().is_none() {
         log::info!("No tag set, not performing autoupdate.");
         return Ok(DownloadReady::No);
@@ -834,9 +1016,10 @@ async fn download_update(
 ///   [just before the app terminates](spawn_child_if_necessary).
 /// * On Linux, if using a package manager, we ask the user to install the update via their package
 ///   manager, and do not relaunch until that's complete. This returns [`ReadyForRelaunch::No`].
+#[cfg(test)]
 pub fn apply_update(
-    _initiating_workspace: &mut Workspace,
-    _ctx: &mut ViewContext<Workspace>,
+    initiating_workspace: &mut Workspace,
+    ctx: &mut ViewContext<Workspace>,
 ) -> Result<ReadyForRelaunch> {
     cfg_if::cfg_if! {
         if #[cfg(any(target_os = "macos", windows))] {
@@ -844,15 +1027,24 @@ pub fn apply_update(
             // `spawn_child_if_necessary`. In either case, simply continue relaunching the app.
             Ok(ReadyForRelaunch::Yes)
         } else if #[cfg(target_os = "linux")] {
-            let AutoupdateStage::UpdateReady { update_id, .. } = &AutoupdateState::handle(_ctx).as_ref(_ctx).stage else {
+            let AutoupdateStage::UpdateReady { update_id, .. } = &AutoupdateState::handle(ctx).as_ref(ctx).stage else {
                 anyhow::bail!("Trying to apply an update without AutoupdateState being UpdateReady!");
             };
             let update_id = update_id.clone();
-            linux::apply_update(_initiating_workspace, &update_id, _ctx)
+            linux::apply_update(initiating_workspace, &update_id, ctx)
         } else {
             anyhow::bail!("Not implemented")
         }
     }
+}
+
+#[cfg(not(test))]
+pub fn apply_update(
+    initiating_workspace: &mut Workspace,
+    ctx: &mut ViewContext<Workspace>,
+) -> Result<ReadyForRelaunch> {
+    let _ = (initiating_workspace, ctx);
+    Err(anyhow!("Autoupdate is disabled in local-only mode"))
 }
 
 /// Relaunch Warp to apply an update.
@@ -861,6 +1053,7 @@ pub fn apply_update(
 /// 1. Perform any last update steps.
 /// 2. Request a relaunch.
 /// 3. Terminate the app.
+#[cfg(test)]
 pub fn initiate_relaunch_for_update(app: &mut AppContext) {
     let autoupdate_stage = &AutoupdateState::as_ref(app).stage;
 
@@ -921,11 +1114,17 @@ pub fn initiate_relaunch_for_update(app: &mut AppContext) {
     }
 }
 
+#[cfg(not(test))]
+pub fn initiate_relaunch_for_update(app: &mut AppContext) {
+    let _ = app;
+}
+
 /// Apply a pending update without relaunching. This is called at shutdown in case the user quit
 /// without updating. Returns `true` if there was a pending update to apply.
 ///
 /// The callback is invoked once the update is complete (whether or not it was successful). It is
 /// *not* called if there was no update.
+#[cfg(test)]
 pub fn apply_pending_update<F>(app: &mut AppContext, on_update_complete: F) -> bool
 where
     F: FnOnce(&mut AppContext) + Send + 'static,
@@ -955,12 +1154,22 @@ where
     true
 }
 
+#[cfg(not(test))]
+pub fn apply_pending_update<F>(app: &mut AppContext, on_update_complete: F) -> bool
+where
+    F: FnOnce(&mut AppContext) + Send + 'static,
+{
+    let _ = (app, on_update_complete);
+    false
+}
+
 /// Perform any autoupdate steps that must be deferred until we're about to relaunch.
 ///
 /// Returns `true` if there was an autoupdate to apply; `false` otherwise.
 ///
 /// These steps may involve expensive operations and async work, so the caller must provide a
 /// completion callback.
+#[cfg(test)]
 fn finalize_update<F>(app: &mut AppContext, callback: F)
 where
     F: FnOnce(Result<()>, &mut AppContext) + Send + 'static,
@@ -992,6 +1201,7 @@ where
     }
 }
 
+#[cfg(test)]
 pub fn cancel_relaunch(app: &mut AppContext) {
     let previous_status = RelaunchModel::handle(app).update(app, RelaunchModel::cancel_relaunch);
 
@@ -1008,6 +1218,12 @@ pub fn cancel_relaunch(app: &mut AppContext) {
     }
 }
 
+#[cfg(not(test))]
+pub fn cancel_relaunch(app: &mut AppContext) {
+    let _ = app;
+}
+
+#[cfg(test)]
 pub fn spawn_child_if_necessary(app: &mut AppContext) {
     let relaunch_handle = RelaunchModel::handle(app);
     let status = relaunch_handle.as_ref(app).relaunch_status;
@@ -1042,6 +1258,12 @@ pub fn spawn_child_if_necessary(app: &mut AppContext) {
     }
 }
 
+#[cfg(not(test))]
+pub fn spawn_child_if_necessary(app: &mut AppContext) {
+    let _ = app;
+}
+
+#[cfg(test)]
 pub fn manually_download_new_version(ctx: &mut AppContext) {
     match get_update_state(ctx) {
         AutoupdateStage::UnableToUpdateToNewVersion { new_version }
@@ -1056,17 +1278,33 @@ pub fn manually_download_new_version(ctx: &mut AppContext) {
     }
 }
 
-#[allow(unused_variables)]
+#[cfg(not(test))]
+pub fn manually_download_new_version(ctx: &mut AppContext) {
+    let _ = ctx;
+}
+
+#[cfg(test)]
 fn manually_download_version(channel: &Channel, version: &VersionInfo, ctx: &mut AppContext) {
     #[cfg(target_os = "macos")]
     mac::manually_download_version(channel, version, ctx);
+    #[cfg(not(target_os = "macos"))]
+    let _ = (channel, version, ctx);
 }
 
-pub(crate) fn check_and_report_update_errors(_ctx: &mut AppContext) {
+#[cfg(test)]
+pub(crate) fn check_and_report_update_errors(ctx: &mut AppContext) {
     #[cfg(windows)]
-    windows::check_and_report_update_errors(_ctx);
+    windows::check_and_report_update_errors(ctx);
+    #[cfg(not(windows))]
+    let _ = ctx;
 }
 
+#[cfg(not(test))]
+pub(crate) fn check_and_report_update_errors(ctx: &mut AppContext) {
+    let _ = ctx;
+}
+
+#[cfg(test)]
 pub fn remove_old_executable() -> Result<()> {
     cfg_if::cfg_if! {
         if #[cfg(target_os = "macos")] {
@@ -1084,6 +1322,12 @@ pub fn remove_old_executable() -> Result<()> {
     }
 }
 
+#[cfg(not(test))]
+pub fn remove_old_executable() -> Result<()> {
+    Ok(())
+}
+
+#[cfg(test)]
 #[derive(Clone, Copy, Default, Eq, PartialEq)]
 pub enum RelaunchStatus {
     #[default]
@@ -1094,6 +1338,7 @@ pub enum RelaunchStatus {
 
 #[derive(Clone, Copy, Default)]
 pub struct RelaunchModel {
+    #[cfg(test)]
     relaunch_status: RelaunchStatus,
 }
 
@@ -1106,12 +1351,14 @@ impl RelaunchModel {
     ///
     /// When terminating the app, we check this state to know whether to launch the updated version
     /// or quit the app normally.
+    #[cfg(test)]
     fn request_relaunch(&mut self, ctx: &mut ModelContext<Self>) {
         self.relaunch_status = RelaunchStatus::Requested;
         ctx.notify();
     }
 
     /// Cancels a requested relaunch, if there was one. Returns the previous relaunch status.
+    #[cfg(test)]
     fn cancel_relaunch(&mut self, ctx: &mut ModelContext<Self>) -> RelaunchStatus {
         let previous_status = self.relaunch_status;
         self.relaunch_status = RelaunchStatus::None;
@@ -1141,6 +1388,7 @@ pub fn is_incoming_version_past_current(version: Option<&str>) -> bool {
 
 /// Returns the base URL that contains release assets for the given version
 /// of this app bundle.
+#[cfg(test)]
 fn release_assets_directory_url(channel: Channel, version: &str) -> String {
     let releases_base_url = ChannelState::releases_base_url();
     match channel {

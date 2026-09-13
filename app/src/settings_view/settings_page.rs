@@ -35,7 +35,9 @@ use super::appearance_page::AppearanceSettingsPageView;
 use super::billing_and_usage_dispatch::BillingAndUsageDispatchView;
 use super::cli_agents_page::CLIAgentsPageView;
 use super::code_editor_review_page::EditorAndCodeReviewPageView;
+#[cfg(test)]
 use super::code_indexing_page::CodeIndexingPageView;
+#[cfg(test)]
 use super::environments_page::EnvironmentsPageView;
 use super::features_page::FeaturesPageView;
 use super::keybindings::KeybindingsView;
@@ -43,11 +45,14 @@ use super::knowledge_page::KnowledgePageView;
 use super::main_page::MainSettingsPageView;
 use super::mcp_servers_page::MCPServersSettingsPageView;
 use super::privacy_page::PrivacyPageView;
+#[cfg(test)]
 use super::referrals_page::ReferralsPageView;
 use super::scripting_page::ScriptingSettingsPageView;
 use super::show_blocks_view::ShowBlocksView;
 use super::teams_page::TeamsPageView;
+#[cfg(test)]
 use super::warp_agent_page::WarpAgentPageView;
+#[cfg(test)]
 use super::warp_drive_page::WarpDriveSettingsPageView;
 use super::warpify_page::WarpifyPageView;
 use crate::appearance::Appearance;
@@ -55,9 +60,9 @@ use crate::settings::CloudPreferencesSettings;
 use crate::themes::theme::Fill;
 use crate::ui_components::blended_colors;
 use crate::ui_components::icons::Icon;
-use crate::view_components::{
-    Dropdown, DropdownItemAction, FilterableDropdown, SubmittableTextInput,
-};
+#[cfg(test)]
+use crate::view_components::FilterableDropdown;
+use crate::view_components::{Dropdown, DropdownItemAction, SubmittableTextInput};
 
 pub const TOGGLE_BUTTON_RIGHT_PADDING: f32 = 5.;
 pub const HEADER_PADDING: f32 = 15.;
@@ -114,21 +119,27 @@ pub enum SettingsPageViewHandle {
     SharedBlocks(ViewHandle<ShowBlocksView>),
     Keybindings(ViewHandle<KeybindingsView>),
     About(ViewHandle<AboutPageView>),
+    #[cfg(test)]
     CodeIndexing(ViewHandle<CodeIndexingPageView>),
     EditorAndCodeReview(ViewHandle<EditorAndCodeReviewPageView>),
     Teams(ViewHandle<TeamsPageView>),
+    #[cfg(test)]
     WarpCloudAgentAPIKeys(ViewHandle<super::platform_page::PlatformPageView>),
     Privacy(ViewHandle<PrivacyPageView>),
     Warpify(ViewHandle<WarpifyPageView>),
+    #[cfg(test)]
     Referrals(ViewHandle<ReferralsPageView>),
     Scripting(ViewHandle<ScriptingSettingsPageView>),
+    #[cfg(test)]
     WarpAgent(ViewHandle<WarpAgentPageView>),
     AgentProfiles(ViewHandle<AgentProfilesPageView>),
     Knowledge(ViewHandle<KnowledgePageView>),
     CLIAgents(ViewHandle<CLIAgentsPageView>),
+    #[cfg(test)]
     CloudEnvironments(ViewHandle<EnvironmentsPageView>),
     BillingAndUsage(ViewHandle<BillingAndUsageDispatchView>),
     MCPServers(ViewHandle<MCPServersSettingsPageView>),
+    #[cfg(test)]
     WarpDrive(ViewHandle<WarpDriveSettingsPageView>),
 }
 
@@ -142,21 +153,27 @@ impl SettingsPageViewHandle {
             SharedBlocks(view_handle) => ChildView::new(view_handle).finish(),
             Keybindings(view_handle) => ChildView::new(view_handle).finish(),
             About(view_handle) => ChildView::new(view_handle).finish(),
+            #[cfg(test)]
             CodeIndexing(view_handle) => ChildView::new(view_handle).finish(),
             EditorAndCodeReview(view_handle) => ChildView::new(view_handle).finish(),
             Teams(view_handle) => ChildView::new(view_handle).finish(),
+            #[cfg(test)]
             WarpCloudAgentAPIKeys(view_handle) => ChildView::new(view_handle).finish(),
             Privacy(view_handle) => ChildView::new(view_handle).finish(),
             Warpify(view_handle) => ChildView::new(view_handle).finish(),
+            #[cfg(test)]
             Referrals(view_handle) => ChildView::new(view_handle).finish(),
             Scripting(view_handle) => ChildView::new(view_handle).finish(),
+            #[cfg(test)]
             WarpAgent(view_handle) => ChildView::new(view_handle).finish(),
             AgentProfiles(view_handle) => ChildView::new(view_handle).finish(),
             Knowledge(view_handle) => ChildView::new(view_handle).finish(),
             CLIAgents(view_handle) => ChildView::new(view_handle).finish(),
+            #[cfg(test)]
             CloudEnvironments(view_handle) => ChildView::new(view_handle).finish(),
             BillingAndUsage(view_handle) => ChildView::new(view_handle).finish(),
             MCPServers(view_handle) => ChildView::new(view_handle).finish(),
+            #[cfg(test)]
             WarpDrive(view_handle) => ChildView::new(view_handle).finish(),
         }
     }
@@ -1051,6 +1068,7 @@ pub(crate) fn render_dropdown_item<T: DropdownItemAction>(
 /// Like [`render_dropdown_item`], but for a [`FilterableDropdown`] (a dropdown
 /// with a built-in search box). Used for long option lists such as the
 /// voice-input Speech Language picker.
+#[cfg(test)]
 pub(crate) fn render_filterable_dropdown_item<T: DropdownItemAction>(
     appearance: &Appearance,
     label: &str,

@@ -1,20 +1,28 @@
 pub mod util;
+#[cfg(test)]
 use anyhow::{Result, bail};
-pub use util::{action_type_to_gql_action_type, object_action_history_from_gql};
+#[cfg(test)]
+pub use util::object_action_history_from_gql;
+#[cfg(test)]
 use warp_graphql::generic_string_object::GenericStringObjectFormat;
+#[cfg(test)]
 use warp_graphql::mutations::update_generic_string_object::{
     GenericStringObjectUpdate, UpdateGenericStringObjectResult,
 };
+#[cfg(test)]
 use warp_graphql::object::ObjectUpdateSuccess;
 
+#[cfg(test)]
 use crate::cloud_object::{
     RevisionAndLastEditor, ServerAIExecutionProfile, ServerAIFact, ServerAmbientAgentEnvironment,
     ServerEnvVarCollection, ServerFolder, ServerMCPServer, ServerObject, ServerPreference,
     ServerScheduledAmbientAgent, ServerTemplatableMCPServer, ServerWorkflowEnum, TryFromGql,
     UpdateCloudObjectResult,
 };
+#[cfg(test)]
 use crate::server::graphql::get_user_facing_error_message;
 
+#[cfg(test)]
 fn boxed_rejected_generic_string_object<T>(
     object: warp_graphql::generic_string_object::GenericStringObject,
 ) -> Result<Box<dyn ServerObject>>
@@ -26,6 +34,7 @@ where
     Ok(Box::new(T::try_from_gql(object)?))
 }
 
+#[cfg(test)]
 pub fn update_generic_string_object_result_to_update_result(
     value: UpdateGenericStringObjectResult,
 ) -> Result<UpdateCloudObjectResult<Box<dyn ServerObject>>> {
@@ -108,6 +117,7 @@ pub fn update_generic_string_object_result_to_update_result(
     }
 }
 
+#[cfg(test)]
 pub fn object_update_success_to_update_result(
     value: ObjectUpdateSuccess,
 ) -> Result<UpdateCloudObjectResult<ServerFolder>> {

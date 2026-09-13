@@ -1,37 +1,48 @@
 //! Codex session transcript envelope + rehydration helpers.
 //!
 //! Owns:
-//! - [`CodexTranscriptEnvelope`] — the on-wire/on-GCS shape of a saved Codex rollout
-//!   (parsed JSONL entries plus session-level metadata). Reader/writer functions
-//!   interoperate with Codex's own `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl`
-//!   layout (codex `rollout/src/recorder.rs`).
-//! - [`CodexResumeInfo`] — everything the harness runner needs to resume an existing
-//!   Codex conversation: the Warp server conversation id to reuse, the codex session
-//!   uuid (`ThreadId`) to pass to `codex resume`, and the decoded envelope to rehydrate
-//!   onto disk.
+//! - Test-only transcript envelope, filesystem, and local-continuation compatibility helpers
+//!   that interoperate with Codex's `~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl`
+//!   layout.
+#[cfg(test)]
 use std::fs;
+#[cfg(test)]
 use std::io::Read;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+#[cfg(test)]
+use anyhow::Context;
+#[cfg(test)]
+use anyhow::Result;
+#[cfg(test)]
 use chrono::{DateTime, Datelike, Utc};
+#[cfg(test)]
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::Value;
+#[cfg(test)]
 use uuid::Uuid;
 
+#[cfg(test)]
 use super::json_utils::entries_to_jsonl;
-use crate::ai::agent::api::ServerConversationToken;
 
 /// Env var codex honors to override `~/.codex` (see codex `core/src/config/mod.rs`).
+#[cfg(test)]
 const CODEX_HOME_ENV: &str = "CODEX_HOME";
+#[cfg(test)]
 const CODEX_HOME_DIRNAME: &str = ".codex";
 /// Subdirectory under `$CODEX_HOME` where rollouts live.
+#[cfg(test)]
 const CODEX_SESSIONS_SUBDIR: &str = "sessions";
 
 /// JSON envelope sent to the server representing a complete Codex session.
 ///
 /// The transcript is the parsed JSONL content of the rollout file; codex's resume
 /// path re-reads this JSONL line by line.
+#[cfg(test)]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct CodexTranscriptEnvelope {
     /// The directory the codex session started in (recovered from the `SessionMeta` line).
@@ -49,6 +60,7 @@ pub(crate) struct CodexTranscriptEnvelope {
     pub(crate) entries: Vec<Value>,
 }
 
+#[cfg(test)]
 impl CodexTranscriptEnvelope {
     pub(crate) fn new(session_id: Uuid, meta: CodexSessionMetadata, entries: Vec<Value>) -> Self {
         Self {
@@ -63,6 +75,7 @@ impl CodexTranscriptEnvelope {
 
 /// Session-level metadata pulled from the rollout's `SessionMeta` line.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[cfg(test)]
 pub(crate) struct CodexSessionMetadata {
     pub(crate) cwd: PathBuf,
     pub(crate) codex_version: Option<String>,
@@ -74,6 +87,7 @@ pub(crate) struct CodexSessionMetadata {
 /// Built from a `--conversation` id after the client fetches the stored envelope from
 /// the server. Passed into `CodexHarnessRunner::new` so the runner reuses the existing
 /// session and server conversation ids instead of minting fresh ones.
+/*
 #[derive(Debug)]
 pub(crate) struct CodexResumeInfo {
     /// Warp server-side conversation id. Reused so subsequent transcript/block-snapshot
@@ -84,14 +98,16 @@ pub(crate) struct CodexResumeInfo {
     /// Envelope fetched from the server, written back to disk before launching codex.
     pub(crate) envelope: CodexTranscriptEnvelope,
 }
+*/
 
+#[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct CodexLocalContinuation {
     pub(crate) command: String,
-    pub(crate) transcript_path: PathBuf,
 }
 
 /// Resolve the codex sessions root, honoring `$CODEX_HOME` then falling back to `~/.codex`.
+#[cfg(test)]
 pub(crate) fn codex_sessions_root() -> anyhow::Result<PathBuf> {
     let home = if let Ok(dir) = std::env::var(CODEX_HOME_ENV) {
         PathBuf::from(dir)
@@ -106,6 +122,7 @@ pub(crate) fn codex_sessions_root() -> anyhow::Result<PathBuf> {
 /// Walk `<sessions_root>/YYYY/MM/DD/` looking for a `rollout-*-<session_id>.jsonl`.
 ///
 /// Returns `None` if `sessions_root` doesn't exist yet or no matching file is found.
+#[cfg(test)]
 pub(crate) fn find_session_file(sessions_root: &Path, session_id: Uuid) -> Option<PathBuf> {
     if !sessions_root.exists() {
         return None;
@@ -133,6 +150,7 @@ pub(crate) fn find_session_file(sessions_root: &Path, session_id: Uuid) -> Optio
     None
 }
 
+#[cfg(test)]
 fn read_subdirs(parent: &Path) -> impl Iterator<Item = PathBuf> + use<> {
     fs::read_dir(parent)
         .into_iter()
@@ -144,6 +162,7 @@ fn read_subdirs(parent: &Path) -> impl Iterator<Item = PathBuf> + use<> {
 }
 
 /// Pull `cwd` and `cli_version` out of the first JSONL line if it's a `SessionMeta`.
+#[cfg(test)]
 pub(crate) fn parse_session_meta(first: Option<&Value>) -> Option<CodexSessionMetadata> {
     let entry = first?;
     if entry.get("type").and_then(|v| v.as_str()) != Some("session_meta") {
@@ -172,6 +191,7 @@ pub(crate) fn parse_session_meta(first: Option<&Value>) -> Option<CodexSessionMe
 /// YYYY/MM/DD and `<ts>` come from `envelope.session_start_timestamp`. Falls back to
 /// today's UTC date if absent — codex's lookup is by UUID so the precise path doesn't
 /// matter for resume to work.
+#[cfg(test)]
 pub(crate) fn write_envelope(
     envelope: &CodexTranscriptEnvelope,
     sessions_root: &Path,
@@ -195,37 +215,48 @@ pub(crate) fn write_envelope(
     Ok(file_path)
 }
 
+/*
 pub(crate) fn rehydrate_codex_transcript(
     envelope: &mut CodexTranscriptEnvelope,
     local_cwd: &Path,
 ) -> Result<CodexLocalContinuation> {
-    envelope.cwd = local_cwd.to_path_buf();
-    if let Some(Value::Object(entry)) = envelope.entries.first_mut()
-        && entry.get("type").and_then(|value| value.as_str()) == Some("session_meta")
-        && let Some(Value::Object(payload)) = entry.get_mut("payload")
+    #[cfg(not(test))]
     {
-        payload.insert(
-            "cwd".to_string(),
-            Value::String(local_cwd.to_string_lossy().to_string()),
-        );
+        let _ = (envelope, local_cwd);
+        anyhow::bail!("Codex transcript rehydration is disabled in local-only mode");
     }
 
-    let session_id = envelope.session_id;
-    let sessions_root = codex_sessions_root().context("Failed to resolve codex sessions root")?;
-    let transcript_path =
-        write_envelope(envelope, &sessions_root).context("Failed to rehydrate codex transcript")?;
+    #[cfg(test)]
+    {
+        envelope.cwd = local_cwd.to_path_buf();
+        if let Some(Value::Object(entry)) = envelope.entries.first_mut()
+            && entry.get("type").and_then(|value| value.as_str()) == Some("session_meta")
+            && let Some(Value::Object(payload)) = entry.get_mut("payload")
+        {
+            payload.insert(
+                "cwd".to_string(),
+                Value::String(local_cwd.to_string_lossy().to_string()),
+            );
+        }
 
-    Ok(CodexLocalContinuation {
-        command: format!("codex resume {session_id}"),
-        transcript_path,
-    })
+        let session_id = envelope.session_id;
+        let sessions_root =
+            codex_sessions_root().context("Failed to resolve codex sessions root")?;
+        let transcript_path = write_envelope(envelope, &sessions_root)
+            .context("Failed to rehydrate codex transcript")?;
+
+        Ok(CodexLocalContinuation {
+            command: format!("codex resume {session_id}"),
+            transcript_path,
+        })
+    }
 }
+*/
 
 /// Rehydrate a Codex transcript downloaded from a remote cloud run for local continuation.
 ///
-/// Unlike [`rehydrate_codex_transcript`] (used by the cloud resume harness runner), this
-/// function does **not** mutate the envelope's `cwd` field or patch the `session_meta` payload
-/// — the remote session's working directory is preserved as-is in the transcript.
+/// The remote session's working directory is preserved as-is in the transcript.
+#[cfg(test)]
 pub(crate) fn rehydrate_codex_transcript_from_reader(
     reader: impl Read,
 ) -> Result<CodexLocalContinuation> {
@@ -234,11 +265,9 @@ pub(crate) fn rehydrate_codex_transcript_from_reader(
     let session_id = envelope.session_id;
     let sessions_root = codex_sessions_root().context("Failed to resolve codex sessions root")?;
     // Write as-is: no cwd mutation, no session_meta patch.
-    let transcript_path = write_envelope(&envelope, &sessions_root)
-        .context("Failed to rehydrate codex transcript")?;
+    write_envelope(&envelope, &sessions_root).context("Failed to rehydrate codex transcript")?;
     Ok(CodexLocalContinuation {
         command: format!("codex resume {session_id}"),
-        transcript_path,
     })
 }
 

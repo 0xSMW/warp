@@ -34,14 +34,12 @@ use crate::completer::SessionContext;
 use crate::persistence::{database_file_path_for_current_scope, establish_ro_connection};
 use crate::server::server_api::{AIApiError, ServerApi};
 use crate::server::team_scope::RequestTeamScope;
-use crate::settings::AISettings;
 #[cfg(feature = "local_fs")]
 use crate::terminal::ShellHost;
 use crate::terminal::event::UserBlockCompleted;
 use crate::terminal::input::{CompleterData, IntelligentAutosuggestionResult};
 use crate::terminal::model::session::Sessions;
 use crate::terminal::{History, HistoryEntry, TerminalModel};
-use crate::workspaces::user_workspaces::UserWorkspaces;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "local_fs")] {
@@ -61,11 +59,6 @@ const NUM_ADDITIONAL_PREV_COMMAND_CONTEXT_LLM: usize = 2;
 
 #[cfg(feature = "local_fs")]
 const ARG_GENERATOR_VALIDATION_TIMEOUT: Duration = Duration::from_millis(150);
-
-pub fn is_next_command_enabled(app: &warpui::AppContext) -> bool {
-    AISettings::as_ref(app).is_intelligent_autosuggestions_enabled(app)
-        && UserWorkspaces::as_ref(app).is_next_command_enabled()
-}
 
 /// Information about an autosuggestion that would have been made if purely based off history.
 /// If there was no history, history_command_prediction would be an empty string.

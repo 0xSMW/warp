@@ -1,24 +1,38 @@
 //! Small presentation helpers for the `warp-tui` front-end's TUI views.
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
 
+#[cfg(test)]
 use warpui_core::AppContext;
+#[cfg(test)]
+use warpui_core::elements::CrossAxisAlignment;
+#[cfg(test)]
+use warpui_core::elements::MouseStateHandle;
+#[cfg(test)]
 use warpui_core::elements::animation::AnimationClock;
+#[cfg(test)]
 use warpui_core::elements::tui::{
-    Color, Modifier, TuiConstrainedBox, TuiContainer, TuiElement, TuiEventContext, TuiEventHandler,
-    TuiFlex, TuiHoverable, TuiStack, TuiStyle, TuiText,
+    Color, TuiConstrainedBox, TuiContainer, TuiEventContext, TuiEventHandler, TuiHoverable,
+    TuiStack,
 };
-use warpui_core::elements::{CrossAxisAlignment, MouseStateHandle};
+use warpui_core::elements::tui::{Modifier, TuiElement, TuiFlex, TuiStyle, TuiText};
 
+#[cfg(test)]
 use crate::transient_hint::TransientHintTone;
 use crate::tui_builder::TuiUiBuilder;
+#[cfg(test)]
 use crate::warping_indicator::render_spinner;
+#[cfg(test)]
 use crate::zero_state_animation::{
     WarpLogoStyles, ZeroStateAnimationConfig, ZeroStateAnimationElement,
     ZeroStateInteractionHandle, ZeroStateStarfieldElement,
 };
 
+#[cfg(test)]
 const AUTH_COPY_COLS: u16 = 48;
+#[cfg(test)]
 const AUTH_ANIMATION_COLS: u16 = 32;
 
 /// Abbreviates a leading home-directory prefix of `path` to `~`.
@@ -65,6 +79,7 @@ pub(crate) fn compact_footer_path(path: &str) -> String {
 }
 
 /// Placeholder shown while a requested conversation is restored.
+#[cfg(test)]
 pub(crate) fn conversation_restoring(app: &AppContext) -> Box<dyn TuiElement> {
     let muted = TuiUiBuilder::from_app(app).muted_text_style();
     let hint = "Esc or Ctrl-C to cancel and start a new session";
@@ -92,6 +107,7 @@ pub(crate) fn conversation_restoring(app: &AppContext) -> Box<dyn TuiElement> {
 }
 
 /// Placeholder shown when a requested conversation cannot be restored.
+#[cfg(test)]
 pub(crate) fn conversation_restore_failed(message: &str) -> Box<dyn TuiElement> {
     let dim = TuiStyle::default().add_modifier(Modifier::DIM);
     vertically_centered(
@@ -120,6 +136,7 @@ fn vertically_centered(content: TuiFlex) -> Box<dyn TuiElement> {
 }
 
 /// Centers `content` horizontally within its available row.
+#[cfg(test)]
 pub(crate) fn horizontally_centered(content: Box<dyn TuiElement>) -> Box<dyn TuiElement> {
     TuiFlex::row()
         .flex_child(TuiFlex::row().finish())
@@ -129,6 +146,7 @@ pub(crate) fn horizontally_centered(content: Box<dyn TuiElement>) -> Box<dyn Tui
 }
 
 /// Centers `content` horizontally and vertically within the viewport.
+#[cfg(test)]
 pub(crate) fn centered_in_viewport(content: Box<dyn TuiElement>) -> Box<dyn TuiElement> {
     TuiFlex::column()
         .flex_child(TuiFlex::column().finish())
@@ -172,6 +190,7 @@ pub(crate) fn append_welcome_capability_section(
 }
 
 /// Signed-out welcome shown before browser device authorization begins.
+#[cfg(test)]
 pub(crate) fn signed_out_welcome(
     clock: AnimationClock,
     animation_config: Arc<ZeroStateAnimationConfig>,
@@ -249,6 +268,7 @@ pub(crate) fn signed_out_welcome(
 }
 
 /// Browser interaction state for the waiting login screen.
+#[cfg(test)]
 pub(crate) struct LoginWaitingParams<'a> {
     pub(crate) browser_url: Option<&'a str>,
     pub(crate) login_mouse: MouseStateHandle,
@@ -256,12 +276,14 @@ pub(crate) struct LoginWaitingParams<'a> {
     pub(crate) copy_feedback: Option<(&'a str, TransientHintTone)>,
 }
 /// Device-authorization request failure with no verification URL available yet.
+#[cfg(test)]
 pub(crate) struct LoginFailedParams<'a> {
     pub(crate) message: &'a str,
     pub(crate) retry_mouse: MouseStateHandle,
 }
 
 /// Browser-launch recovery controls retain the exact device URL.
+#[cfg(test)]
 pub(crate) struct LoginBrowserOpenFailedParams<'a> {
     pub(crate) browser_url: &'a str,
     pub(crate) login_mouse: MouseStateHandle,
@@ -271,6 +293,7 @@ pub(crate) struct LoginBrowserOpenFailedParams<'a> {
 }
 
 /// Waiting state shown after device authorization starts.
+#[cfg(test)]
 pub(crate) fn login_waiting(
     clock: AnimationClock,
     animation_config: Arc<ZeroStateAnimationConfig>,
@@ -381,6 +404,7 @@ pub(crate) fn login_waiting(
 }
 
 /// Recovery state shown when the default browser rejects the launch request.
+#[cfg(test)]
 pub(crate) fn login_browser_open_failed(
     clock: AnimationClock,
     animation_config: Arc<ZeroStateAnimationConfig>,
@@ -507,6 +531,7 @@ fn capability_row(
     .finish()
 }
 
+#[cfg(test)]
 fn auth_layout(
     clock: AnimationClock,
     animation_config: Arc<ZeroStateAnimationConfig>,
@@ -571,6 +596,7 @@ fn auth_layout(
         .finish()
 }
 
+#[cfg(test)]
 fn blank_row() -> Box<dyn TuiElement> {
     TuiText::new(" ").truncate().finish()
 }
@@ -589,6 +615,7 @@ pub(crate) fn terminal_starting() -> Box<dyn TuiElement> {
 }
 
 /// Retryable failure shown when device authorization fails before login completes.
+#[cfg(test)]
 pub(crate) fn login_failed(
     clock: AnimationClock,
     animation_config: Arc<ZeroStateAnimationConfig>,

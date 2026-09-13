@@ -1,44 +1,24 @@
 //! Common utilities for agent SDK commands.
 
+#[cfg(test)]
 use std::fmt;
-use std::future::Future;
-use std::sync::Arc;
-use std::time::Duration;
 
-use futures::TryFutureExt;
-use inquire::{InquireError, Select};
-use warp_cli::agent::Harness;
+#[cfg(test)]
 use warp_cli::environment::{EnvironmentCreateArgs, EnvironmentUpdateArgs};
-use warp_cli::scope::{ObjectScope, TeamSelection};
-use warpui::r#async::FutureExt;
-use warpui::{AppContext, GetSingletonModelHandle, SingletonEntity as _, UpdateModel};
+use warpui::AppContext;
 
-use crate::ai::agent::conversation::ServerAIConversationMetadata;
-use crate::ai::agent_sdk::driver::{AgentDriverError, WARP_DRIVE_SYNC_TIMEOUT};
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::cloud_environments::{CloudAmbientAgentEnvironment, environment_matches_scope};
-use crate::ai::llms::{LLMId, LLMPreferences, is_model_allowed_for_scope};
-use crate::auth::UserUid;
-use crate::auth::auth_state::AuthStateProvider;
-use crate::cloud_object::{CloudObject, CloudObjectLookup as _, Owner};
-use crate::server::cloud_objects::update_manager::UpdateManager;
-use crate::server::ids::{ServerId, SyncId};
-use crate::server::server_api::ServerApiProvider;
-use crate::server::server_api::ai::AIClient;
-use crate::server::team_scope::RequestTeamScope;
-use crate::workspaces::update_manager::TeamUpdateManager;
-use crate::workspaces::user_workspaces::team_workspace_settings::{
-    NotATeamMemberError, TeamScopeForCli, TeamScopeForCliError,
-};
-use crate::workspaces::user_workspaces::{SoleTeamError, TeamScope, UserWorkspaces};
-
-/// How long to wait for workspace metadata to refresh.
-pub const WORKSPACE_METADATA_REFRESH_TIMEOUT: Duration = Duration::from_secs(10);
+use crate::ai::llms::LLMId;
+#[cfg(test)]
+use crate::workspaces::user_workspaces::TeamScope;
 
 pub fn validate_agent_mode_base_model_id(
     model_id: &str,
     ctx: &AppContext,
 ) -> anyhow::Result<LLMId> {
+    let _ = (model_id, ctx);
+    // Commented out: model catalogs are server-backed and unavailable in local-only mode.
+    /*
     let team_uid = UserWorkspaces::as_ref(ctx).inherited_or_default_team_uid(None);
     let llm_prefs = LLMPreferences::as_ref(ctx);
     let valid_ids = llm_prefs
@@ -46,16 +26,21 @@ pub fn validate_agent_mode_base_model_id(
         .map(|info| info.id.clone())
         .collect::<Vec<_>>();
 
-    classify_agent_mode_base_model_id(
+    return classify_agent_mode_base_model_id(
         model_id,
         &valid_ids,
         llm_prefs.agent_mode_models_unavailable_for_team_uid(team_uid),
-    )
+    );
+    */
+    Err(anyhow::anyhow!(
+        "Cloud agent model validation is disabled in local-only mode"
+    ))
 }
 
 /// Classifies a user-supplied agent-mode model id against the available model
 /// list, distinguishing "the model list fetch failed (so the list is empty or
 /// stale)" from "the id is genuinely not in a valid list".
+#[cfg(test)]
 fn classify_agent_mode_base_model_id(
     model_id: &str,
     valid_ids: &[LLMId],
@@ -90,95 +75,15 @@ pub(super) fn parse_ambient_task_id(
         .map_err(|err| anyhow::anyhow!("{error_prefix} '{run_id}': {err}"))
 }
 
-pub(super) fn set_ambient_task_context_from_run_id(
-    ctx: &AppContext,
-    run_id: &str,
-) -> anyhow::Result<AmbientAgentTaskId> {
-    let task_id = parse_ambient_task_id(run_id, "Invalid run ID")?;
-    ServerApiProvider::handle(ctx)
-        .as_ref(ctx)
-        .get()
-        .set_ambient_agent_task_id(Some(task_id));
-    Ok(task_id)
-}
-
-pub(super) fn describe_sole_team_error(error: SoleTeamError, ctx: &AppContext) -> anyhow::Error {
-    match error {
-        SoleTeamError::NoTeam => anyhow::anyhow!("You are not on a team"),
-        SoleTeamError::MoreThanOneTeam { team_uids } => anyhow::anyhow!(
-            "You are on {} teams. Re-run with one of:\n\n{}",
-            team_uids.len(),
-            describe_team_choices(&team_uids, ctx)
-        ),
-    }
-}
-
-/// One `--team=<UID>` line per team, so the flag to copy starts each line and the name that
-/// identifies it follows. Sorted by name to keep the list stable across runs.
-fn describe_team_choices(team_uids: &[ServerId], ctx: &AppContext) -> String {
-    let workspaces = UserWorkspaces::as_ref(ctx);
-    let mut choices: Vec<(String, ServerId)> = team_uids
-        .iter()
-        .map(|uid| {
-            let name = workspaces
-                .team_from_uid(*uid)
-                .map(|team| team.name.clone())
-                .unwrap_or_default();
-            (name, *uid)
-        })
-        .collect();
-    choices.sort_by_key(|(name, _)| name.to_lowercase());
-
-    choices
-        .iter()
-        .map(|(name, uid)| format!("  --team={uid}   {name}").trim_end().to_string())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn describe_team_resolution_error(error: TeamScopeForCliError, ctx: &AppContext) -> anyhow::Error {
-    match error {
-        TeamScopeForCliError::InvalidTeamUid { team_uid, message } => {
-            anyhow::anyhow!("Invalid --team '{team_uid}': {message}")
-        }
-        TeamScopeForCliError::NoSoleTeam(error) => describe_sole_team_error(error, ctx),
-        TeamScopeForCliError::NotAMember(NotATeamMemberError { team_uid }) => {
-            anyhow::anyhow!("You are not on team {team_uid}")
-        }
-    }
-}
-
-/// The team a CLI command's policy reads are scoped to.
-pub(super) fn resolve_team_scope(
-    team_selection: &TeamSelection,
-    ctx: &AppContext,
-) -> anyhow::Result<TeamScopeForCli> {
-    UserWorkspaces::as_ref(ctx)
-        .team_scope_for_cli(team_selection)
-        .map_err(|err| describe_team_resolution_error(err, ctx))
-}
-pub(super) fn request_team_scope_for_cli(
-    team_selection: &TeamSelection,
-    ctx: &AppContext,
-) -> anyhow::Result<RequestTeamScope> {
-    let team_scope = resolve_team_scope(team_selection, ctx)?;
-    Ok(RequestTeamScope::from_scope(&team_scope))
-}
-
-pub(super) fn resolve_object_scope(
-    object_scope: &ObjectScope,
-    ctx: &AppContext,
-) -> anyhow::Result<TeamScopeForCli> {
-    UserWorkspaces::as_ref(ctx)
-        .team_scope_for_cli_object(object_scope)
-        .map_err(|err| describe_team_resolution_error(err, ctx))
-}
-
+#[cfg(test)]
 pub(super) fn validate_agent_mode_base_model_id_for_scope(
     model_id: &str,
     team_scope: &impl TeamScope,
     ctx: &AppContext,
 ) -> anyhow::Result<LLMId> {
+    let _ = (model_id, team_scope, ctx);
+    // Commented out: scoped model catalogs and BYO policy are server-backed.
+    /*
     let llm_prefs = LLMPreferences::as_ref(ctx);
     let valid_ids = llm_prefs
         .get_base_llm_choices_for_agent_mode(team_scope, ctx)
@@ -202,126 +107,14 @@ pub(super) fn validate_agent_mode_base_model_id_for_scope(
     Err(anyhow::anyhow!(
         "Model '{model_id}' is one of your own custom endpoints, which {scope} does not allow."
     ))
-}
-
-fn current_user_uid(ctx: &AppContext) -> anyhow::Result<UserUid> {
-    AuthStateProvider::as_ref(ctx)
-        .get()
-        .user_id()
-        .ok_or_else(|| anyhow::anyhow!("User should be logged in"))
-}
-
-/// Resolve the owner of a new cloud object, based on the CLI `--team` and `--personal` flags.
-///
-/// With neither flag, a user on exactly one team gets a team object and a user on no team gets
-/// a personal one. A user on several teams is asked to choose rather than silently handed a
-/// personal object.
-pub fn resolve_owner(scope: &ObjectScope, ctx: &AppContext) -> anyhow::Result<Owner> {
-    if scope.personal {
-        return Ok(Owner::User {
-            user_uid: current_user_uid(ctx)?,
-        });
-    }
-    match resolve_team_scope(&scope.team_selection, ctx)?.team_uid() {
-        Some(team_uid) => Ok(Owner::Team { team_uid }),
-        None => Ok(Owner::User {
-            user_uid: current_user_uid(ctx)?,
-        }),
-    }
-}
-
-pub(super) fn resolve_owner_for_team_scope(
-    team_scope: &impl TeamScope,
-    ctx: &AppContext,
-) -> anyhow::Result<Owner> {
-    match team_scope.team_uid() {
-        Some(team_uid) => Ok(Owner::Team { team_uid }),
-        None => Ok(Owner::User {
-            user_uid: current_user_uid(ctx)?,
-        }),
-    }
-}
-
-/// Refresh workspace metadata before executing an operation.
-///
-/// This ensures that team state is up-to-date before creating cloud objects or performing
-/// other operations that depend on team membership.
-pub fn refresh_workspace_metadata<C>(
-    ctx: &mut C,
-) -> impl Future<Output = anyhow::Result<()>> + Send + 'static + use<C>
-where
-    C: GetSingletonModelHandle + UpdateModel,
-{
-    let refresh_future = TeamUpdateManager::handle(ctx).update(ctx, |manager, ctx| {
-        manager
-            .refresh_workspace_metadata(ctx)
-            .with_timeout(WORKSPACE_METADATA_REFRESH_TIMEOUT)
-    });
-
-    async move {
-        let _ = refresh_future
-            .await
-            .map_err(|_| anyhow::anyhow!("Timed out refreshing team metadata"))?;
-        Ok(())
-    }
-}
-
-/// Refresh Warp Drive before executing an operation.
-pub fn refresh_warp_drive(
-    ctx: &AppContext,
-) -> impl Future<Output = anyhow::Result<()>> + Send + 'static + use<> {
-    UpdateManager::as_ref(ctx)
-        .initial_load_complete()
-        .with_timeout(WARP_DRIVE_SYNC_TIMEOUT)
-        .map_err(|_| anyhow::anyhow!("Timed out waiting for Warp Drive to sync"))
-}
-
-/// Fetch the conversation's server metadata and validate that its harness matches the caller's
-/// `--harness` choice. Returns the metadata on success so the caller can reuse it (e.g. for the
-/// server conversation token).
-///
-/// Called up-front before any task/config-build logic consumes `args.harness`, so a mismatch
-/// error surfaces before side effects like task creation. We deliberately do NOT auto-upgrade
-/// the harness: `Harness::Oz` default with a Claude conversation id is treated as a mismatch
-/// and errors out.
-pub(super) async fn fetch_and_validate_conversation_harness(
-    ai_client: Arc<dyn AIClient>,
-    conversation_id: &str,
-    args_harness: Harness,
-) -> Result<ServerAIConversationMetadata, AgentDriverError> {
-    let metadata = ai_client
-        .list_ai_conversation_metadata(Some(vec![conversation_id.to_string()]))
-        .await
-        .map_err(|e| AgentDriverError::ConversationLoadFailed(format!("{e:#}")))?
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            AgentDriverError::ConversationLoadFailed(format!(
-                "conversation {conversation_id} not found or not accessible"
-            ))
-        })?;
-
-    if metadata.harness != args_harness {
-        return Err(AgentDriverError::ConversationHarnessMismatch {
-            conversation_id: conversation_id.to_string(),
-            expected: Harness::from(metadata.harness).to_string(),
-            got: args_harness.to_string(),
-        });
-    }
-
-    Ok(metadata)
-}
-
-/// Format an object owner for display in the CLI.
-pub fn format_owner(owner: &Owner) -> &'static str {
-    // TODO: For potentially-shared objects, consider looking up the particular user/team name.
-    match owner {
-        Owner::User { .. } => "Personal",
-        Owner::Team { .. } => "Team",
-    }
+    */
+    Err(anyhow::anyhow!(
+        "Cloud agent model validation is disabled in local-only mode"
+    ))
 }
 
 /// An error resolving an agent option, which we may have prompted the user for.
+#[cfg(test)]
 #[derive(Debug, thiserror::Error)]
 pub enum ResolveConfigurationError {
     /// The user canceled the operation, and we should exit.
@@ -335,6 +128,7 @@ pub enum ResolveConfigurationError {
     Other(anyhow::Error),
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum EnvironmentChoice {
     /// The user explicitly chose not to use an environment.
@@ -343,14 +137,17 @@ pub enum EnvironmentChoice {
     Environment { id: String, name: String },
 }
 
+#[cfg(test)]
 impl EnvironmentChoice {
-    /// Resolve the environment to use when creating an agent operation.
-    /// Warp Drive *must* have been synced first.
+    /// Keep the environment-selection API available to disabled command modules.
     pub fn resolve_for_create(
         args: EnvironmentCreateArgs,
         team_scope: &(impl TeamScope + ?Sized),
         ctx: &AppContext,
     ) -> Result<Self, ResolveConfigurationError> {
+        let _ = (args, team_scope, ctx);
+        // Commented out: cloud environment lookup, synchronization, and interactive selection.
+        /*
         if args.no_environment {
             Ok(EnvironmentChoice::None)
         } else if let Some(id) = args.environment {
@@ -389,9 +186,9 @@ impl EnvironmentChoice {
                 let cli_name = warp_cli::binary_name().unwrap_or_else(|| "warp".to_string());
                 return Err(ResolveConfigurationError::Other(anyhow::anyhow!(
                     "No environments are configured for this account.\n\
-You can create an environment with `{cli_name} environment create`.\n\
-Or, re-run this command with `--no-environment` to not use an environment.\n\
-Without an environment, the agent will not be able to access private repositories or create pull requests.",
+        You can create an environment with `{cli_name} environment create`.\n\
+        Or, re-run this command with `--no-environment` to not use an environment.\n\
+        Without an environment, the agent will not be able to access private repositories or create pull requests.",
                 )));
             }
 
@@ -409,15 +206,20 @@ Without an environment, the agent will not be able to access private repositorie
                 ))),
             }
         }
+        */
+        Err(ResolveConfigurationError::Other(anyhow::anyhow!(
+            "Cloud agent environments are disabled in local-only mode"
+        )))
     }
 
-    /// Resolve the environment to use when updating an agent integration. If the user did not
-    /// request any changes to the environment, this returns `Ok(None)`.
-    /// Warp Drive *must* have been synced first.
+    /// Keep the environment-update API available to disabled command modules.
     pub fn resolve_for_update(
         args: EnvironmentUpdateArgs,
         ctx: &AppContext,
     ) -> Result<Option<Self>, ResolveConfigurationError> {
+        let _ = (args, ctx);
+        // Commented out: cloud environment lookup during integration updates.
+        /*
         if args.remove_environment {
             Ok(Some(EnvironmentChoice::None))
         } else if let Some(id) = args.environment {
@@ -425,8 +227,13 @@ Without an environment, the agent will not be able to access private repositorie
         } else {
             Ok(None)
         }
+        */
+        Err(ResolveConfigurationError::Other(anyhow::anyhow!(
+            "Cloud agent environments are disabled in local-only mode"
+        )))
     }
 
+    /*
     fn get_by_id(id: String, ctx: &AppContext) -> Result<Self, ResolveConfigurationError> {
         let sync_id = SyncId::ServerId(ServerId::try_from(id.as_str()).map_err(|_| {
             ResolveConfigurationError::InvalidId {
@@ -448,8 +255,10 @@ Without an environment, the agent will not be able to access private repositorie
             name: environment.model().string_model.name.clone(),
         })
     }
+    */
 }
 
+#[cfg(test)]
 impl fmt::Display for EnvironmentChoice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

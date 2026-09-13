@@ -1,11 +1,24 @@
+#[cfg(test)]
 mod lsp_server_selector;
+#[cfg(not(test))]
+mod lsp_server_selector {
+    // Keep the model's legacy payload type without compiling the selector UI in production.
+    use lsp::supported_servers::LSPServerType;
+
+    #[derive(Debug, Clone)]
+    pub struct LSPServerInfo {
+        pub server_type: LSPServerType,
+        pub is_installed: bool,
+    }
+}
 pub mod model;
 
 use std::path::{Path, PathBuf};
 
 use ai::index::full_source_code_embedding::manager::CodebaseIndexManager;
 use lsp::supported_servers::LSPServerType;
-use lsp_server_selector::{LSPServerInfo, create_lsp_server_selector};
+#[cfg(test)]
+use lsp_server_selector::LSPServerInfo;
 pub use model::{InitProjectModel, InitProjectModelEvent, InitStepKind};
 use model::{InitStepData, InitStepStatus};
 use warp_core::ui::theme::Fill;
@@ -26,20 +39,14 @@ use crate::ai::agent::icons::{in_progress_icon, yellow_stop_icon};
 use crate::ai::blocklist::block::keyboard_navigable_buttons::{
     KeyboardNavigableButtonBuilder, KeyboardNavigableButtons, simple_navigation_button,
 };
-use crate::ai::blocklist::block::toggleable_items::ToggleableItemsView;
 use crate::ai::blocklist::block::view_impl::WithContentItemSpacing;
 use crate::ai::blocklist::inline_action::inline_action_header::HeaderConfig;
 use crate::ai::blocklist::inline_action::requested_action::RenderableAction;
-use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::appearance::Appearance;
-use crate::code::lsp_telemetry::{LspEnablementSource, LspTelemetryEvent};
 use crate::server::telemetry::{
-    AgentModeSetupCodebaseContextActionType, AgentModeSetupCreateEnvironmentActionType,
-    AgentModeSetupProjectScopedRulesActionType,
+    AgentModeSetupCodebaseContextActionType, AgentModeSetupProjectScopedRulesActionType,
 };
 use crate::ui_components::icons::Icon;
-use crate::view_components::DismissibleToast;
-use crate::workspace::ToastStack;
 use crate::{TelemetryEvent, send_telemetry_from_ctx};
 
 const ONBOARDING_TEXT: &str = "Great - let's begin setting up this project! Would you like to give me permission to index this codebase? It allows me to quickly understand context and provide more targeted solutions when working in this codebase. No code is stored on Warp servers.";
@@ -116,12 +123,6 @@ struct ProjectRulesMouseStateHandles {
     skip_button: MouseStateHandle,
 }
 
-#[derive(Default)]
-struct LanguageServersMouseStateHandles {
-    setup_button: MouseStateHandle,
-    skip_button: MouseStateHandle,
-}
-
 impl Default for ProjectRulesMouseStateHandles {
     fn default() -> Self {
         let linkable_file_count = LINKABLE_FILES.len();
@@ -139,10 +140,12 @@ impl Default for ProjectRulesMouseStateHandles {
 #[derive(Debug, Clone)]
 pub enum InitProjectBlockAction {
     IndexCodebase(PathBuf),
+    #[cfg(test)]
     SetupLanguageServers {
         server_info: Vec<LSPServerInfo>,
         repo_path: PathBuf,
     },
+    #[cfg(test)]
     SkipLanguageServers,
     SkipIndex,
     LinkFromExisting(PathBuf),
@@ -150,14 +153,6 @@ pub enum InitProjectBlockAction {
     RegenerateRules,
     SkipRules,
     ViewCodebaseContextStatus,
-    StartCreateEnvironment,
-    SkipCreateEnvironment,
-}
-
-#[derive(Default)]
-struct CreateEnvironmentMouseStateHandles {
-    create_button: MouseStateHandle,
-    skip_button: MouseStateHandle,
 }
 
 enum StepState {
@@ -166,23 +161,11 @@ enum StepState {
         mouse_states: CodebaseContextMouseStateHandles,
         keyboard_nav_buttons: Option<ViewHandle<KeyboardNavigableButtons>>,
     },
-    LanguageServersSingle {
-        mouse_states: LanguageServersMouseStateHandles,
-        keyboard_nav_buttons: Option<ViewHandle<KeyboardNavigableButtons>>,
-    },
-    LanguageServersMultiple {
-        skip_mouse_state: MouseStateHandle,
-        enable_mouse_state: MouseStateHandle,
-        lsp_selector: Option<ViewHandle<ToggleableItemsView<LSPServerInfo>>>,
-    },
     ProjectRules {
         mouse_states: ProjectRulesMouseStateHandles,
         keyboard_nav_buttons: Option<ViewHandle<KeyboardNavigableButtons>>,
     },
-    CreateEnvironment {
-        mouse_states: CreateEnvironmentMouseStateHandles,
-        keyboard_nav_buttons: Option<ViewHandle<KeyboardNavigableButtons>>,
-    },
+    Disabled(InitStepKind),
 }
 
 /// View for a single /init step. Renders based on step kind and reads status from model.
@@ -220,50 +203,19 @@ impl InitStepBlock {
                 mouse_states: CodebaseContextMouseStateHandles::default(),
                 keyboard_nav_buttons: None,
             },
-            InitStepKind::LanguageServers => {
-                // Determine single vs multiple from model data
-                let is_multiple = model
-                    .as_ref(ctx)
-                    .get_step(InitStepKind::LanguageServers)
-                    .and_then(|step| {
-                        if let InitStepStatus::Ready(InitStepData::LanguageServers {
-                            servers,
-                            ..
-                        }) = &step.status
-                        {
-                            Some(servers.len() > 1)
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(false);
-
-                if is_multiple {
-                    StepState::LanguageServersMultiple {
-                        skip_mouse_state: MouseStateHandle::default(),
-                        enable_mouse_state: MouseStateHandle::default(),
-                        lsp_selector: None,
-                    }
-                } else {
-                    StepState::LanguageServersSingle {
-                        mouse_states: LanguageServersMouseStateHandles::default(),
-                        keyboard_nav_buttons: None,
-                    }
-                }
+            InitStepKind::LanguageServers | InitStepKind::CreateEnvironment => {
+                // Remote language-server discovery and cloud environment setup are disabled.
+                StepState::Disabled(step_kind)
             }
             InitStepKind::ProjectScopedRules => StepState::ProjectRules {
                 mouse_states: ProjectRulesMouseStateHandles::default(),
-                keyboard_nav_buttons: None,
-            },
-            InitStepKind::CreateEnvironment => StepState::CreateEnvironment {
-                mouse_states: CreateEnvironmentMouseStateHandles::default(),
                 keyboard_nav_buttons: None,
             },
         };
 
         let mut new_block = Self { model, state };
 
-        // Create keyboard nav buttons or LSP selector based on step kind and status
+        // Create keyboard navigation buttons based on step kind and status.
         new_block.create_interactive_views(ctx);
 
         new_block
@@ -286,27 +238,6 @@ impl InitStepBlock {
                     Some(ctx.add_typed_action_view(|_| KeyboardNavigableButtons::new(buttons)));
             }
             (
-                InitStepStatus::Ready(InitStepData::LanguageServers { servers, repo_path }),
-                StepState::LanguageServersSingle {
-                    mouse_states,
-                    keyboard_nav_buttons,
-                },
-            ) if servers.len() == 1 => {
-                let buttons = Self::create_single_lsp_buttons(&servers[0], repo_path, mouse_states);
-                *keyboard_nav_buttons =
-                    Some(ctx.add_typed_action_view(|_| KeyboardNavigableButtons::new(buttons)));
-            }
-            (
-                InitStepStatus::Ready(InitStepData::LanguageServers { servers, repo_path }),
-                StepState::LanguageServersMultiple { lsp_selector, .. },
-            ) if servers.len() > 1 => {
-                *lsp_selector = Some(create_lsp_server_selector(
-                    servers.clone(),
-                    repo_path.clone(),
-                    ctx,
-                ));
-            }
-            (
                 InitStepStatus::Ready(InitStepData::ProjectScopedRules { linkable_files }),
                 StepState::ProjectRules {
                     mouse_states,
@@ -314,17 +245,6 @@ impl InitStepBlock {
                 },
             ) => {
                 let buttons = Self::create_project_rules_buttons(linkable_files, mouse_states);
-                *keyboard_nav_buttons =
-                    Some(ctx.add_typed_action_view(|_| KeyboardNavigableButtons::new(buttons)));
-            }
-            (
-                InitStepStatus::Ready(InitStepData::CreateEnvironment),
-                StepState::CreateEnvironment {
-                    mouse_states,
-                    keyboard_nav_buttons,
-                },
-            ) => {
-                let buttons = Self::create_environment_buttons(mouse_states);
                 *keyboard_nav_buttons =
                     Some(ctx.add_typed_action_view(|_| KeyboardNavigableButtons::new(buttons)));
             }
@@ -338,22 +258,10 @@ impl InitStepBlock {
                 keyboard_nav_buttons: Some(buttons),
                 ..
             }
-            | StepState::LanguageServersSingle {
-                keyboard_nav_buttons: Some(buttons),
-                ..
-            }
             | StepState::ProjectRules {
                 keyboard_nav_buttons: Some(buttons),
                 ..
-            }
-            | StepState::CreateEnvironment {
-                keyboard_nav_buttons: Some(buttons),
-                ..
             } => ctx.focus(buttons),
-            StepState::LanguageServersMultiple {
-                lsp_selector: Some(selector),
-                ..
-            } => ctx.focus(selector),
             _ => {}
         }
     }
@@ -362,45 +270,9 @@ impl InitStepBlock {
         match &self.state {
             StepState::Welcome => InitStepKind::Welcome,
             StepState::CodebaseContext { .. } => InitStepKind::CodebaseContext,
-            StepState::LanguageServersSingle { .. } | StepState::LanguageServersMultiple { .. } => {
-                InitStepKind::LanguageServers
-            }
             StepState::ProjectRules { .. } => InitStepKind::ProjectScopedRules,
-            StepState::CreateEnvironment { .. } => InitStepKind::CreateEnvironment,
+            StepState::Disabled(step_kind) => *step_kind,
         }
-    }
-
-    fn create_single_lsp_buttons(
-        server_info: &LSPServerInfo,
-        repo_path: &Path,
-        mouse_states: &LanguageServersMouseStateHandles,
-    ) -> Vec<KeyboardNavigableButtonBuilder> {
-        let button_text = if server_info.is_installed {
-            format!("Enable {} support", server_info.server_type.language_name())
-        } else {
-            format!(
-                "Install and enable {}",
-                server_info.server_type.language_name()
-            )
-        };
-
-        vec![
-            simple_navigation_button(
-                button_text,
-                mouse_states.setup_button.clone(),
-                InitProjectBlockAction::SetupLanguageServers {
-                    server_info: vec![server_info.clone()],
-                    repo_path: repo_path.to_path_buf(),
-                },
-                false,
-            ),
-            simple_navigation_button(
-                "Skip for now.".to_string(),
-                mouse_states.skip_button.clone(),
-                InitProjectBlockAction::SkipLanguageServers,
-                false,
-            ),
-        ]
     }
 
     fn create_codebase_context_buttons(
@@ -454,25 +326,6 @@ impl InitStepBlock {
         ));
 
         buttons
-    }
-
-    fn create_environment_buttons(
-        mouse_states: &CreateEnvironmentMouseStateHandles,
-    ) -> Vec<KeyboardNavigableButtonBuilder> {
-        vec![
-            simple_navigation_button(
-                "Create an environment".to_string(),
-                mouse_states.create_button.clone(),
-                InitProjectBlockAction::StartCreateEnvironment,
-                false,
-            ),
-            simple_navigation_button(
-                "Skip for now".to_string(),
-                mouse_states.skip_button.clone(),
-                InitProjectBlockAction::SkipCreateEnvironment,
-                false,
-            ),
-        ]
     }
 
     /// Renders a "ready" state block with keyboard-navigable buttons and a header prompt.
@@ -700,113 +553,6 @@ impl InitStepBlock {
         }
     }
 
-    fn render_language_servers(&self, app: &AppContext) -> Box<dyn Element> {
-        let step = self
-            .model
-            .as_ref(app)
-            .get_step(InitStepKind::LanguageServers);
-
-        let Some(step) = step else {
-            return Empty::new().finish();
-        };
-
-        match &step.status {
-            InitStepStatus::Pending => {
-                // Still loading LSP detection
-                Empty::new().finish()
-            }
-            InitStepStatus::Ready(InitStepData::LanguageServers { servers, repo_path }) => {
-                if servers.len() == 1 {
-                    self.render_single_lsp_ready(&servers[0], app)
-                } else {
-                    self.render_multiple_lsp_ready(repo_path, app)
-                }
-            }
-            InitStepStatus::Ready(_) => Empty::new().finish(),
-            InitStepStatus::Running => Empty::new().finish(),
-            InitStepStatus::Completed(result) => {
-                self.render_completed_language_servers(result, app)
-            }
-        }
-    }
-
-    fn render_single_lsp_ready(
-        &self,
-        server_info: &LSPServerInfo,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let StepState::LanguageServersSingle {
-            keyboard_nav_buttons: Some(action_view),
-            ..
-        } = &self.state
-        else {
-            return Empty::new().finish();
-        };
-        Self::render_ready_with_buttons(
-            action_view,
-            format!(
-                "Enable {} support for this codebase? This will give you smarter code navigation, inline error checking, and more.",
-                server_info.server_type.language_name()
-            ),
-            app,
-        )
-    }
-
-    fn render_multiple_lsp_ready(&self, repo_path: &Path, app: &AppContext) -> Box<dyn Element> {
-        let appearance = Appearance::as_ref(app);
-        let StepState::LanguageServersMultiple {
-            skip_mouse_state,
-            enable_mouse_state,
-            lsp_selector: Some(action_view),
-        } = &self.state
-        else {
-            return Empty::new().finish();
-        };
-
-        lsp_server_selector::render_lsp_selector_block(
-            action_view,
-            repo_path,
-            skip_mouse_state,
-            enable_mouse_state,
-            appearance,
-            app,
-        )
-        .with_content_item_spacing()
-        .finish()
-    }
-
-    fn render_completed_language_servers(
-        &self,
-        result: &InitActionResult,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let InitActionResult::LanguageServers(lsp_result) = result else {
-            return Empty::new().finish();
-        };
-
-        match lsp_result {
-            LanguageServersResult::Accepted {
-                enabled_servers,
-                servers_to_install,
-            } => {
-                let label = if !servers_to_install.is_empty() {
-                    "Started installation for language support".to_string()
-                } else if enabled_servers.len() == 1 {
-                    format!(
-                        "{} language support enabled",
-                        enabled_servers[0].language_name()
-                    )
-                } else {
-                    "Language support enabled".to_string()
-                };
-                Self::render_success_completion(&label, app)
-            }
-            LanguageServersResult::Skipped => {
-                Self::render_skipped_completion("Language support skipped", app)
-            }
-        }
-    }
-
     fn render_project_rules(&self, app: &AppContext) -> Box<dyn Element> {
         let step = self
             .model
@@ -843,65 +589,6 @@ impl InitStepBlock {
                     .finish()
             }
             InitStepStatus::Completed(result) => self.render_completed_project_rules(result, app),
-        }
-    }
-
-    fn render_create_environment(&self, app: &AppContext) -> Box<dyn Element> {
-        let step = self
-            .model
-            .as_ref(app)
-            .get_step(InitStepKind::CreateEnvironment);
-
-        let Some(step) = step else {
-            return Empty::new().finish();
-        };
-
-        match &step.status {
-            InitStepStatus::Pending => Empty::new().finish(),
-            InitStepStatus::Ready(_) => {
-                let StepState::CreateEnvironment {
-                    keyboard_nav_buttons: Some(action_view),
-                    ..
-                } = &self.state
-                else {
-                    return Empty::new().finish();
-                };
-                Self::render_ready_with_buttons(
-                    action_view,
-                    "Would you like to create an environment for this project so you can run cloud agents in it? The agent will guide you through choosing GitHub repos, configuring a Docker image, and specifying startup commands.",
-                    app,
-                )
-            }
-            InitStepStatus::Running => {
-                let appearance = Appearance::as_ref(app);
-                RenderableAction::new("Creating environment...", app)
-                    .with_icon(in_progress_icon(appearance).finish())
-                    .with_content_item_spacing()
-                    .render(app)
-                    .finish()
-            }
-            InitStepStatus::Completed(result) => {
-                self.render_completed_create_environment(result, app)
-            }
-        }
-    }
-
-    fn render_completed_create_environment(
-        &self,
-        result: &InitActionResult,
-        app: &AppContext,
-    ) -> Box<dyn Element> {
-        let InitActionResult::CreateEnvironment(env_result) = result else {
-            return Empty::new().finish();
-        };
-
-        match env_result {
-            CreateEnvironmentResult::Created => {
-                Self::render_success_completion("Environment created", app)
-            }
-            CreateEnvironmentResult::Skipped => {
-                Self::render_skipped_completion("Environment creation skipped", app)
-            }
         }
     }
 
@@ -956,78 +643,6 @@ impl InitStepBlock {
             }
         }
     }
-
-    fn spawn_server_installation(
-        server_type: LSPServerType,
-        repo_root: PathBuf,
-        path_env_var: Option<String>,
-        model: ModelHandle<InitProjectModel>,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        let window_id = ctx.window_id();
-        let executor = lsp::CommandBuilder::new(path_env_var);
-        let http_client =
-            crate::server::server_api::ServerApiProvider::as_ref(ctx).get_http_client();
-
-        ctx.spawn(
-            async move {
-                let candidate = server_type.candidate(http_client);
-                let metadata = candidate.fetch_latest_server_metadata().await?;
-                candidate.install(metadata, &executor).await?;
-                Ok::<_, anyhow::Error>(())
-            },
-            move |_me, result, ctx| match result {
-                Ok(()) => {
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::ServerInstallCompleted {
-                            server_type: server_type.binary_name().to_string(),
-                            success: true,
-                        },
-                        ctx
-                    );
-
-                    PersistedWorkspace::handle(ctx).update(ctx, |workspace, _| {
-                        workspace.enable_lsp_server_for_path(&repo_root, server_type);
-                    });
-
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_ephemeral_toast(
-                            DismissibleToast::success(format!(
-                                "{} installed and enabled successfully.",
-                                server_type.binary_name()
-                            )),
-                            window_id,
-                            ctx,
-                        );
-                    });
-
-                    model.update(ctx, |_, ctx| {
-                        ctx.emit(InitProjectModelEvent::LanguageServerInstalledAndEnabled);
-                    });
-                }
-                Err(e) => {
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::ServerInstallCompleted {
-                            server_type: server_type.binary_name().to_string(),
-                            success: false,
-                        },
-                        ctx
-                    );
-
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_ephemeral_toast(
-                            DismissibleToast::error(format!(
-                                "Failed to install {}: {e}",
-                                server_type.binary_name()
-                            )),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                }
-            },
-        );
-    }
 }
 
 impl Entity for InitStepBlock {
@@ -1043,9 +658,9 @@ impl View for InitStepBlock {
         match self.step_kind() {
             InitStepKind::Welcome => self.render_welcome(app),
             InitStepKind::CodebaseContext => self.render_codebase_context(app),
-            InitStepKind::LanguageServers => self.render_language_servers(app),
+            InitStepKind::LanguageServers => Empty::new().finish(),
             InitStepKind::ProjectScopedRules => self.render_project_rules(app),
-            InitStepKind::CreateEnvironment => self.render_create_environment(app),
+            InitStepKind::CreateEnvironment => Empty::new().finish(),
         }
     }
 }
@@ -1088,94 +703,10 @@ impl TypedActionView for InitStepBlock {
                     );
                 });
             }
-            InitProjectBlockAction::SetupLanguageServers {
-                server_info,
-                repo_path,
-            } => {
-                let repo_root = repo_path.clone();
-                let mut enabled_servers = Vec::new();
-                let mut servers_to_install = Vec::new();
-
-                // Separate installed servers from those needing installation
-                for info in server_info {
-                    if info.is_installed {
-                        PersistedWorkspace::handle(ctx).update(ctx, |workspace, _| {
-                            workspace.enable_lsp_server_for_path(&repo_root, info.server_type);
-                        });
-                        enabled_servers.push(info.server_type);
-                    } else {
-                        servers_to_install.push(info.server_type);
-                    }
-                }
-
-                // Send telemetry for each enabled server
-                for server_type in enabled_servers.iter().chain(servers_to_install.iter()) {
-                    send_telemetry_from_ctx!(
-                        LspTelemetryEvent::ServerEnabled {
-                            server_type: server_type.binary_name().to_string(),
-                            source: LspEnablementSource::InitFlow,
-                            needed_install: !enabled_servers.contains(server_type),
-                        },
-                        ctx
-                    );
-                }
-
-                // Spawn installation tasks for uninstalled servers
-                let model = self.model.clone();
-                let path_env_var = self.model.as_ref(ctx).path_env_var().cloned();
-                for server_type in &servers_to_install {
-                    Self::spawn_server_installation(
-                        *server_type,
-                        repo_root.clone(),
-                        path_env_var.clone(),
-                        model.clone(),
-                        ctx,
-                    );
-                }
-
-                // Show toast for servers being installed in background
-                if !servers_to_install.is_empty() {
-                    let window_id = ctx.window_id();
-                    let server_names: Vec<_> =
-                        servers_to_install.iter().map(|s| s.binary_name()).collect();
-                    ToastStack::handle(ctx).update(ctx, |toast_stack, ctx| {
-                        toast_stack.add_ephemeral_toast(
-                            DismissibleToast::default(format!(
-                                "Installing {} in background...",
-                                server_names.join(", ")
-                            )),
-                            window_id,
-                            ctx,
-                        );
-                    });
-                }
-
-                self.model.update(ctx, |model, ctx| {
-                    model.mark_step_completed(
-                        InitStepKind::LanguageServers,
-                        InitActionResult::LanguageServers(
-                            if enabled_servers.is_empty() && servers_to_install.is_empty() {
-                                LanguageServersResult::Skipped
-                            } else {
-                                LanguageServersResult::Accepted {
-                                    enabled_servers,
-                                    servers_to_install,
-                                }
-                            },
-                        ),
-                        ctx,
-                    );
-                });
-            }
-            InitProjectBlockAction::SkipLanguageServers => {
-                send_telemetry_from_ctx!(LspTelemetryEvent::ServerEnablementSkipped, ctx);
-                self.model.update(ctx, |model, ctx| {
-                    model.mark_step_completed(
-                        InitStepKind::LanguageServers,
-                        InitActionResult::LanguageServers(LanguageServersResult::Skipped),
-                        ctx,
-                    );
-                });
+            #[cfg(test)]
+            InitProjectBlockAction::SetupLanguageServers { .. }
+            | InitProjectBlockAction::SkipLanguageServers => {
+                // The LSP selector remains available to unit-test fixtures only.
             }
             InitProjectBlockAction::LinkFromExisting(path) => {
                 let file_name = path
@@ -1268,33 +799,6 @@ impl TypedActionView for InitStepBlock {
                 );
                 self.model.update(ctx, |_, ctx| {
                     ctx.emit(InitProjectModelEvent::ViewCodebaseContextStatus);
-                });
-            }
-            InitProjectBlockAction::StartCreateEnvironment => {
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::AgentModeSetupCreateEnvironmentAction {
-                        action: AgentModeSetupCreateEnvironmentActionType::CreateEnvironment,
-                    },
-                    ctx
-                );
-                self.model.update(ctx, |model, ctx| {
-                    model.mark_step_running(InitStepKind::CreateEnvironment, ctx);
-                    ctx.emit(InitProjectModelEvent::CreateEnvironment);
-                });
-            }
-            InitProjectBlockAction::SkipCreateEnvironment => {
-                send_telemetry_from_ctx!(
-                    TelemetryEvent::AgentModeSetupCreateEnvironmentAction {
-                        action: AgentModeSetupCreateEnvironmentActionType::SkipEnvironment,
-                    },
-                    ctx
-                );
-                self.model.update(ctx, |model, ctx| {
-                    model.mark_step_completed(
-                        InitStepKind::CreateEnvironment,
-                        InitActionResult::CreateEnvironment(CreateEnvironmentResult::Skipped),
-                        ctx,
-                    );
                 });
             }
         }

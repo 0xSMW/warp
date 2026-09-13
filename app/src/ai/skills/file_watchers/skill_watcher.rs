@@ -21,10 +21,11 @@ use watcher::{BulkFilesystemWatcherEvent, HomeDirectoryWatcher, HomeDirectoryWat
 use super::subscribers::{
     HomeSkillSubscriber, ProjectSkillSubscriber, SkillRepositoryMessage, SymlinkSkillSubscriber,
 };
+#[cfg(test)]
+use super::utils::read_skills_from_files;
 use super::utils::{
-    find_local_project_skill_files_on_filesystem, find_project_skill_files_in_tree,
-    is_home_provider_path, is_home_skill_directory, is_skill_file, read_skills_from_directories,
-    read_skills_from_files,
+    find_local_project_skill_files_on_filesystem, is_home_provider_path, is_home_skill_directory,
+    is_skill_file, read_skills_from_directories,
 };
 use crate::ai::remote_context_files::{
     REMOTE_CONTEXT_MAX_BATCH_BYTES, REMOTE_CONTEXT_MAX_FILE_BYTES, read_remote_text_file_contents,
@@ -78,18 +79,18 @@ pub struct SkillWatcher {
 
 impl SkillWatcher {
     /// Synchronously reads skills from the given local repo paths.
-    /// Requires file trees to already be built (i.e. `RepositoryUpdated` has fired).
+    /// Reads project skill files directly from the local filesystem.
     /// Returns the parsed skills; the caller is responsible for feeding them into
     /// `SkillManager::handle_skills_added`.
+    #[cfg(test)]
     pub fn read_local_skills_for_repos(
         repo_paths: &[PathBuf],
         ctx: &AppContext,
     ) -> Vec<ParsedSkill> {
-        let repo_metadata = RepoMetadataModel::as_ref(ctx);
+        let _ = ctx;
         let skill_files: Vec<PathBuf> = repo_paths
             .iter()
-            .filter_map(|repo_path| RepositoryIdentifier::try_local(repo_path))
-            .flat_map(|repo_id| find_project_skill_files_in_tree(&repo_id, repo_metadata, ctx))
+            .flat_map(|repo_path| find_local_project_skill_files_on_filesystem(repo_path))
             .filter_map(|path| path.to_local_path().map(Path::to_path_buf))
             .collect();
         read_skills_from_files(skill_files)
@@ -179,11 +180,8 @@ impl SkillWatcher {
             }
         }
 
-        // RepositoryMetadataEvent::RepositoryUpdated fires after the file tree is
-        // built, so we can query it for skill files. Project skill updates use
-        // RepoMetadataModel for both local and remote repos when available, while
-        // local repos fall back to a direct project watcher only if metadata
-        // indexing fails.
+        // Project skill refreshes use direct filesystem discovery for local repositories.
+        // Remote project-skill discovery is disabled in local-only mode.
         ctx.subscribe_to_model(&RepoMetadataModel::handle(ctx), |me, _, event, ctx| {
             use repo_metadata::wrapper_model::RepoMetadataEvent;
             match event {
@@ -226,13 +224,35 @@ impl SkillWatcher {
         repo_id: &RepositoryIdentifier,
         ctx: &mut ModelContext<Self>,
     ) {
-        let refresh_generation = self.advance_project_skill_refresh_generation(repo_id);
-        let current_skill_files: HashSet<LocalOrRemotePath> = {
-            let repo_metadata = RepoMetadataModel::as_ref(ctx);
-            find_project_skill_files_in_tree(repo_id, repo_metadata, ctx)
-                .into_iter()
-                .collect()
+        #[cfg(not(test))]
+        let RepositoryIdentifier::Local(repo_path) = repo_id else {
+            return;
         };
+        #[cfg(not(test))]
+        let Some(repo_path) = repo_path.to_local_path() else {
+            return;
+        };
+
+        let refresh_generation = self.advance_project_skill_refresh_generation(repo_id);
+        #[cfg(test)]
+        let current_skill_files = {
+            let repo_metadata = RepoMetadataModel::as_ref(ctx);
+            let RepositoryIdentifier::Local(_) = repo_id else {
+                return;
+            };
+            repo_metadata
+                .standing_query_results(repo_id, ctx)
+                .into_iter()
+                .flat_map(|results| results.project_skills())
+                .filter(|content| !content.is_directory)
+                .map(|content| LocalOrRemotePath::Local(content.path.to_local_path_lossy()))
+                .collect::<HashSet<_>>()
+        };
+        #[cfg(not(test))]
+        let current_skill_files: HashSet<LocalOrRemotePath> =
+            find_local_project_skill_files_on_filesystem(&repo_path)
+                .into_iter()
+                .collect();
 
         let previous_skill_files = self
             .project_skill_files_by_repo

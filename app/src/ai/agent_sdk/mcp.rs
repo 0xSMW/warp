@@ -5,8 +5,7 @@ use warp_cli::mcp::MCPCommand;
 use warpui::{AppContext, ModelContext, SingletonEntity};
 
 use crate::ai::agent_sdk::output::{self, TableFormat};
-use crate::ai::mcp::TemplatableMCPServerManager;
-use crate::server::cloud_objects::update_manager::UpdateManager;
+use crate::ai::mcp::FileBasedMCPManager;
 
 /// Handle MCP-related CLI commands.
 pub fn run(
@@ -23,26 +22,36 @@ pub fn run(
     }
 }
 
-/// Singleton model for running async work as part of MCP CLI commands.
+/// Singleton model for running MCP CLI commands.
 struct MCPCommandRunner;
 
 impl MCPCommandRunner {
     fn list(&self, global_options: GlobalOptions, ctx: &mut ModelContext<Self>) {
-        let initial_sync = UpdateManager::as_ref(ctx).initial_load_complete();
+        // Commented out: cloud synchronization and server-backed MCP discovery.
+        // let initial_sync = UpdateManager::as_ref(ctx).initial_load_complete();
+        // ctx.spawn(initial_sync, move |_, _, ctx| {
+        //     let mut servers = TemplatableMCPServerManager::get_all_runnable_mcp_servers(ctx);
+        let mut servers = FileBasedMCPManager::as_ref(ctx)
+            .file_based_servers()
+            .into_iter()
+            .map(|installation| {
+                (
+                    installation.uuid(),
+                    installation.templatable_mcp_server().name.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        servers.sort_by_key(|(uuid, _)| *uuid);
 
-        ctx.spawn(initial_sync, move |_, _, ctx| {
-            let mut servers = TemplatableMCPServerManager::get_all_runnable_mcp_servers(ctx);
-            servers.sort_by_key(|(uuid, _)| *uuid);
+        output::print_list(
+            servers
+                .into_iter()
+                .map(|(uuid, name)| MCPServerInfo { uuid, name }),
+            global_options.output_format,
+        );
 
-            output::print_list(
-                servers
-                    .into_iter()
-                    .map(|(uuid, name)| MCPServerInfo { uuid, name }),
-                global_options.output_format,
-            );
-
-            ctx.terminate_app(warpui::platform::TerminationMode::ForceTerminate, None);
-        });
+        ctx.terminate_app(warpui::platform::TerminationMode::ForceTerminate, None);
+        // });
     }
 }
 

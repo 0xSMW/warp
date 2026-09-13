@@ -1,19 +1,26 @@
 //! Helpers for resolving per-agent "global" skill specs into repos to
 //! ensure are available on disk before the agent runs.
 
+#[cfg(test)]
 use std::collections::{BTreeSet, HashMap, HashSet};
+#[cfg(test)]
 use std::str::FromStr;
 
+#[cfg(test)]
 use ai::skills::{ParsedSkill, provider_rank};
+#[cfg(test)]
 use warp_cli::skill::SkillSpec;
+#[cfg(test)]
 use warp_util::local_or_remote_path::LocalOrRemotePath;
 
+#[cfg(test)]
 use crate::ai::cloud_environments::GithubRepo;
 
 /// Parse raw skill spec strings and resolve the unique set of GitHub repos they reference.
 ///
 /// Specs without an org/repo qualifier are not cloneable, so they are skipped
 /// for repo resolution and left to normal on-disk skill discovery.
+#[cfg(test)]
 pub fn resolve_skill_repos(raw_specs: &[String]) -> (Vec<SkillSpec>, Vec<GithubRepo>) {
     let specs: Vec<SkillSpec> = raw_specs
         .iter()
@@ -45,6 +52,7 @@ pub fn resolve_skill_repos(raw_specs: &[String]) -> (Vec<SkillSpec>, Vec<GithubR
 /// For simple skill names, this mirrors cached skill resolution by checking parsed skill names
 /// in provider precedence order. For full-path specs, it matches the exact path relative to the
 /// repo root.
+#[cfg(test)]
 pub fn filter_skills_by_spec(
     repo_path: &LocalOrRemotePath,
     skills: Vec<ParsedSkill>,
@@ -76,6 +84,7 @@ pub fn filter_skills_by_spec(
         .collect()
 }
 
+#[cfg(test)]
 fn matching_skill_path(
     repo_path: &LocalOrRemotePath,
     skills_by_path: &HashMap<LocalOrRemotePath, &ParsedSkill>,
@@ -88,6 +97,7 @@ fn matching_skill_path(
     matching_simple_skill_path(repo_path, skills_by_path, &spec.skill_identifier)
 }
 
+#[cfg(test)]
 fn matching_simple_skill_path(
     repo_path: &LocalOrRemotePath,
     skills_by_path: &HashMap<LocalOrRemotePath, &ParsedSkill>,

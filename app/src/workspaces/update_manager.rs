@@ -1,38 +1,58 @@
 use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
 
-use anyhow::{Context, Result};
+use anyhow::Context;
+#[cfg(test)]
+use anyhow::Result;
 use futures::channel::oneshot::{self, Receiver};
+#[cfg(test)]
 use futures::stream::AbortHandle;
-use warp_errors::{report_error, report_if_error};
+#[cfg(test)]
+use warp_errors::report_error;
+use warp_errors::report_if_error;
+#[cfg(test)]
 use warpui::r#async::Timer;
-use warpui::{
-    Entity, ModelContext, ModelHandle, RequestState, SingletonEntity, duration_with_jitter,
-};
+use warpui::{Entity, ModelContext, SingletonEntity};
+#[cfg(test)]
+use warpui::{ModelHandle, RequestState, duration_with_jitter};
 
+#[cfg(test)]
 use super::team_tester::{TeamTesterStatus, TeamTesterStatusEvent};
-use super::user_workspaces::{
-    CreateTeamResponse, UserWorkspaces, WorkspacesMetadataResponse, WorkspacesMetadataWithPricing,
-};
+#[cfg(test)]
+use super::user_workspaces::CreateTeamResponse;
+use super::user_workspaces::UserWorkspaces;
+#[cfg(test)]
+use super::user_workspaces::{WorkspacesMetadataResponse, WorkspacesMetadataWithPricing};
 use super::workspace::WorkspaceUid;
+#[cfg(test)]
 use crate::ai::request_usage_model::AIRequestUsageModel;
+#[cfg(test)]
 use crate::auth::AuthStateProvider;
 use crate::cloud_object::CloudObjectEventEntrypoint;
+#[cfg(test)]
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::persistence::ModelEvent;
+#[cfg(test)]
 use crate::pricing::PricingInfoModel;
+#[cfg(test)]
 use crate::server::cloud_objects::update_manager::UpdateManager;
 use crate::server::ids::ServerId;
+#[cfg(test)]
 use crate::server::retry_strategies::{
     OUT_OF_BAND_REQUEST_RETRY_STRATEGY, PERIODIC_POLL, PERIODIC_POLL_RETRY_STRATEGY,
 };
+#[cfg(test)]
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::team::TeamClient;
 
 pub enum TeamUpdateManagerEvent {
+    #[cfg(test)]
     LeaveSuccess,
+    #[cfg(test)]
     LeaveError,
+    #[cfg(test)]
     RenameTeamSuccess,
+    #[cfg(test)]
     RenameTeamError,
 }
 
@@ -44,16 +64,20 @@ pub enum TeamUpdateManagerEvent {
 /// response, but also controls the periodic polling from the server (also controlled by calling
 /// `force_refresh` method).
 pub struct TeamUpdateManager {
+    #[cfg(test)]
     team_client: Arc<dyn TeamClient>,
     model_event_sender: Option<SyncSender<ModelEvent>>,
+    #[cfg(test)]
     should_poll_for_workspace_metadata_updates: bool,
 
     /// The abort handle for the timer that waits a fixed duration
     /// before making an outbound request for workspace metadata, if any.
+    #[cfg(test)]
     next_poll_abort_handle: Option<AbortHandle>,
 
     /// The abort handle for the in flight request of workspace metadata,
     /// if any.
+    #[cfg(test)]
     in_flight_request_abort_handle: Option<AbortHandle>,
 }
 
@@ -63,21 +87,32 @@ impl TeamUpdateManager {
         model_event_sender: Option<SyncSender<ModelEvent>>,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
-        let network_status = NetworkStatus::handle(ctx);
-        ctx.subscribe_to_model(&network_status, Self::handle_network_status_changed);
+        #[cfg(test)]
+        {
+            let network_status = NetworkStatus::handle(ctx);
+            ctx.subscribe_to_model(&network_status, Self::handle_network_status_changed);
 
-        let team_tester_status = TeamTesterStatus::handle(ctx);
-        ctx.subscribe_to_model(&team_tester_status, Self::handle_team_tester_status_changed);
+            let team_tester_status = TeamTesterStatus::handle(ctx);
+            ctx.subscribe_to_model(&team_tester_status, Self::handle_team_tester_status_changed);
+        }
+
+        #[cfg(not(test))]
+        let _ = (team_client, ctx);
 
         Self {
+            #[cfg(test)]
             team_client,
             model_event_sender,
+            #[cfg(test)]
             should_poll_for_workspace_metadata_updates: false,
+            #[cfg(test)]
             next_poll_abort_handle: None,
+            #[cfg(test)]
             in_flight_request_abort_handle: None,
         }
     }
 
+    #[cfg(test)]
     fn handle_network_status_changed(
         &mut self,
         _: ModelHandle<NetworkStatus>,
@@ -96,6 +131,7 @@ impl TeamUpdateManager {
         }
     }
 
+    #[cfg(test)]
     fn handle_team_tester_status_changed(
         &mut self,
         _: ModelHandle<TeamTesterStatus>,
@@ -136,6 +172,7 @@ impl TeamUpdateManager {
 
     /// Starts a periodic poll for workspace metadata changes, if there isn't already
     /// an existing poll queued up.
+    #[cfg(test)]
     pub fn start_polling_for_workspace_metadata_updates(&mut self, ctx: &mut ModelContext<Self>) {
         let is_online = NetworkStatus::as_ref(ctx).is_online();
         if !self.should_poll_for_workspace_metadata_updates && is_online {
@@ -145,41 +182,56 @@ impl TeamUpdateManager {
     }
 
     pub fn stop_polling_for_workspace_metadata_updates(&mut self) {
-        self.should_poll_for_workspace_metadata_updates = false;
-        self.abort_existing_poll();
+        #[cfg(test)]
+        {
+            self.should_poll_for_workspace_metadata_updates = false;
+            self.abort_existing_poll();
+        }
     }
 
     /// Out-of-band (from the regular poll) refresh of workspace metadata.
     /// Returns a oneshot Receiver that resolves when the refresh completes (success or final failure).
     pub fn refresh_workspace_metadata(&mut self, ctx: &mut ModelContext<Self>) -> Receiver<()> {
-        // Skip the refresh when logged out to avoid noisy auth errors.
-        if !AuthStateProvider::as_ref(ctx).get().is_logged_in() {
+        #[cfg(test)]
+        {
+            // Skip the refresh when logged out to avoid noisy auth errors.
+            if !AuthStateProvider::as_ref(ctx).get().is_logged_in() {
+                let (tx, rx) = oneshot::channel::<()>();
+                let _ = tx.send(());
+                return rx;
+            }
+
+            let team_client = self.team_client.clone();
             let (tx, rx) = oneshot::channel::<()>();
-            let _ = tx.send(());
+            let mut tx = Some(tx);
+            ctx.spawn_with_retry_on_error(
+                move || {
+                    let team_client = team_client.clone();
+                    async move { team_client.workspaces_metadata().await }
+                },
+                OUT_OF_BAND_REQUEST_RETRY_STRATEGY,
+                move |update_manager, request_state, ctx| {
+                    // Only signal once there are no more retries left.
+                    let is_final = !request_state.has_pending_retries();
+                    update_manager.handle_workspace_metadata_with_request_state(request_state, ctx);
+                    if is_final && let Some(sender) = tx.take() {
+                        let _ = sender.send(());
+                    }
+                },
+            );
             return rx;
         }
 
-        let team_client = self.team_client.clone();
-        let (tx, rx) = oneshot::channel::<()>();
-        let mut tx = Some(tx);
-        ctx.spawn_with_retry_on_error(
-            move || {
-                let team_client = team_client.clone();
-                async move { team_client.workspaces_metadata().await }
-            },
-            OUT_OF_BAND_REQUEST_RETRY_STRATEGY,
-            move |update_manager, request_state, ctx| {
-                // Only signal once there are no more retries left.
-                let is_final = !request_state.has_pending_retries();
-                update_manager.handle_workspace_metadata_with_request_state(request_state, ctx);
-                if is_final && let Some(sender) = tx.take() {
-                    let _ = sender.send(());
-                }
-            },
-        );
-        rx
+        #[cfg(not(test))]
+        {
+            let _ = ctx;
+            let (tx, rx) = oneshot::channel::<()>();
+            let _ = tx.send(());
+            rx
+        }
     }
 
+    #[cfg(test)]
     fn abort_existing_poll(&mut self) {
         if let Some(abort_handle) = self.in_flight_request_abort_handle.take() {
             abort_handle.abort();
@@ -199,6 +251,7 @@ impl TeamUpdateManager {
     /// Note: the gql query for this poll also pulls in experiment state. If we change
     /// the behaviour for polling workspace metadata, we should consider what ramifications
     /// that has on querying experiment state.
+    #[cfg(test)]
     fn poll_for_workspace_metadata_changes(&mut self, ctx: &mut ModelContext<Self>) {
         self.abort_existing_poll();
 
@@ -273,18 +326,25 @@ impl TeamUpdateManager {
         discoverable: Option<bool>,
         ctx: &mut ModelContext<Self>,
     ) {
-        let team_client = self.team_client.clone();
-        let _ = ctx.spawn(
-            async move {
-                team_client
-                    .create_team(team_name, entrypoint, discoverable)
-                    .await
-                    .context("Error creating team")
-            },
-            Self::on_team_created,
-        );
+        #[cfg(test)]
+        {
+            let team_client = self.team_client.clone();
+            let _ = ctx.spawn(
+                async move {
+                    team_client
+                        .create_team(team_name, entrypoint, discoverable)
+                        .await
+                        .context("Error creating team")
+                },
+                Self::on_team_created,
+            );
+        }
+
+        #[cfg(not(test))]
+        let _ = (team_name, entrypoint, discoverable, ctx);
     }
 
+    #[cfg(test)]
     fn on_team_created(
         &mut self,
         create_team_response: Result<CreateTeamResponse>,
@@ -313,27 +373,34 @@ impl TeamUpdateManager {
         entrypoint: CloudObjectEventEntrypoint,
         ctx: &mut ModelContext<Self>,
     ) {
-        // Handle server update
-        let user_uid = AuthStateProvider::as_ref(ctx).get().user_id();
-        if let Some(user_uid) = user_uid {
-            let team_client = self.team_client.clone();
-            let _ = ctx.spawn(
-                async move {
-                    team_client
-                        .leave_team(user_uid, team_uid, entrypoint)
-                        .await
-                        .context("Error leaving team")
-                },
-                move |me, result, ctx| {
-                    me.on_team_left(team_uid, result, ctx);
-                },
-            );
-        } else {
-            log::warn!("User is not authenticated, cannot leave team");
-            ctx.emit(TeamUpdateManagerEvent::LeaveError);
+        #[cfg(test)]
+        {
+            // Handle server update
+            let user_uid = AuthStateProvider::as_ref(ctx).get().user_id();
+            if let Some(user_uid) = user_uid {
+                let team_client = self.team_client.clone();
+                let _ = ctx.spawn(
+                    async move {
+                        team_client
+                            .leave_team(user_uid, team_uid, entrypoint)
+                            .await
+                            .context("Error leaving team")
+                    },
+                    move |me, result, ctx| {
+                        me.on_team_left(team_uid, result, ctx);
+                    },
+                );
+            } else {
+                log::warn!("User is not authenticated, cannot leave team");
+                ctx.emit(TeamUpdateManagerEvent::LeaveError);
+            }
         }
+
+        #[cfg(not(test))]
+        let _ = (team_uid, entrypoint, ctx);
     }
 
+    #[cfg(test)]
     fn on_team_left(
         &mut self,
         left_team_uid: ServerId,
@@ -403,13 +470,20 @@ impl TeamUpdateManager {
         team_uid: ServerId,
         ctx: &mut ModelContext<Self>,
     ) {
-        let team_client = self.team_client.clone();
-        let _ = ctx.spawn(
-            async move { team_client.rename_team(new_name, team_uid).await },
-            Self::on_team_renamed,
-        );
+        #[cfg(test)]
+        {
+            let team_client = self.team_client.clone();
+            let _ = ctx.spawn(
+                async move { team_client.rename_team(new_name, team_uid).await },
+                Self::on_team_renamed,
+            );
+        }
+
+        #[cfg(not(test))]
+        let _ = (new_name, team_uid, ctx);
     }
 
+    #[cfg(test)]
     fn on_team_renamed(
         &mut self,
         result: Result<WorkspacesMetadataWithPricing>,
@@ -437,6 +511,7 @@ impl TeamUpdateManager {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn handle_workspace_metadata_with_request_state(
         &mut self,
         request_state: RequestState<WorkspacesMetadataWithPricing>,
@@ -467,6 +542,7 @@ impl TeamUpdateManager {
         }
     }
 
+    #[cfg(test)]
     fn on_workspaces_updated(
         &mut self,
         result: Result<WorkspacesMetadataResponse>,

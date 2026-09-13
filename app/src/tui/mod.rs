@@ -2,10 +2,11 @@
 //!
 //! `warp_tui` boots the real headless Warp app via [`crate::run_tui`]. Once
 //! shared initialization is done, [`init`] registers the [`TuiLoginModel`] that
-//! the TUI observes, mounts the TUI immediately (so it renders right away), and
-//! leaves device authorization behind an explicit welcome-screen action. The
-//! authentication gate remains visible until the browser flow completes.
+//! the TUI observes, initializes it in the local terminal phase, and mounts the
+//! TUI immediately (so it renders right away). Browser authentication remains
+//! represented for compatibility but is disabled in the local build.
 mod mcp;
+#[cfg(test)]
 mod telemetry;
 mod user_info;
 
@@ -15,19 +16,23 @@ pub use mcp::{
     TuiMcpServerStatus, TuiMcpSnapshot, TuiMcpSyncedTemplateProvenance, TuiMcpTemplateVariable,
     TuiMcpTransport, TuiMcpVariableValue,
 };
+#[cfg(test)]
 use telemetry::{
     AbandonmentPhase, AuthenticationEntrypoint, TuiOnboardingTelemetry, TuiOnboardingTelemetryEvent,
 };
+#[cfg(test)]
 use url::Url;
 pub use user_info::{TuiUserInfoManager, TuiUserInfoManagerEvent, TuiUserInfoSnapshot};
-use warp_core::telemetry::TelemetryEvent as _;
 use warpui::{AppContext, Entity, SingletonEntity};
 
 use crate::TuiMountFn;
+#[cfg(test)]
 use crate::ai::mcp::FileBasedMCPManager;
+#[cfg(test)]
+use crate::auth;
+#[cfg(test)]
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::auth::auth_state::AuthState;
-use crate::auth::{self, AuthStateProvider};
 use crate::tui_onboarding_markers::TuiOnboardingMarkers;
 
 /// Login state of the headless TUI, observed by the `warp_tui` root view to
@@ -48,7 +53,7 @@ pub enum TuiLoginPhase {
     LoggedIn,
 }
 
-/// Events emitted by [`TuiLoginModel`].
+/// Compatibility events retained for the shared TUI login surface.
 pub enum TuiLoginEvent {
     /// The login phase changed and the root view must repaint.
     PhaseChanged,
@@ -57,6 +62,7 @@ pub enum TuiLoginEvent {
     /// The current user logged out and the TUI should return to authentication.
     LoggedOut,
 }
+#[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TuiAuthBrowserFlow {
     DirectDeviceAuthorization,
@@ -64,11 +70,13 @@ enum TuiAuthBrowserFlow {
     LogoutThenDeviceAuthorizationOpened,
 }
 
-/// Singleton holding the TUI's [`TuiLoginPhase`]. Updated by [`init`]'s auth
-/// flow and read by the `warp_tui` root view.
+/// Singleton holding the TUI's [`TuiLoginPhase`]. Local startup initializes it
+/// as logged in, and the shared root view reads the phase for compatibility.
 pub struct TuiLoginModel {
     phase: TuiLoginPhase,
+    #[cfg(test)]
     browser_flow: TuiAuthBrowserFlow,
+    #[cfg(test)]
     telemetry: TuiOnboardingTelemetry,
 }
 
@@ -77,100 +85,131 @@ impl TuiLoginModel {
     pub fn phase(&self) -> &TuiLoginPhase {
         &self.phase
     }
-    /// Starts or retries device authorization from a signed-out screen.
+    /// Compatibility entry point retained for the auth UI's shared action map.
     pub fn start_device_login(ctx: &mut AppContext) {
+        #[cfg(test)]
         start_tui_device_login(ctx);
+        #[cfg(not(test))]
+        let _ = ctx;
     }
 
-    /// Starts device authorization and records that the generated URL should be copied.
+    /// Compatibility entry point retained for the auth UI's shared action map.
     pub fn start_device_login_and_copy_url(ctx: &mut AppContext) {
+        #[cfg(test)]
+        // Browser authentication is intentionally disabled in local mode.
         start_tui_device_login_with_entrypoint(AuthenticationEntrypoint::CopyUrl, ctx);
+        #[cfg(not(test))]
+        let _ = ctx;
     }
 
-    /// Records the outcome of copying the current authentication URL.
+    /// Compatibility hook retained for the auth UI's shared action map.
     pub fn record_login_url_copied(succeeded: bool, ctx: &mut AppContext) {
-        let event =
-            Self::handle(ctx).update(ctx, |model, _| model.telemetry.login_url_copied(succeeded));
-        send_tui_onboarding_event(event, ctx);
-    }
-
-    /// Records that the user exited while the authentication UI was visible.
-    pub fn record_authentication_abandoned(ctx: &mut AppContext) {
-        let event = Self::handle(ctx).update(ctx, |model, _| {
-            let phase = AbandonmentPhase::from_login_phase(&model.phase)?;
-            model.telemetry.abandoned(phase)
-        });
-        send_tui_onboarding_event(event, ctx);
-    }
-
-    /// Records that the terminal became usable after interactive authentication.
-    pub fn record_terminal_shown(ctx: &mut AppContext) {
-        let event = Self::handle(ctx).update(ctx, |model, _| model.telemetry.completed());
-        send_tui_onboarding_event(event, ctx);
-    }
-
-    /// Opens the current device-authorization URL.
-    pub fn open_login_url(browser_url: &str, ctx: &mut AppContext) {
-        let is_current_url = matches!(
-            TuiLoginModel::as_ref(ctx).phase(),
-            TuiLoginPhase::AwaitingLogin {
-                browser_url: Some(current_url),
-            } if current_url == browser_url
-        ) || matches!(
-            TuiLoginModel::as_ref(ctx).phase(),
-            TuiLoginPhase::BrowserOpenFailed {
-                browser_url: current_url,
-            } if current_url == browser_url
-        );
-        if !is_current_url {
-            return;
+        #[cfg(test)]
+        {
+            let event = Self::handle(ctx)
+                .update(ctx, |model, _| model.telemetry.login_url_copied(succeeded));
+            send_tui_onboarding_event(event, ctx);
         }
+        #[cfg(not(test))]
+        let _ = (succeeded, ctx);
+    }
 
-        let retrying_after_failure = matches!(
-            TuiLoginModel::as_ref(ctx).phase(),
-            TuiLoginPhase::BrowserOpenFailed { .. }
-        );
-        let browser_opened = ctx.try_open_url(browser_url);
-        let event = TuiLoginModel::handle(ctx).update(ctx, |model, _| {
-            model.telemetry.browser_launch(browser_opened)
-        });
-        send_tui_onboarding_event(event, ctx);
-        if !browser_opened {
+    /// Compatibility hook retained for the auth UI's shared action map.
+    pub fn record_authentication_abandoned(ctx: &mut AppContext) {
+        #[cfg(test)]
+        {
+            let event = Self::handle(ctx).update(ctx, |model, _| {
+                let phase = AbandonmentPhase::from_login_phase(&model.phase)?;
+                model.telemetry.abandoned(phase)
+            });
+            send_tui_onboarding_event(event, ctx);
+        }
+        #[cfg(not(test))]
+        let _ = ctx;
+    }
+
+    /// Compatibility hook retained for the auth UI's shared action map.
+    pub fn record_terminal_shown(ctx: &mut AppContext) {
+        #[cfg(test)]
+        {
+            let event = Self::handle(ctx).update(ctx, |model, _| model.telemetry.completed());
+            send_tui_onboarding_event(event, ctx);
+        }
+        #[cfg(not(test))]
+        let _ = ctx;
+    }
+
+    /// Compatibility entry point retained for the auth UI's shared action map.
+    pub fn open_login_url(browser_url: &str, ctx: &mut AppContext) {
+        #[cfg(test)]
+        {
+            let is_current_url = matches!(
+                TuiLoginModel::as_ref(ctx).phase(),
+                TuiLoginPhase::AwaitingLogin {
+                    browser_url: Some(current_url),
+                } if current_url == browser_url
+            ) || matches!(
+                TuiLoginModel::as_ref(ctx).phase(),
+                TuiLoginPhase::BrowserOpenFailed {
+                    browser_url: current_url,
+                } if current_url == browser_url
+            );
+            if !is_current_url {
+                return;
+            }
+
+            let retrying_after_failure = matches!(
+                TuiLoginModel::as_ref(ctx).phase(),
+                TuiLoginPhase::BrowserOpenFailed { .. }
+            );
+            let browser_opened = ctx.try_open_url(browser_url);
+            let event = TuiLoginModel::handle(ctx).update(ctx, |model, _| {
+                model.telemetry.browser_launch(browser_opened)
+            });
+            send_tui_onboarding_event(event, ctx);
+            if !browser_opened {
+                TuiLoginModel::handle(ctx).update(ctx, |model, _| {
+                    if model.browser_flow == TuiAuthBrowserFlow::LogoutThenDeviceAuthorizationOpened
+                    {
+                        model.browser_flow =
+                            TuiAuthBrowserFlow::LogoutThenDeviceAuthorizationPending;
+                    }
+                });
+                set_login_phase(
+                    ctx,
+                    TuiLoginPhase::BrowserOpenFailed {
+                        browser_url: browser_url.to_owned(),
+                    },
+                );
+                log::warn!("Unable to open the device authorization URL in the default browser");
+                return;
+            }
+
             TuiLoginModel::handle(ctx).update(ctx, |model, _| {
-                if model.browser_flow == TuiAuthBrowserFlow::LogoutThenDeviceAuthorizationOpened {
-                    model.browser_flow = TuiAuthBrowserFlow::LogoutThenDeviceAuthorizationPending;
+                if model.browser_flow == TuiAuthBrowserFlow::LogoutThenDeviceAuthorizationPending {
+                    model.browser_flow = TuiAuthBrowserFlow::LogoutThenDeviceAuthorizationOpened;
                 }
             });
-            set_login_phase(
-                ctx,
-                TuiLoginPhase::BrowserOpenFailed {
-                    browser_url: browser_url.to_owned(),
-                },
-            );
-            log::warn!("Unable to open the device authorization URL in the default browser");
-            return;
-        }
-
-        TuiLoginModel::handle(ctx).update(ctx, |model, _| {
-            if model.browser_flow == TuiAuthBrowserFlow::LogoutThenDeviceAuthorizationPending {
-                model.browser_flow = TuiAuthBrowserFlow::LogoutThenDeviceAuthorizationOpened;
+            if retrying_after_failure {
+                set_login_phase(
+                    ctx,
+                    TuiLoginPhase::AwaitingLogin {
+                        browser_url: Some(browser_url.to_owned()),
+                    },
+                );
             }
-        });
-        if retrying_after_failure {
-            set_login_phase(
-                ctx,
-                TuiLoginPhase::AwaitingLogin {
-                    browser_url: Some(browser_url.to_owned()),
-                },
-            );
         }
+        #[cfg(not(test))]
+        let _ = (browser_url, ctx);
     }
 
     #[cfg(any(test, feature = "test-util"))]
     pub fn signed_out_for_test() -> Self {
         Self {
             phase: TuiLoginPhase::SignedOutWelcome,
+            #[cfg(test)]
             browser_flow: TuiAuthBrowserFlow::DirectDeviceAuthorization,
+            #[cfg(test)]
             telemetry: TuiOnboardingTelemetry::new(false),
         }
     }
@@ -181,7 +220,9 @@ impl TuiLoginModel {
             phase: TuiLoginPhase::Failed {
                 message: message.into(),
             },
+            #[cfg(test)]
             browser_flow: TuiAuthBrowserFlow::DirectDeviceAuthorization,
+            #[cfg(test)]
             telemetry: TuiOnboardingTelemetry::new(false),
         }
     }
@@ -190,7 +231,9 @@ impl TuiLoginModel {
     pub fn awaiting_login_for_test(browser_url: Option<String>) -> Self {
         Self {
             phase: TuiLoginPhase::AwaitingLogin { browser_url },
+            #[cfg(test)]
             browser_flow: TuiAuthBrowserFlow::DirectDeviceAuthorization,
+            #[cfg(test)]
             telemetry: TuiOnboardingTelemetry::new(false),
         }
     }
@@ -204,43 +247,36 @@ impl SingletonEntity for TuiLoginModel {}
 
 /// Entry point invoked from `run_internal` once the headless app is initialized.
 ///
-/// Registers the [`TuiLoginModel`], mounts the TUI immediately, and shows an
-/// explicit welcome screen when the user isn't already logged in.
+/// Registers the [`TuiLoginModel`] and mounts the local TUI immediately.
 pub(crate) fn init(mount: TuiMountFn, ctx: &mut AppContext) {
-    let initial_phase = initial_login_phase(AuthStateProvider::as_ref(ctx).get());
-    let logged_in = matches!(&initial_phase, TuiLoginPhase::LoggedIn);
-    ctx.add_singleton_model(move |_| TuiLoginModel {
-        phase: initial_phase,
+    // Local mode has no cloud identity to validate. Start directly in the
+    // terminal phase so session creation never waits for authentication.
+    ctx.add_singleton_model(|_| TuiLoginModel {
+        phase: TuiLoginPhase::LoggedIn,
+        #[cfg(test)]
         browser_flow: TuiAuthBrowserFlow::DirectDeviceAuthorization,
-        telemetry: TuiOnboardingTelemetry::new(logged_in),
+        #[cfg(test)]
+        telemetry: TuiOnboardingTelemetry::new(true),
     });
     ctx.add_singleton_model(TuiMcpManager::new);
     ctx.add_singleton_model(TuiUserInfoManager::new);
-    let onboarding_markers = ctx.add_singleton_model(TuiOnboardingMarkers::new);
+    // Keep the singleton registered for terminal-view compatibility, but do
+    // not load or persist account-scoped cloud markers in local mode.
+    ctx.add_singleton_model(TuiOnboardingMarkers::new);
 
-    // Keep the auth subscription alive for the full process lifetime so a
-    // logged-in TUI can complete device authorization again after logout.
-    ctx.subscribe_to_model(&AuthManager::handle(ctx), |_, event, ctx| {
-        handle_auth_manager_event(event, ctx);
-    });
-    if logged_in {
-        onboarding_markers.update(ctx, |markers, ctx| {
-            markers.load_current_account(ctx);
-        });
-    }
-    // Mount the TUI now so it renders immediately; signed-out users see the
-    // welcome screen before explicitly starting browser authentication.
+    // The auth subscription and device-login polling are intentionally disabled
+    // in local mode.
     mount(ctx);
 
-    if logged_in {
-        activate_global_mcp_servers(ctx);
-    }
+    #[cfg(test)]
+    activate_global_mcp_servers(ctx);
 }
 
 fn has_validated_identity(auth_state: &AuthState) -> bool {
     auth_state.is_logged_in() && auth_state.user_id().is_some()
 }
 
+#[cfg(test)]
 fn initial_login_phase(auth_state: &AuthState) -> TuiLoginPhase {
     if has_validated_identity(auth_state) {
         TuiLoginPhase::LoggedIn
@@ -249,8 +285,10 @@ fn initial_login_phase(auth_state: &AuthState) -> TuiLoginPhase {
     }
 }
 
+#[cfg(test)]
 fn handle_auth_manager_event(event: &AuthManagerEvent, ctx: &mut AppContext) {
     match event {
+        #[cfg(test)]
         AuthManagerEvent::ReceivedDeviceAuthorizationCode {
             verification_url,
             verification_url_complete,
@@ -288,6 +326,7 @@ fn handle_auth_manager_event(event: &AuthManagerEvent, ctx: &mut AppContext) {
             );
             TuiLoginModel::open_login_url(&url_to_open, ctx);
         }
+        #[cfg(test)]
         AuthManagerEvent::AuthComplete => {
             set_login_phase(ctx, TuiLoginPhase::LoggedIn);
             TuiOnboardingMarkers::handle(ctx).update(ctx, |markers, ctx| {
@@ -328,12 +367,14 @@ fn handle_auth_manager_event(event: &AuthManagerEvent, ctx: &mut AppContext) {
     }
 }
 
+#[cfg(test)]
 fn authorize_device(ctx: &mut AppContext) {
     AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
         auth_manager.authorize_device(ctx);
     });
 }
 
+#[cfg(test)]
 fn tui_verification_url(verification_url: &str, user_code: &str) -> String {
     let Ok(mut verification_url) = Url::parse(verification_url) else {
         return verification_url.to_owned();
@@ -350,17 +391,20 @@ fn tui_verification_url(verification_url: &str, user_code: &str) -> String {
     verification_url.into()
 }
 
+#[cfg(test)]
 fn activate_global_mcp_servers(ctx: &mut AppContext) {
     FileBasedMCPManager::handle(ctx).update(ctx, |manager, ctx| {
         manager.activate_global_warp_servers(ctx);
     });
 }
 
-/// Starts device authorization from a signed-out screen, preserving any required web logout.
+/// Compatibility entry point retained for the auth UI's shared action map.
+#[cfg(test)]
 pub fn start_tui_device_login(ctx: &mut AppContext) {
     start_tui_device_login_with_entrypoint(AuthenticationEntrypoint::OpenBrowser, ctx);
 }
 
+#[cfg(test)]
 fn start_tui_device_login_with_entrypoint(
     entrypoint: AuthenticationEntrypoint,
     ctx: &mut AppContext,
@@ -386,16 +430,24 @@ fn start_tui_device_login_with_entrypoint(
         authorize_device(ctx);
     }
 }
-/// Logs out the current TUI user and sends them to Warp web's logged-out flow.
+
+/// Leaves the local TUI in its usable terminal phase; cloud logout and
+/// reauthentication are intentionally unavailable.
 pub fn log_out_tui(ctx: &mut AppContext) {
-    auth::log_out(ctx);
-    TuiOnboardingMarkers::handle(ctx).update(ctx, |markers, ctx| {
-        markers.reset_for_account_transition(ctx);
-    });
-    set_logged_out_phase(ctx);
-    authorize_device(ctx);
+    #[cfg(test)]
+    {
+        auth::log_out(ctx);
+        TuiOnboardingMarkers::handle(ctx).update(ctx, |markers, ctx| {
+            markers.reset_for_account_transition(ctx);
+        });
+        set_logged_out_phase(ctx);
+        authorize_device(ctx);
+    }
+    #[cfg(not(test))]
+    let _ = ctx;
 }
 
+#[cfg(test)]
 fn set_logged_out_phase(ctx: &mut AppContext) {
     let event = TuiLoginModel::handle(ctx).update(ctx, |model, ctx| {
         model.phase = TuiLoginPhase::AwaitingLogin { browser_url: None };
@@ -409,9 +461,7 @@ fn set_logged_out_phase(ctx: &mut AppContext) {
     send_tui_onboarding_event(Some(event), ctx);
 }
 
-/// Updates the shared [`TuiLoginModel`] phase and notifies observers, so the
-/// root view re-renders (and the TUI driver repaints). Emits
-/// [`TuiLoginEvent::LoggedIn`] when authentication completes.
+#[cfg(test)]
 fn set_login_phase(ctx: &mut AppContext, phase: TuiLoginPhase) {
     TuiLoginModel::handle(ctx).update(ctx, |model, ctx| {
         let logged_in = matches!(phase, TuiLoginPhase::LoggedIn);
@@ -427,6 +477,7 @@ fn set_login_phase(ctx: &mut AppContext, phase: TuiLoginPhase) {
     });
 }
 
+#[cfg(test)]
 fn send_tui_onboarding_event(event: Option<TuiOnboardingTelemetryEvent>, ctx: &mut AppContext) {
     if let Some(event) = event {
         warp_core::send_telemetry_from_app_ctx!(event, ctx);

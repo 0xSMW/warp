@@ -1,58 +1,36 @@
-//! Background auto-updater for the headless `warp-tui` front-end.
+//! Local-only state for the headless `warp-tui` front-end.
 //!
-//! Follows the "native installer" model used by peer CLIs (e.g. Claude Code):
-//! the installer (`warp-server/download/tui_install.sh`) lays installs out as
-//!
-//! ```text
-//! <root>/                      # ~/.warp/tui by default
-//!   versions/<version>/        # binary + resources/ per installed version
-//!   current                    # active version symlink (Unix) or text pointer (Windows)
-//! <bin-dir>/warp[-<channel>]   # stable symlink (Unix) or launcher (Windows)
-//! ```
-//!
-//! and this module keeps that layout fresh: it polls on the same cadence as
-//! the GUI autoupdater (each poll is a single lightweight `/client_version`
-//! request). Unix stages release archives directly; Windows downloads and
-//! executes the same signed Inno installer used for initial installation.
-//! Both paths activate immutable versions without touching the running
-//! session. Managed processes hold shared per-version leases for their
-//! lifetime, and cleanup only removes inactive versions whose lease can be
-//! locked exclusively.
-//!
-//! Native background updates only run for managed installs (i.e. when the
-//! running executable resolves into a `versions/` directory). Recognized
-//! Homebrew installs check for newer versions but leave installation to
-//! Homebrew, while `cargo run` builds and legacy flat installs are unaffected.
-//! Users can opt out with the file-backed `general.autoupdate_enabled` setting
-//! or the `WARP_TUI_DISABLE_AUTOUPDATE` environment variable; re-running the
-//! install script remains available as a manual escape hatch.
+//! The network-backed TUI updater is disabled in this build. Registration keeps
+//! the singleton and its status API available to the zero state, while the
+//! process-lifetime version lease and local filesystem helpers remain available
+//! for managed installs.
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
+#[cfg(test)]
+use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(test)]
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, bail};
+#[cfg(test)]
 use channel_versions::{ChannelVersions, ParsedVersion};
-use futures::TryStreamExt as _;
-use warp::settings::TuiAutoupdateSettings;
-use warp_core::channel::{Channel, ChannelState};
-use warp_core::{safe_warn, send_telemetry_from_ctx};
-use warpui::r#async::Timer;
-use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
+#[cfg(test)]
+use warp_core::channel::Channel;
+#[cfg(test)]
+use warp_core::safe_warn;
+use warpui::{AppContext, Entity, SingletonEntity};
 
-use crate::telemetry::TuiAutoupdateTelemetryEvent;
-
-/// Setting this environment variable (to any value) disables background
-/// auto-updates for a single launch, regardless of the
-/// `general.autoupdate_enabled` setting.
-const DISABLE_ENV_VAR: &str = "WARP_TUI_DISABLE_AUTOUPDATE";
+#[cfg(test)]
 /// The stable cask token shared by the Warp-managed tap and the planned
 /// official Homebrew package.
 const HOMEBREW_CASK_TOKEN: &str = "warp-agent-cli";
 
 /// User-facing status for Homebrew installations with a newer cask.
+#[cfg(test)]
 pub(crate) const HOMEBREW_UPDATE_STATUS: &str =
     "update available — run brew upgrade --cask warp-agent-cli";
 
@@ -68,32 +46,22 @@ const PREVIOUS_POINTER_NAME: &str = "previous";
 const VERSION_LEASES_DIR_NAME: &str = "version-leases";
 
 /// Atomic directory lock shared by the Unix Rust and shell installers.
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 const LOCK_FILE_NAME: &str = ".update.lock";
 
 /// Debug metadata written inside [`LOCK_FILE_NAME`].
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 const LOCK_OWNER_FILE_NAME: &str = "owner";
-
-/// How often to check for updates. Mirrors the GUI autoupdater's poll
-/// interval (`AutoupdateState::AUTOUPDATE_POLL`); each check is a single
-/// lightweight `/client_version` request unless a new version actually needs
-/// downloading.
-const CHECK_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
 /// A lock file held for longer than this is considered abandoned (e.g. a
 /// crashed updater) and is broken.
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 const STALE_LOCK_AGE: Duration = Duration::from_secs(60 * 60);
-
-/// Timeout for the (small) channel-versions fetch.
-const FETCH_VERSIONS_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Timeout for downloading a TUI release artifact.
-const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// Disambiguates generated staging paths and install-lock owner tokens when
 /// their process ID and timestamp components happen to match.
+#[cfg(test)]
 static NEXT_UNIQUE_ID: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
 const MAX_STAGING_DIR_ATTEMPTS: usize = 100;
 
 /// The managed, versioned install layout the running binary belongs to.
@@ -145,6 +113,7 @@ impl InstallLayout {
 }
 
 /// The installation owner inferred from the canonical running executable.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum InstallMethod {
     /// Installed by Warp's native versioned installer.
@@ -155,6 +124,7 @@ enum InstallMethod {
     Unmanaged,
 }
 
+#[cfg(test)]
 impl InstallMethod {
     fn detect() -> Self {
         let Ok(exe) = std::env::current_exe() else {
@@ -175,6 +145,7 @@ impl InstallMethod {
     }
 }
 
+#[cfg(test)]
 fn is_homebrew_cask_exe_path(exe: &Path) -> bool {
     if exe.file_name() != Some(OsStr::new("warp-tui-stable")) {
         return false;
@@ -194,6 +165,7 @@ fn is_homebrew_cask_exe_path(exe: &Path) -> bool {
     })
 }
 
+/*
 fn download_url(version: &str) -> Result<String> {
     let os = download_os().context("no TUI release artifacts exist for this platform")?;
     let arch = download_arch();
@@ -203,8 +175,9 @@ fn download_url(version: &str) -> Result<String> {
         download_endpoint(ChannelState::channel()),
     ))
 }
+*/
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn read_current_pointer(layout: &InstallLayout) -> Result<OsString> {
     fs::read_link(&layout.current_pointer)
         .with_context(|| {
@@ -218,7 +191,7 @@ fn read_current_pointer(layout: &InstallLayout) -> Result<OsString> {
         .context("current TUI symlink has no version component")
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, test))]
 fn read_current_pointer(layout: &InstallLayout) -> Result<OsString> {
     let version = fs::read_to_string(&layout.current_pointer)
         .with_context(|| {
@@ -235,19 +208,19 @@ fn read_current_pointer(layout: &InstallLayout) -> Result<OsString> {
     Ok(version.into())
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, test))]
 fn previous_pointer_version(layout: &InstallLayout) -> Option<OsString> {
     let version = fs::read_to_string(layout.root.join(PREVIOUS_POINTER_NAME)).ok()?;
     let version = version.trim();
     is_safe_version_component(version).then(|| version.into())
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), test))]
 fn previous_pointer_version(_layout: &InstallLayout) -> Option<OsString> {
     None
 }
 
-#[cfg(not(any(unix, windows)))]
+#[cfg(all(not(any(unix, windows)), test))]
 fn read_current_pointer(_layout: &InstallLayout) -> Result<OsString> {
     bail!("TUI auto-update is not supported on this platform")
 }
@@ -318,6 +291,7 @@ impl VersionLease {
 }
 
 /// The result of a single update check.
+#[cfg(test)]
 #[derive(Debug)]
 enum UpdateOutcome {
     /// Skipped: another process is installing an update right now.
@@ -335,6 +309,7 @@ enum UpdateOutcome {
     UpdateAvailable { version: String },
 }
 
+#[cfg(test)]
 impl UpdateOutcome {
     /// Stable identifier for this kind of outcome, used for telemetry and
     /// for detecting transitions between consecutive checks.
@@ -370,16 +345,22 @@ pub(crate) enum TuiAutoupdateStatus {
     /// has produced a stable result yet.
     Idle,
     /// Fetching the latest version for this channel.
+    #[cfg(test)]
     Checking,
     /// Downloading and staging a newer version.
+    #[cfg(test)]
     Updating,
     /// The running build is the channel's latest version.
+    #[cfg(test)]
     UpToDate,
     /// The most recent check or update attempt failed.
+    #[cfg(test)]
     Failed,
     /// A newer version is staged and takes effect on the next launch.
+    #[cfg(test)]
     PendingRestart,
     /// A newer Homebrew cask is available.
+    #[cfg(test)]
     UpdateAvailable,
 }
 
@@ -387,68 +368,12 @@ pub(crate) enum TuiAutoupdateStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TuiAutoupdaterEvent {
     /// [`TuiAutoupdater::status`] changed.
+    #[cfg(test)]
     StatusChanged,
 }
 
-/// Whether this process runs the background update loop.
-///
-/// Package-manager-owned installs use explicit variants because each manager
-/// can require different version checks, status copy, and update commands.
-#[derive(Clone, Debug)]
-enum AutoupdateEligibility {
-    /// Eligible for native background installation.
-    Native(InstallLayout),
-    /// Eligible for update checks, with installation owned by Homebrew.
-    Homebrew,
-    /// Background updates are disabled for this process.
-    Disabled {
-        /// Why updates are disabled, for logging/debugging.
-        reason: &'static str,
-    },
-}
-
-impl AutoupdateEligibility {
-    /// Determines whether this process should run the background update loop.
-    ///
-    /// The `general.autoupdate_enabled` setting is read once here, at startup;
-    /// toggling it takes effect on the next launch.
-    fn determine(ctx: &AppContext) -> Self {
-        if std::env::var_os(DISABLE_ENV_VAR).is_some() {
-            return Self::Disabled {
-                reason: "opted out via the WARP_TUI_DISABLE_AUTOUPDATE environment variable",
-            };
-        }
-        if !*TuiAutoupdateSettings::as_ref(ctx).autoupdate_enabled {
-            return Self::Disabled {
-                reason: "opted out via the general.autoupdate_enabled setting",
-            };
-        }
-        if ChannelState::app_version().is_none() {
-            return Self::Disabled {
-                reason: "no release version tag baked into this build",
-            };
-        }
-        if download_os().is_none() {
-            return Self::Disabled {
-                reason: "no TUI release artifacts exist for this platform",
-            };
-        }
-        match InstallMethod::detect() {
-            InstallMethod::Native(layout) => Self::Native(layout),
-            InstallMethod::Homebrew => Self::Homebrew,
-            InstallMethod::Unmanaged => Self::Disabled {
-                reason: "not running from a managed install",
-            },
-        }
-    }
-}
-
+/*
 /// Singleton driving the background update loop for the TUI session.
-///
-/// Always registered — even when this process isn't eligible for background
-/// updates — so other callsites can safely access the singleton. The polling
-/// loop only runs when [`Self::eligibility`] is
-/// [`AutoupdateEligibility::Native`] or [`AutoupdateEligibility::Homebrew`].
 pub(crate) struct TuiAutoupdater {
     /// Whether (and where) this process runs background updates.
     eligibility: AutoupdateEligibility,
@@ -459,6 +384,13 @@ pub(crate) struct TuiAutoupdater {
     /// poll), so only transitions are reported.
     last_reported_outcome: Option<&'static str>,
 }
+*/
+
+/// Compile-compatible local-only updater state.
+pub(crate) struct TuiAutoupdater {
+    /// The user-visible status of the update loop.
+    status: TuiAutoupdateStatus,
+}
 
 impl Entity for TuiAutoupdater {
     type Event = TuiAutoupdaterEvent;
@@ -467,150 +399,21 @@ impl Entity for TuiAutoupdater {
 impl SingletonEntity for TuiAutoupdater {}
 
 impl TuiAutoupdater {
-    /// Registers the singleton and starts the background update loop when
-    /// this process is eligible (see [`AutoupdateEligibility::determine`]).
+    /// Registers the singleton without starting any network or background work.
     pub(crate) fn register(ctx: &mut AppContext) {
-        let eligibility = AutoupdateEligibility::determine(ctx);
-        ctx.add_singleton_model(move |_| TuiAutoupdater {
-            eligibility,
+        ctx.add_singleton_model(|_| TuiAutoupdater {
             status: TuiAutoupdateStatus::Idle,
-            last_reported_outcome: None,
         });
-        TuiAutoupdater::handle(ctx).update(ctx, |me, ctx| match me.eligibility.clone() {
-            AutoupdateEligibility::Native(layout) => me.check_native_now(layout, ctx),
-            AutoupdateEligibility::Homebrew => me.check_homebrew_now(ctx),
-            AutoupdateEligibility::Disabled { reason } => {
-                log::info!("TUI autoupdate disabled: {reason}");
-            }
-        });
+        log::info!("TUI autoupdate disabled for local-only build");
     }
 
     /// The user-visible status of the update loop, for the zero state.
     pub(crate) fn status(&self) -> TuiAutoupdateStatus {
         self.status
     }
-
-    /// Updates the status, emitting [`TuiAutoupdaterEvent::StatusChanged`]
-    /// only on actual transitions.
-    fn set_status(&mut self, status: TuiAutoupdateStatus, ctx: &mut ModelContext<Self>) {
-        if self.status == status {
-            return;
-        }
-        self.status = status;
-        ctx.emit(TuiAutoupdaterEvent::StatusChanged);
-    }
-
-    /// Runs one background update check, then schedules the next one after
-    /// [`CHECK_INTERVAL`]. The pass runs in two phases so the zero state can
-    /// show progress: a lightweight version check, then — only when a newer
-    /// version needs staging — the download/install phase.
-    fn check_native_now(&mut self, layout: InstallLayout, ctx: &mut ModelContext<Self>) {
-        // Where the status settles when this pass is skipped because another
-        // process is installing, and the status to preserve once an update is
-        // pending restart.
-        let fallback_status = self.status;
-        self.set_status(TuiAutoupdateStatus::Checking, ctx);
-        let check_layout = layout.clone();
-        ctx.spawn(
-            async move { check_for_update(check_layout).await },
-            move |me, decision, ctx| match decision {
-                Ok(CheckDecision::Settled(outcome)) => {
-                    me.finish_check(Ok(outcome), fallback_status, layout, ctx);
-                }
-                Ok(CheckDecision::NeedsInstall { latest_version }) => {
-                    me.set_status(TuiAutoupdateStatus::Updating, ctx);
-                    let install_layout = layout.clone();
-                    ctx.spawn(
-                        async move { install_update(install_layout, latest_version).await },
-                        move |me, result, ctx| {
-                            me.finish_check(result, fallback_status, layout, ctx);
-                        },
-                    );
-                }
-                Err(error) => me.finish_check(Err(error), fallback_status, layout, ctx),
-            },
-        );
-    }
-
-    /// Checks for a newer Homebrew cask without invoking Homebrew or modifying
-    /// the Caskroom-managed installation.
-    fn check_homebrew_now(&mut self, ctx: &mut ModelContext<Self>) {
-        let fallback_status = self.status;
-        self.set_status(TuiAutoupdateStatus::Checking, ctx);
-        ctx.spawn(check_homebrew_update(), move |me, result, ctx| {
-            me.finish_homebrew_check(result, fallback_status, ctx)
-        });
-    }
-
-    fn finish_homebrew_check(
-        &mut self,
-        result: Result<UpdateOutcome>,
-        fallback_status: TuiAutoupdateStatus,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        match &result {
-            Ok(outcome) => log::info!("TUI Homebrew update check finished: {outcome:?}"),
-            Err(error) => log::warn!("TUI Homebrew update check failed: {error:#}"),
-        }
-        self.report_outcome(&result, ctx);
-        let status = settled_status(&result, fallback_status);
-        self.set_status(status, ctx);
-        ctx.spawn(
-            async { Timer::after(CHECK_INTERVAL).await },
-            move |me, _, ctx| me.check_homebrew_now(ctx),
-        );
-    }
-
-    /// Logs and reports the final result of an update pass, settles the
-    /// user-visible status, and schedules the next check.
-    fn finish_check(
-        &mut self,
-        result: Result<UpdateOutcome>,
-        fallback_status: TuiAutoupdateStatus,
-        layout: InstallLayout,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        match &result {
-            Ok(outcome) => log::info!("TUI autoupdate check finished: {outcome:?}"),
-            // Let the next poll retry; transient network errors (e.g. waking
-            // from sleep) are common here.
-            Err(error) => log::warn!("TUI autoupdate check failed: {error:#}"),
-        }
-        self.report_outcome(&result, ctx);
-        let status = settled_status(&result, fallback_status);
-        self.set_status(status, ctx);
-        ctx.spawn(
-            async { Timer::after(CHECK_INTERVAL).await },
-            move |me, _, ctx| me.check_native_now(layout, ctx),
-        );
-    }
-
-    /// Sends a telemetry event when the outcome kind changed since the last
-    /// check, so the frequent poll doesn't emit repeated `up_to_date` (or
-    /// repeated-failure) events.
-    fn report_outcome(&mut self, result: &Result<UpdateOutcome>, ctx: &mut ModelContext<Self>) {
-        let kind = match result {
-            Ok(outcome) => outcome.kind(),
-            Err(_) => "failed",
-        };
-        if self.last_reported_outcome == Some(kind) {
-            return;
-        }
-        self.last_reported_outcome = Some(kind);
-
-        let event = match result {
-            Ok(outcome) => TuiAutoupdateTelemetryEvent::CheckCompleted {
-                outcome: kind,
-                version: outcome.version().map(ToOwned::to_owned),
-            },
-            Err(error) => TuiAutoupdateTelemetryEvent::CheckFailed {
-                error: format!("{error:#}"),
-            },
-        };
-        send_telemetry_from_ctx!(event, ctx);
-    }
 }
 
+#[cfg(test)]
 fn settled_status(
     result: &Result<UpdateOutcome>,
     fallback_status: TuiAutoupdateStatus,
@@ -633,6 +436,7 @@ fn settled_status(
     }
 }
 
+/*
 /// The result of the lightweight check phase of an update pass.
 #[derive(Debug)]
 enum CheckDecision {
@@ -688,7 +492,9 @@ async fn check_homebrew_update() -> Result<UpdateOutcome> {
     let latest_version = fetch_latest_version(&http_client::Client::new()).await?;
     homebrew_update_outcome(current_version, latest_version)
 }
+*/
 
+#[cfg(test)]
 fn homebrew_update_outcome(current_version: &str, latest_version: String) -> Result<UpdateOutcome> {
     if is_newer_version(current_version, &latest_version)? {
         Ok(UpdateOutcome::UpdateAvailable {
@@ -701,6 +507,7 @@ fn homebrew_update_outcome(current_version: &str, latest_version: String) -> Res
     }
 }
 
+#[cfg(test)]
 fn is_newer_version(current_version: &str, latest_version: &str) -> Result<bool> {
     let latest_parsed = ParsedVersion::try_from(latest_version)
         .with_context(|| format!("invalid latest version {latest_version:?}"))?;
@@ -712,6 +519,7 @@ fn is_newer_version(current_version: &str, latest_version: &str) -> Result<bool>
     Ok(latest_parsed > current_parsed)
 }
 
+#[cfg(test)]
 fn is_safe_version_component(version: &str) -> bool {
     !version.is_empty()
         && !version.contains("..")
@@ -723,6 +531,7 @@ fn is_safe_version_component(version: &str) -> bool {
             .components()
             .all(|component| matches!(component, std::path::Component::Normal(_)))
 }
+#[cfg(test)]
 fn is_safe_windows_path_component(component: &str) -> bool {
     if component.is_empty()
         || matches!(component, "." | "..")
@@ -745,6 +554,7 @@ fn is_safe_windows_path_component(component: &str) -> bool {
             && stem.as_bytes()[3] != b'0')
 }
 
+/*
 /// Performs the Unix install phase. Download and extraction happen without
 /// the global install lock; finalization and activation are serialized.
 #[cfg(unix)]
@@ -794,6 +604,7 @@ async fn install_update(layout: InstallLayout, latest_version: String) -> Result
     })
     .await
 }
+*/
 
 /// Builds the Inno Setup `/DIR` argument naming the install root.
 ///
@@ -804,13 +615,14 @@ async fn install_update(layout: InstallLayout, latest_version: String) -> Result
 /// following characters" and exiting with code 3 before installing anything.
 /// `/SUPPRESSMSGBOXES` hides that dialog, so the failure would otherwise
 /// surface only as a bare exit code.
-#[cfg(windows)]
+#[cfg(all(windows, test))]
 fn installer_dir_argument(root: &Path) -> OsString {
     let mut argument = OsString::from("/DIR=");
     argument.push(dunce::simplified(root));
     argument
 }
 
+/*
 #[cfg(windows)]
 async fn install_update(layout: InstallLayout, latest_version: String) -> Result<UpdateOutcome> {
     let client = http_client::Client::new();
@@ -861,8 +673,36 @@ async fn install_update(layout: InstallLayout, latest_version: String) -> Result
 async fn install_update(_layout: InstallLayout, _latest_version: String) -> Result<UpdateOutcome> {
     bail!("TUI auto-update is not supported on this platform")
 }
+*/
+
+// Keep the existing filesystem-only test coverage without restoring the
+// networked production install path.
+#[cfg(all(unix, test))]
+async fn install_update(layout: InstallLayout, latest_version: String) -> Result<UpdateOutcome> {
+    let version_dir = layout.versions_dir.join(&latest_version);
+    match version_dir_state(&layout, &version_dir)? {
+        VersionDirState::Complete => {
+            let Some(_lock) = InstallLock::acquire(&layout.root)? else {
+                return Ok(UpdateOutcome::Locked);
+            };
+            point_current_at(&layout, &latest_version)?;
+            prune_old_versions(&layout, &latest_version);
+            Ok(UpdateOutcome::Installed {
+                version: latest_version,
+            })
+        }
+        VersionDirState::Missing => {
+            bail!("TUI auto-update is disabled for local-only builds")
+        }
+        VersionDirState::Invalid => bail!(
+            "refusing to replace incomplete or invalid installed TUI version at \
+             {version_dir:?}; remove that directory or reinstall Warp Agent CLI, then retry"
+        ),
+    }
+}
 
 /// State of an immutable final version path.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum VersionDirState {
     Missing,
@@ -881,6 +721,7 @@ fn is_complete_version_dir(layout: &InstallLayout, version_dir: &Path) -> bool {
             .is_ok_and(|metadata| metadata.file_type().is_dir())
 }
 
+#[cfg(test)]
 fn version_dir_state(layout: &InstallLayout, version_dir: &Path) -> Result<VersionDirState> {
     match fs::symlink_metadata(version_dir) {
         Ok(_) if is_complete_version_dir(layout, version_dir) => Ok(VersionDirState::Complete),
@@ -892,10 +733,12 @@ fn version_dir_state(layout: &InstallLayout, version_dir: &Path) -> Result<Versi
 }
 
 /// Whether the platform-specific `current` pointer names `version`.
+#[cfg(test)]
 fn current_points_at(layout: &InstallLayout, version: &str) -> bool {
     read_current_pointer(layout).is_ok_and(|current| current == OsStr::new(version))
 }
 
+/*
 /// Fetches the latest version for this channel: from the Warp server's
 /// `/client_version` endpoint, falling back to the channel-versions JSON in
 /// GCP storage (mirroring the GUI autoupdater's fallback).
@@ -952,7 +795,9 @@ async fn fetch_latest_version(client: &http_client::Client) -> Result<String> {
 fn latest_version_for_channel(versions: &ChannelVersions) -> Result<String> {
     latest_version_for(ChannelState::channel(), versions)
 }
+*/
 
+#[cfg(test)]
 fn latest_version_for(channel: Channel, versions: &ChannelVersions) -> Result<String> {
     let channel_version = match channel {
         Channel::Dev => &versions.dev,
@@ -966,6 +811,7 @@ fn latest_version_for(channel: Channel, versions: &ChannelVersions) -> Result<St
 }
 
 /// The Warp Agent CLI artifact endpoint for a release channel.
+#[cfg(test)]
 fn download_endpoint(channel: Channel) -> &'static str {
     match channel {
         Channel::Preview => "/download/agent-cli-preview/artifact",
@@ -976,6 +822,7 @@ fn download_endpoint(channel: Channel) -> &'static str {
     }
 }
 
+/*
 /// The server's `os` query parameter for this build's platform, or `None` on
 /// platforms that can never have TUI release artifacts. Deriving this from
 /// the build target (instead of hard-coding macOS) guarantees e.g. a Linux
@@ -1000,7 +847,9 @@ fn download_arch() -> &'static str {
         "x86_64"
     }
 }
+*/
 
+/*
 #[cfg(windows)]
 struct DownloadedInstaller {
     path: PathBuf,
@@ -1070,15 +919,16 @@ async fn download_windows_installer(
     drop(file);
     Ok(installer)
 }
+*/
 
 /// A validated Unix update payload staged next to the final version directories.
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 struct StagedUpdate {
     staging_dir: PathBuf,
     payload_dir: PathBuf,
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 impl StagedUpdate {
     fn finalize(self, version_dir: &Path) -> Result<()> {
         fs::rename(&self.payload_dir, version_dir)
@@ -1086,7 +936,7 @@ impl StagedUpdate {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn finalize_staged_version(
     layout: &InstallLayout,
     version: &str,
@@ -1099,14 +949,14 @@ fn finalize_staged_version(
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 impl Drop for StagedUpdate {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.staging_dir);
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 async fn create_unique_staging_dir(versions_dir: &Path, version: &str) -> Result<PathBuf> {
     create_unique_staging_dir_with(|| {
         let staging_id = NEXT_UNIQUE_ID.fetch_add(1, Ordering::Relaxed);
@@ -1122,7 +972,7 @@ async fn create_unique_staging_dir(versions_dir: &Path, version: &str) -> Result
     .await
 }
 
-#[cfg(any(unix, test))]
+#[cfg(test)]
 async fn create_unique_staging_dir_with(
     mut next_candidate: impl FnMut() -> PathBuf,
 ) -> Result<PathBuf> {
@@ -1140,6 +990,7 @@ async fn create_unique_staging_dir_with(
     bail!("failed to allocate a unique TUI update staging directory")
 }
 
+/*
 #[cfg(unix)]
 async fn download_update(
     layout: &InstallLayout,
@@ -1232,9 +1083,10 @@ async fn download_update(
         payload_dir,
     })
 }
+*/
 
 /// Atomically points `current` at `versions/<version>`.
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 fn point_current_at(layout: &InstallLayout, version: &str) -> Result<()> {
     let staged_link = layout.root.join(".current.new");
     let _ = fs::remove_file(&staged_link);
@@ -1244,13 +1096,14 @@ fn point_current_at(layout: &InstallLayout, version: &str) -> Result<()> {
         .context("failed to retarget the `current` symlink")
 }
 
-#[cfg(not(any(unix, windows)))]
+#[cfg(all(not(any(unix, windows)), test))]
 fn point_current_at(_layout: &InstallLayout, _version: &str) -> Result<()> {
     bail!("TUI auto-update is not supported on this platform")
 }
 
 /// Removes inactive, lease-aware versions while the caller holds the global
 /// install lock. Unmarked versions predate this protocol and are retained.
+#[cfg(test)]
 fn prune_old_versions(layout: &InstallLayout, new_version: &str) {
     let running_version = layout
         .running_version_dir
@@ -1404,13 +1257,13 @@ fn prune_old_versions(layout: &InstallLayout, new_version: &str) {
 }
 
 /// An owned Unix install lock with stale-process recovery.
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 struct InstallLock {
     path: PathBuf,
     owner: String,
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 impl InstallLock {
     fn acquire(root: &Path) -> Result<Option<Self>> {
         Self::acquire_with_stale_age(root, STALE_LOCK_AGE)
@@ -1491,7 +1344,7 @@ impl InstallLock {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, test))]
 impl Drop for InstallLock {
     fn drop(&mut self) {
         let owner_path = self.path.join(LOCK_OWNER_FILE_NAME);
@@ -1509,6 +1362,7 @@ impl Drop for InstallLock {
     }
 }
 
+/*
 /// Removes a directory tree when dropped. Used to clean up the staging
 /// directory on both success and failure.
 #[cfg(unix)]
@@ -1519,6 +1373,7 @@ impl Drop for RemoveDirOnDrop {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
+*/
 
 #[cfg(test)]
 #[path = "autoupdate_tests.rs"]

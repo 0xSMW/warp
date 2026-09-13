@@ -1,20 +1,30 @@
+#[cfg(test)]
 use pathfinder_geometry::vector::vec2f;
+#[cfg(test)]
 use warpui::elements::{Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle};
+#[cfg(test)]
 use warpui::ui_components::button::{ButtonVariant, TextAndIcon, TextAndIconAlignment};
+#[cfg(test)]
 use warpui::ui_components::components::{Coords, UiComponent, UiComponentStyles};
 
 use super::SettingsSection;
+#[cfg(test)]
 use super::settings_page::{MatchData, NAV_ITEM_LEFT_MARGIN};
+#[cfg(test)]
 use crate::appearance::Appearance;
+#[cfg(test)]
 use crate::ui_components::icons::Icon;
 
 /// The font size for subpage items inside an umbrella.
+#[cfg(test)]
 const SUBPAGE_FONT_SIZE: f32 = 10.;
 
 /// Left margin for subpage items inside an umbrella (top-level margin + indent).
+#[cfg(test)]
 const SUBPAGE_LEFT_MARGIN: f32 = NAV_ITEM_LEFT_MARGIN + 12.;
 
 /// A collapsible group of settings subpages in the sidebar.
+#[cfg(test)]
 pub struct SettingsUmbrella {
     pub label: &'static str,
     pub subpages: Vec<SettingsSection>,
@@ -25,6 +35,7 @@ pub struct SettingsUmbrella {
     pub subpage_button_states: Vec<MouseStateHandle>,
 }
 
+#[cfg(test)]
 impl SettingsUmbrella {
     pub fn new(label: &'static str, subpages: Vec<SettingsSection>) -> Self {
         let subpage_count = subpages.len();
@@ -125,10 +136,11 @@ impl SettingsUmbrella {
     }
 }
 
-/// A sidebar navigation item: either a direct page link or a collapsible umbrella.
+/// A direct settings page in the sidebar.
 pub enum SettingsNavItem {
     /// A top-level page that is rendered directly in the sidebar.
     Page(SettingsSection),
+    #[cfg(test)]
     /// A collapsible group header whose children are subpage sections.
     Umbrella(SettingsUmbrella),
 }

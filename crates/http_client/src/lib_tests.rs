@@ -5,6 +5,25 @@ use tracing_subscriber::layer::SubscriberExt as _;
 
 use super::*;
 
+#[test]
+fn disabled_client_rejects_requests_after_logging_hook_replacement() {
+    let mut client = Client::disabled();
+    client.set_before_request_fn(Box::new(|_, _| panic!("transport hook must not run")));
+    client.set_before_request_fn(Box::new(|_, _| {}));
+    let request = Client::new().get("http://127.0.0.1:1/").build().unwrap();
+    assert!(futures::executor::block_on(client.execute(request)).is_err());
+    let event = futures::executor::block_on(
+        client
+            .get("https://example.com/events")
+            .eventsource()
+            .next(),
+    );
+    assert!(matches!(
+        event,
+        Some(Err(reqwest_eventsource::Error::Transport(_)))
+    ));
+}
+
 /// Runs `f` with a real OpenTelemetry subscriber installed and a span entered,
 /// so `Span::current()` resolves to a valid OTEL span context.
 fn with_active_span<R>(f: impl FnOnce() -> R) -> R {

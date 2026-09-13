@@ -1,49 +1,52 @@
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+use ai::skills::parse_skill;
 use ai::skills::{
-    ParsedSkill, SKILL_PROVIDER_DEFINITIONS, SkillProvider, home_skills_path, parse_skill,
+    ParsedSkill, SKILL_PROVIDER_DEFINITIONS, SkillProvider, home_skills_path,
     provider_parent_directory_for_skills_root, read_skills,
 };
 use anyhow::Error;
-use repo_metadata::{RepoMetadataModel, RepositoryIdentifier};
+// use repo_metadata::{RepoMetadataModel, RepositoryIdentifier};
 use walkdir::{DirEntry, WalkDir};
 use warp_util::local_or_remote_path::LocalOrRemotePath;
-use warp_util::remote_path::RemotePath;
-use warp_util::standardized_path::StandardizedPath;
-use warpui::AppContext;
 
+// use warp_util::remote_path::RemotePath;
+// use warp_util::standardized_path::StandardizedPath;
+// use warpui::AppContext;
 use crate::warp_managed_paths_watcher::warp_managed_skill_dirs;
 
-fn local_or_remote_path_for_repo_path(
-    repo_id: &RepositoryIdentifier,
-    path: &StandardizedPath,
-) -> LocalOrRemotePath {
-    match repo_id {
-        RepositoryIdentifier::Local(_) => LocalOrRemotePath::Local(path.to_local_path_lossy()),
-        RepositoryIdentifier::Remote(remote) => {
-            LocalOrRemotePath::Remote(RemotePath::new(remote.host_id.clone(), path.clone()))
-        }
-    }
-}
+// Commented out: cloud-backed project-skill discovery in local-only mode.
+// fn local_or_remote_path_for_repo_path(
+//     repo_id: &RepositoryIdentifier,
+//     path: &StandardizedPath,
+// ) -> LocalOrRemotePath {
+//     match repo_id {
+//         RepositoryIdentifier::Local(_) => LocalOrRemotePath::Local(path.to_local_path_lossy()),
+//         RepositoryIdentifier::Remote(remote) => {
+//             LocalOrRemotePath::Remote(RemotePath::new(remote.host_id.clone(), path.clone()))
+//         }
+//     }
+// }
 
-/// Finds project skill files from stored standing results.
-///
-/// Symlinked project skills are resolved while evaluating standing queries on the process that
-/// owns the repository. This consumer treats those results as authoritative for both local and
-/// remote repositories; direct filesystem discovery remains confined to metadata-failure fallback.
-pub(super) fn find_project_skill_files_in_tree(
-    repo_id: &RepositoryIdentifier,
-    repo_metadata: &RepoMetadataModel,
-    ctx: &AppContext,
-) -> Vec<LocalOrRemotePath> {
-    repo_metadata
-        .standing_query_results(repo_id, ctx)
-        .into_iter()
-        .flat_map(|results| results.project_skills())
-        .filter(|content| !content.is_directory)
-        .map(|content| local_or_remote_path_for_repo_path(repo_id, &content.path))
-        .collect()
-}
+// /// Finds project skill files from stored standing results.
+// ///
+// /// Symlinked project skills are resolved while evaluating standing queries on the process that
+// /// owns the repository. This consumer treats those results as authoritative for both local and
+// /// remote repositories; direct filesystem discovery remains confined to metadata-failure fallback.
+// pub(super) fn find_project_skill_files_in_tree(
+//     repo_id: &RepositoryIdentifier,
+//     repo_metadata: &RepoMetadataModel,
+//     ctx: &AppContext,
+// ) -> Vec<LocalOrRemotePath> {
+//     repo_metadata
+//         .standing_query_results(repo_id, ctx)
+//         .into_iter()
+//         .flat_map(|results| results.project_skills())
+//         .filter(|content| !content.is_directory)
+//         .map(|content| local_or_remote_path_for_repo_path(repo_id, &content.path))
+//         .collect()
+// }
 
 /// Finds local project skill files by discovering provider directories on the filesystem.
 ///
@@ -116,6 +119,7 @@ pub fn read_skills_from_directories(
         .collect()
 }
 /// Reads all skills from the given concrete skill files.
+#[cfg(test)]
 pub fn read_skills_from_files(skill_files: impl IntoIterator<Item = PathBuf>) -> Vec<ParsedSkill> {
     skill_files
         .into_iter()

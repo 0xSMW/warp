@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use ai::skills::{
     ParsedSkill, SkillPathOrigin, SkillProvider, SkillReference, SkillScope, provider_rank,
 };
-pub use file_watchers::{
-    SkillWatcher, SkillWatcherEvent, extract_skill_parent_directory, read_skills_from_directories,
-};
+#[cfg(test)]
+pub use file_watchers::read_skills_from_directories;
+pub use file_watchers::{SkillWatcher, SkillWatcherEvent, extract_skill_parent_directory};
 use warp_core::features::FeatureFlag;
 use warp_util::host_id::HostId;
 use warp_util::local_or_remote_path::LocalOrRemotePath;
@@ -90,6 +90,8 @@ impl SkillManager {
 
     /// Marks this manager as running in a cloud environment, enabling all
     /// directory skills to be in scope regardless of the current working directory.
+    // Cloud environment loading is disabled outside the legacy skill-loading tests.
+    #[cfg(test)]
     pub fn set_cloud_environment(&mut self, value: bool) {
         self.is_cloud_environment = value;
     }
@@ -589,6 +591,7 @@ impl SkillManager {
     /// precedence as `~/.agents/skills` and other personal skills.
     ///
     /// Call this after reading skills with [`ai::skills::read_skills_for_skills_dirs`].
+    #[cfg(test)]
     pub fn add_skills_dirs_skills(&mut self, skills: Vec<ParsedSkill>) {
         let Some(home_dir) = dirs::home_dir() else {
             log::warn!("WARP_SKILL_DIRS: home directory unavailable; cannot register env skills");

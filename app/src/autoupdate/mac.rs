@@ -1,31 +1,58 @@
 #![allow(deprecated)]
 
+#[cfg(test)]
+use std::env;
+#[cfg(test)]
 use std::ffi::{CString, OsString};
+use std::fs;
+#[cfg(test)]
 use std::os::unix::ffi::OsStrExt as _;
+#[cfg(test)]
 use std::os::unix::fs::MetadataExt;
+#[cfg(test)]
 use std::os::unix::io::AsRawFd as _;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(test)]
 use std::time::Duration;
-use std::{env, fs, str};
 
-use anyhow::{Context, Result, anyhow, bail, ensure};
+#[cfg(test)]
+use anyhow::{Context, bail, ensure};
+use anyhow::{Result, anyhow};
 use channel_versions::VersionInfo;
+#[cfg(test)]
 use command::r#async::Command;
+#[cfg(test)]
 use command::blocking;
+#[cfg(test)]
 use futures::{StreamExt, TryStreamExt as _};
+#[cfg(test)]
 use futures_lite::future;
+#[cfg(test)]
 use instant::Instant;
+#[cfg(test)]
 use nix::errno::Errno;
+#[cfg(test)]
 use nix::unistd::{fchown, getgid, getuid};
 use warp_core::macos::get_bundle_path;
 use warp_core::safe_error;
+#[cfg(test)]
 use warp_errors::report_error;
 use warpui::{AppContext, ModelContext, SingletonEntity};
 
-use super::{DownloadReady, release_assets_directory_url};
+use super::DownloadReady;
+#[cfg(test)]
+use super::release_assets_directory_url;
+#[cfg(test)]
 use crate::appearance::AppearanceManager;
-use crate::autoupdate::{AutoupdateStage, AutoupdateState};
-use crate::channel::{Channel, ChannelState};
+#[cfg(test)]
+use crate::autoupdate::AutoupdateStage;
+use crate::autoupdate::AutoupdateState;
+use crate::channel::Channel;
+#[cfg(test)]
+use crate::channel::ChannelState;
+#[cfg(test)]
 use crate::safe_info;
 
 // Relative path to the directory containing old executables from before an autoupdate.
@@ -39,6 +66,7 @@ const OLD_EXECUTABLE_PATH: &str = "Contents/MacOS/old";
 const OLD_EXECUTABLE_FILE_NAME: &str = "old";
 
 // Tmp file name used to check if the user has the correct permissions for autoupdate.
+#[cfg(test)]
 const PERMISSIONS_TMP_FILE_NAME: &str = "permission_test";
 
 fn old_executable_file_path() -> PathBuf {
@@ -71,6 +99,7 @@ pub(super) fn remove_old_executable() -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn manually_download_version(
     channel: &Channel,
     version_info: &VersionInfo,
@@ -80,10 +109,19 @@ pub(super) fn manually_download_version(
     ctx.open_url(&url);
 }
 
+#[cfg(not(test))]
+pub(super) fn manually_download_version(
+    _channel: &Channel,
+    _version_info: &VersionInfo,
+    _ctx: &mut AppContext,
+) {
+}
+
 /// If the autoupdate state is ready, asynchronously apply the update and cleanup the autoupdate artifacts.
 ///
 /// The completion callback is invoked with `Ok(Some(version))` if an update was applied, and `Ok(None)` if there was no update.
 /// If there was an update, but applying it failed, it's invoked with `Err(err)`.
+#[cfg(test)]
 pub(super) fn apply_update_async<F>(app: &mut AppContext, callback: F)
 where
     F: FnOnce(
@@ -131,6 +169,26 @@ where
     })
 }
 
+#[cfg(not(test))]
+pub(super) fn apply_update_async<F>(app: &mut AppContext, callback: F)
+where
+    F: FnOnce(
+            &mut AutoupdateState,
+            Result<Option<VersionInfo>>,
+            &mut ModelContext<AutoupdateState>,
+        ) + Send
+        + 'static,
+{
+    AutoupdateState::handle(app).update(app, |autoupdate_state, ctx| {
+        callback(
+            autoupdate_state,
+            Err(anyhow!("Autoupdate is disabled in local-only mode")),
+            ctx,
+        );
+    });
+}
+
+#[cfg(test)]
 pub(super) fn relaunch() -> Result<()> {
     let bundle_path = PathBuf::from(get_bundle_path()?);
     // Set the -n option to open a new instance of the app even if one is
@@ -168,6 +226,11 @@ pub(super) fn relaunch() -> Result<()> {
         .arg(relaunch_command)
         .spawn()?;
     Ok(())
+}
+
+#[cfg(not(test))]
+pub(super) fn relaunch() -> Result<()> {
+    Err(anyhow!("Autoupdate is disabled in local-only mode"))
 }
 
 pub async fn cleanup(update_id: &str) {
@@ -245,6 +308,7 @@ pub async fn cleanup_all_except(preserve_update_id: Option<&str>) {
 }
 
 /// Determines if the user needs authorization in order to update Warp.
+#[cfg(test)]
 async fn needs_authorization(bundle_path: &Path) -> Result<bool> {
     // For the bundle path itself, check permissions without creating a test file so as to not
     // interfere with code signing.
@@ -271,6 +335,7 @@ async fn needs_authorization(bundle_path: &Path) -> Result<bool> {
 /// Determines if a directory is writable as part of an update. This means:
 /// * Warp can create files in the directory
 /// * Warp can modify the permissions of created files
+#[cfg(test)]
 async fn is_directory_writable(directory: &Path) -> Result<bool> {
     // Just because we have writability access does not mean we can set the correct owner/group.
     // Test if we can set the owner/group on a temporarily created file. If we can, then we can
@@ -306,6 +371,7 @@ async fn is_directory_writable(directory: &Path) -> Result<bool> {
 
 /// Verifies that the staged bundle path has a valid macOS code signature, and that its
 /// team identifier matches Warp's team identifier.
+#[cfg(test)]
 async fn verify_code_signature(component: &str, path: &Path) -> Result<()> {
     // Verify the signature of the staged update bundle with team identifier
     let codesign_verify_output = Command::new("/usr/bin/codesign")
@@ -330,6 +396,7 @@ async fn verify_code_signature(component: &str, path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) async fn download_update_and_cleanup(
     version_info: &VersionInfo,
     update_id: &str,
@@ -344,9 +411,21 @@ pub(super) async fn download_update_and_cleanup(
     result
 }
 
+#[cfg(not(test))]
+pub(super) async fn download_update_and_cleanup(
+    version_info: &VersionInfo,
+    update_id: &str,
+    last_successful_update_id: Option<&str>,
+    client: &http_client::Client,
+) -> Result<DownloadReady> {
+    let _ = (version_info, update_id, last_successful_update_id, client);
+    Ok(DownloadReady::No)
+}
+
 /// Apply the downloaded update.
 ///
 /// This is async and should be run in a background task.
+#[cfg(test)]
 async fn apply_update(channel: Channel, version_info: &VersionInfo, update_id: &str) -> Result<()> {
     let update_start = Instant::now();
 
@@ -436,6 +515,7 @@ async fn apply_update(channel: Channel, version_info: &VersionInfo, update_id: &
 
 /// The staged app bundle that we're about to install. It's copied out of the `.dmg` file into a
 /// temporary location.
+#[cfg(test)]
 struct StagedBundle {
     /// Path to the on-disk temporary bundle.
     path: PathBuf,
@@ -444,6 +524,7 @@ struct StagedBundle {
     in_app_directory: bool,
 }
 
+#[cfg(test)]
 impl StagedBundle {
     async fn for_bundle_path(
         channel: Channel,
@@ -495,6 +576,7 @@ impl StagedBundle {
     }
 }
 
+#[cfg(test)]
 impl Drop for StagedBundle {
     fn drop(&mut self) {
         // Clean up in the destructor so that it happens even if the installation errors.
@@ -509,6 +591,7 @@ impl Drop for StagedBundle {
     }
 }
 
+#[cfg(test)]
 async fn download_and_extract_binary(
     channel: Channel,
     version_info: &VersionInfo,
@@ -567,6 +650,7 @@ async fn download_and_extract_binary(
     Ok(DownloadReady::Yes)
 }
 
+#[cfg(test)]
 async fn unmount_dmg(mountpoint: PathBuf) -> Result<()> {
     let mut hdiutil_cmd = Command::new("/usr/bin/hdiutil");
     hdiutil_cmd.arg("detach");
@@ -582,6 +666,7 @@ async fn unmount_dmg(mountpoint: PathBuf) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 async fn copy_app_from_dmg(channel: &Channel, mountpoint: &Path, target: &Path) -> Result<()> {
     let mounted_app_path = mountpoint.join(app_name(*channel));
 
@@ -604,9 +689,11 @@ async fn copy_app_from_dmg(channel: &Channel, mountpoint: &Path, target: &Path) 
 }
 
 // 10 minutes
+#[cfg(test)]
 const DMG_TIMEOUT_S: u64 = 600;
 
 /// The temporary path for downloading the new dmg into.
+#[cfg(test)]
 fn dmg_path(channel: &Channel, version_info: &VersionInfo, update_id: &str) -> PathBuf {
     let mut dir = get_download_dir(update_id);
     let file_name = format!(
@@ -619,6 +706,7 @@ fn dmg_path(channel: &Channel, version_info: &VersionInfo, update_id: &str) -> P
 }
 
 /// The temporary path for placing our downloaded app binary.
+#[cfg(test)]
 fn temporary_target_path(
     channel: Channel,
     version_info: &VersionInfo,
@@ -630,6 +718,7 @@ fn temporary_target_path(
         .join(versioned_app_name(channel, &version_info.version)))
 }
 
+#[cfg(test)]
 async fn download_dmg(
     channel: &Channel,
     version_info: &VersionInfo,
@@ -667,12 +756,14 @@ fn get_download_dir(update_id: &str) -> PathBuf {
     dir
 }
 
+#[cfg(test)]
 fn get_mountpoint(update_id: &str) -> PathBuf {
     let mut volume = PathBuf::from("/Volumes");
     volume.push(update_id);
     volume
 }
 
+#[cfg(test)]
 async fn mount_dmg(dmg_dir: &Path, update_id: &str) -> Result<PathBuf> {
     let volume = get_mountpoint(update_id);
     let mut hdiutil_cmd = Command::new("/usr/bin/hdiutil");
@@ -697,6 +788,7 @@ async fn mount_dmg(dmg_dir: &Path, update_id: &str) -> Result<PathBuf> {
     Ok(volume)
 }
 
+#[cfg(test)]
 fn update_url(channel: Channel, version: &str) -> String {
     format!(
         "{}/{}",
@@ -705,14 +797,17 @@ fn update_url(channel: Channel, version: &str) -> String {
     )
 }
 
+#[cfg(test)]
 fn app_name(channel: Channel) -> String {
     format!("{}.app", app_name_prefix(channel))
 }
 
+#[cfg(test)]
 fn versioned_app_name(channel: Channel, version: &str) -> String {
     format!("{}({}).app", app_name_prefix(channel), version)
 }
 
+#[cfg(test)]
 fn dmg_name(channel: Channel) -> String {
     // If the user is on an Apple Silicon Mac, download an arm64-only bundle.
     let is_arm64 = command::blocking::Command::new("uname")
@@ -727,6 +822,7 @@ fn dmg_name(channel: Channel) -> String {
     format!("{}.dmg", app_name_prefix(channel))
 }
 
+#[cfg(test)]
 fn app_name_prefix(channel: Channel) -> &'static str {
     match channel {
         Channel::Stable => "Warp",
@@ -738,6 +834,7 @@ fn app_name_prefix(channel: Channel) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn executable_name(channel: Channel) -> &'static str {
     match channel {
         Channel::Stable => "stable",
@@ -749,6 +846,7 @@ fn executable_name(channel: Channel) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn executable_path(channel: Channel) -> String {
     if ChannelState::is_release_bundle() {
         format!("Contents/MacOS/{}", executable_name(channel))

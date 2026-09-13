@@ -20,6 +20,7 @@ use warpui::{
 use crate::ai::blocklist::inline_action::orchestration_controls::ORCHESTRATION_WARP_WORKER_HOST;
 use crate::ai::cloud_agent_settings::CloudAgentSettings;
 use crate::ai::connected_self_hosted_workers::ConnectedSelfHostedWorkersModel;
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
@@ -151,6 +152,7 @@ impl HostSelector {
                 me.refresh_connected_hosts(ctx);
             }
         });
+        #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
         ctx.subscribe_to_model(&AuthManager::handle(ctx), |me, _, event, ctx| {
             if matches!(event, AuthManagerEvent::AuthComplete) {
                 me.refresh_connected_hosts(ctx);

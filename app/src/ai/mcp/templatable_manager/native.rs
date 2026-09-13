@@ -3,17 +3,19 @@ use std::sync::Arc;
 
 use async_compat::CompatExt as _;
 use mcp::oauth::{
-    self, AuthContext, CallbackResult, FILE_BASED_MCP_CREDENTIALS_KEY,
-    FileBasedPersistedCredentialsMap, OAuthCallbackMode, PersistedCredentials,
+    self, FILE_BASED_MCP_CREDENTIALS_KEY, FileBasedPersistedCredentialsMap,
     PersistedCredentialsMap, TEMPLATABLE_MCP_CREDENTIALS_KEY, load_credentials_from_secure_storage,
     write_to_secure_storage,
 };
+#[cfg(test)]
+use mcp::oauth::{AuthContext, CallbackResult, OAuthCallbackMode, PersistedCredentials};
 use mcp::runtime::{error_to_user_message, spawn_server};
 use parking_lot::Mutex;
 use simple_logger::manager::LogManager;
+#[cfg(test)]
 use url::Url;
 use uuid::Uuid;
-use warp_core::channel::ChannelState;
+use warp_core::channel::{Channel, ChannelState};
 use warp_core::execution_mode::AppExecutionMode;
 use warp_core::features::FeatureFlag;
 use warp_core::safe_error;
@@ -110,11 +112,12 @@ impl TemplatableMCPServerManager {
         }
     }
 
-    /// Handles an incoming OAuth callback URL.
+    /// Handles an incoming OAuth callback URL in tests.
     ///
     /// Routes the callback to the correct in-flight OAuth flow using the `state` query
     /// parameter (the CSRF token that rmcp embedded in the authorization URL). This avoids
     /// encoding routing data in the redirect URI, keeping it RFC 6749 §3.1.2.2 compliant.
+    #[cfg(test)]
     pub fn handle_oauth_callback(&mut self, url: &Url) -> anyhow::Result<()> {
         // Ensure the URL has the expected path
         if url.path() != "/oauth2callback" {
@@ -163,6 +166,7 @@ impl TemplatableMCPServerManager {
         Ok(())
     }
 
+    #[cfg(test)]
     fn save_credentials_to_secure_storage(
         &mut self,
         app: &mut ModelContext<Self>,
@@ -265,9 +269,10 @@ impl TemplatableMCPServerManager {
             | FileBasedMCPManagerEvent::ConfigDiagnosticChanged => {}
         });
 
-        // TemplatableMCPServerManager is the source of truth for templatable MCP servers stored on the cloud
-        let cloud_model = CloudModel::handle(ctx);
-        ctx.subscribe_to_model(&cloud_model, |me, _, event, ctx| match event {
+        // TemplatableMCPServerManager is the source of truth for templatable MCP servers stored on the cloud.
+        if ChannelState::channel() != Channel::Local {
+            let cloud_model = CloudModel::handle(ctx);
+            ctx.subscribe_to_model(&cloud_model, |me, _, event, ctx| match event {
             CloudModelEvent::ObjectUpdated {
                 type_and_id:
                     CloudObjectTypeAndId::GenericStringObject {
@@ -348,26 +353,33 @@ impl TemplatableMCPServerManager {
                 me.fetch_cloud_servers(ctx);
             },
             _ => {}
-        });
+            });
+        }
 
         // Built-in Warp-hosted MCP servers follow the user's auth lifecycle:
         // attach after login, re-attach with fresh credentials when the
         // access token rotates, and detach on logout. Skipped in tests, which
         // construct the manager without the auth singletons.
-        if !cfg!(test) {
+        if !cfg!(test) && ChannelState::channel() != Channel::Local {
             let auth_manager = AuthManager::handle(ctx);
             ctx.subscribe_to_model(&auth_manager, |me, _, event, ctx| match event {
                 // Fires on login and on user refresh; the credentials may
                 // have rotated either way, so respawn with the current token.
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
                 AuthManagerEvent::AuthComplete => me.sync_builtin_servers(true, ctx),
-                AuthManagerEvent::AuthFailed(_)
-                | AuthManagerEvent::NeedsReauth
-                | AuthManagerEvent::SkippedLogin => me.sync_builtin_servers(false, ctx),
-                AuthManagerEvent::CreateAnonymousUserFailed
-                | AuthManagerEvent::AttemptedLoginGatedFeature { .. }
-                | AuthManagerEvent::LoginOverrideDetected(_)
-                | AuthManagerEvent::MintCustomTokenFailed(_)
-                | AuthManagerEvent::ReceivedDeviceAuthorizationCode { .. } => {}
+                AuthManagerEvent::AuthFailed(_) => me.sync_builtin_servers(false, ctx),
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+                AuthManagerEvent::SkippedLogin => me.sync_builtin_servers(false, ctx),
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+                AuthManagerEvent::NeedsReauth => me.sync_builtin_servers(false, ctx),
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+                AuthManagerEvent::CreateAnonymousUserFailed => {}
+                AuthManagerEvent::MintCustomTokenFailed(_) => {}
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+                AuthManagerEvent::AttemptedLoginGatedFeature { .. }
+                | AuthManagerEvent::LoginOverrideDetected(_) => {}
+                #[cfg(test)]
+                AuthManagerEvent::ReceivedDeviceAuthorizationCode { .. } => {}
             });
 
             let server_api_provider = ServerApiProvider::handle(ctx);
@@ -412,14 +424,17 @@ impl TemplatableMCPServerManager {
             server_loggers: Default::default(),
         };
 
-        me.fetch_cloud_servers(ctx);
+        if ChannelState::channel() != Channel::Local {
+            me.fetch_cloud_servers(ctx);
+        }
 
         // If we're not in a test, try to load credentials from secure storage.
         if !cfg!(test) {
-            me.server_credentials = load_credentials_from_secure_storage::<PersistedCredentialsMap>(
-                ctx,
-                TEMPLATABLE_MCP_CREDENTIALS_KEY,
-            );
+            if ChannelState::channel() != Channel::Local {
+                me.server_credentials = load_credentials_from_secure_storage::<
+                    PersistedCredentialsMap,
+                >(ctx, TEMPLATABLE_MCP_CREDENTIALS_KEY);
+            }
 
             if FeatureFlag::FileBasedMcp.is_enabled() {
                 me.file_based_server_credentials = load_credentials_from_secure_storage::<
@@ -438,14 +453,16 @@ impl TemplatableMCPServerManager {
 
         // Attach built-in Warp-hosted servers for already-logged-in users
         // (fresh logins are handled by the AuthManager subscription above).
-        if !cfg!(test) {
+        if !cfg!(test) && ChannelState::channel() != Channel::Local {
             me.sync_builtin_servers(false, ctx);
         }
 
-        // Migrate legacy MCPs to be templatables on app start. Uses UpdateManager
-        let servers_to_restart: HashSet<Uuid> =
-            running_legacy_server_uuids.iter().cloned().collect();
-        me.convert_all_legacy_to_templatable(servers_to_restart, ctx);
+        // Migrate legacy MCPs to be templatables on app start. Uses UpdateManager.
+        if ChannelState::channel() != Channel::Local {
+            let servers_to_restart: HashSet<Uuid> =
+                running_legacy_server_uuids.iter().cloned().collect();
+            me.convert_all_legacy_to_templatable(servers_to_restart, ctx);
+        }
 
         me
     }
@@ -469,6 +486,9 @@ impl TemplatableMCPServerManager {
     }
 
     fn fetch_cloud_servers(&mut self, ctx: &mut ModelContext<Self>) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         self.cloud_templatable_mcp_servers = Self::get_cloud_servers(ctx);
         self.delete_orphaned_installations(ctx);
         ctx.emit(TemplatableMCPServerManagerEvent::TemplatableMCPServersUpdated);
@@ -563,6 +583,9 @@ impl TemplatableMCPServerManager {
         initiated_by: InitiatedBy,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         let owner = UserWorkspaces::as_ref(ctx).space_to_owner(space, ctx);
         if let Some(owner) = owner {
             let update_manager = UpdateManager::handle(ctx);
@@ -591,6 +614,9 @@ impl TemplatableMCPServerManager {
         template_server: TemplatableMCPServer,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         let cloud_templatable_mcp_server =
             self.get_cloud_templatable_mcp_server(template_server.uuid);
         if let Some(cloud_templatable_mcp_server) = cloud_templatable_mcp_server {
@@ -607,6 +633,9 @@ impl TemplatableMCPServerManager {
     }
 
     pub fn delete_templatable_mcp_server(&mut self, uuid: Uuid, ctx: &mut ModelContext<Self>) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         // Delete any existing installations of this template
         let installation = self.get_installation_by_template_uuid(uuid);
         if let Some(installation) = installation {
@@ -635,6 +664,9 @@ impl TemplatableMCPServerManager {
         initiated_by: InitiatedBy,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         // The legacy MCPServerManager no longer runs servers, so we only need
         // to delete the cloud object. OAuth credentials were already copied
         // during conversion.
@@ -653,14 +685,16 @@ impl TemplatableMCPServerManager {
         });
     }
 
-    /// Get all runnable MCP servers (templatable installations).
-    pub fn get_all_runnable_mcp_servers(ctx: &AppContext) -> Vec<(Uuid, String)> {
-        TemplatableMCPServerManager::as_ref(ctx)
-            .get_installed_templatable_servers()
-            .iter()
-            .map(|(uuid, installation)| (*uuid, installation.templatable_mcp_server().name.clone()))
-            .collect()
-    }
+    // Cloud-backed CLI MCP listing is disabled in local-only mode.
+    // pub fn get_all_runnable_mcp_servers(ctx: &AppContext) -> Vec<(Uuid, String)> {
+    //     TemplatableMCPServerManager::as_ref(ctx)
+    //         .get_installed_templatable_servers()
+    //         .iter()
+    //         .map(|(uuid, installation)| {
+    //             (*uuid, installation.templatable_mcp_server().name.clone())
+    //         })
+    //         .collect()
+    // }
 
     /// Get all cloud synced MCP servers (templatable templates).
     pub fn get_all_cloud_synced_mcp_servers(ctx: &AppContext) -> HashMap<Uuid, String> {
@@ -756,6 +790,7 @@ impl TemplatableMCPServerManager {
     }
 
     /// Spawns an ephemeral MCP server started via the CLI (`oz agent run --mcp`).
+    #[cfg(test)]
     pub fn spawn_cli_ephemeral_server(
         &mut self,
         installation: TemplatableMCPServerInstallation,
@@ -774,6 +809,9 @@ impl TemplatableMCPServerManager {
     /// rotated credentials: the transport keeps the `Authorization` header it
     /// was spawned with.
     pub fn sync_builtin_servers(&mut self, force_respawn: bool, ctx: &mut ModelContext<Self>) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         let installation_uuid = builtin::FACTORY_MCP_INSTALLATION_UUID;
         let auth_state = AuthStateProvider::as_ref(ctx).get().clone();
         // Built-ins attach only in interactive clients (GUI and TUI); CLI
@@ -913,6 +951,21 @@ impl TemplatableMCPServerManager {
             }
         };
 
+        #[cfg(not(test))]
+        if matches!(&server.transport_type, TransportType::ServerSentEvents(_)) {
+            let error_message =
+                "Remote HTTP/SSE MCP servers are disabled in local-only mode".to_string();
+            log::warn!("Skipping remote MCP server {installation_uuid} in local-only mode");
+            self.server_error_messages
+                .insert(installation_uuid, error_message.clone());
+            self.change_server_state(installation_uuid, MCPServerState::FailedToStart, ctx);
+            if mode.should_persist_running_state_to_sqlite() {
+                Self::persist_is_mcp_running(installation_uuid, false, ctx);
+            }
+            self.notify_reconnect_waiters(installation_uuid, Err(error_message));
+            return;
+        }
+
         // If we're executing a CLI MCP server, ensure that the environment variables includes
         // PATH.
         if let TransportType::CLIServer(cli_server) = &mut server.transport_type {
@@ -1004,20 +1057,24 @@ impl TemplatableMCPServerManager {
             .insert(installation_uuid, logger.clone());
         let logger_clone = logger.clone();
 
-        // Create channel that we can use to send OAuth callback results
-        // to the server initialization task, if the server requires OAuth.
+        #[cfg(test)]
         let (oauth_result_tx, oauth_result_rx) = async_channel::unbounded();
 
+        #[cfg(test)]
         let is_headless = AppExecutionMode::as_ref(ctx).is_autonomous();
+        #[cfg(test)]
         let use_tui_loopback = settings::settings_mode() == settings::SettingsMode::Tui;
 
+        #[cfg(test)]
         let mut persisted_credentials = self.server_credentials.get(&template_uuid).cloned();
+        #[cfg(test)]
         if persisted_credentials.is_none() && FeatureFlag::FileBasedMcp.is_enabled() {
             persisted_credentials = installation
                 .hash()
                 .and_then(|hash| self.file_based_server_credentials.get(&hash).cloned());
         }
 
+        #[cfg(test)]
         let is_file_based = FeatureFlag::FileBasedMcp.is_enabled()
             && FileBasedMCPManager::as_ref(ctx)
                 .get_hash_by_uuid(installation_uuid)
@@ -1025,6 +1082,7 @@ impl TemplatableMCPServerManager {
 
         let server_name = server.name.clone();
         let description = installation.templatable_mcp_server().description.clone();
+        #[cfg(test)]
         let auth_context = FeatureFlag::McpOauth.is_enabled().then(|| {
             let persist_spawner = ctx.spawner();
             let requires_authentication_spawner = ctx.spawner();
@@ -1033,10 +1091,7 @@ impl TemplatableMCPServerManager {
                 OAuthCallbackMode::Loopback
             } else {
                 OAuthCallbackMode::CustomScheme {
-                    redirect_uri: format!(
-                        "{}://mcp/oauth2callback",
-                        ChannelState::url_scheme()
-                    ),
+                    redirect_uri: format!("{}://mcp/oauth2callback", ChannelState::url_scheme()),
                     result_rx: oauth_result_rx,
                 }
             };
@@ -1081,6 +1136,7 @@ impl TemplatableMCPServerManager {
                                         uuid,
                                     },
                                 );
+                                #[cfg(test)]
                                 ctx.open_url(&auth_url);
                                 manager.change_server_state(uuid, MCPServerState::Authenticating, ctx);
                             })
@@ -1121,6 +1177,8 @@ impl TemplatableMCPServerManager {
                 })),
             }
         });
+        #[cfg(not(test))]
+        let auth_context = None;
 
         // Extract values from mode before moving it into the closure.
         let should_persist = mode.should_persist_running_state_to_sqlite();
@@ -1207,6 +1265,7 @@ impl TemplatableMCPServerManager {
             installation_uuid,
             SpawnedServerInfo {
                 abort_handle: task.abort_handle(),
+                #[cfg(test)]
                 oauth_result_tx,
             },
         );
@@ -1326,32 +1385,8 @@ impl TemplatableMCPServerManager {
         Some(mcp_server_installation)
     }
 
-    /// Enables (starts) the installed Figma MCP server.
-    pub fn enable_figma_mcp(&mut self, ctx: &mut ModelContext<Self>) {
-        if let Some(uuid) = self.get_figma_installation_uuid() {
-            self.spawn_server(uuid, ctx);
-        } else {
-            log::warn!("Could not find Figma MCP server installation to enable");
-        }
-    }
-
-    /// Installs the Figma MCP server from the MCP gallery.
-    pub fn install_figma_from_gallery(&mut self, ctx: &mut ModelContext<Self>) {
-        let figma_gallery_server = MCPGalleryManager::as_ref(ctx)
-            .get_gallery()
-            .into_iter()
-            .find(|item| item.title() == "Figma");
-        let Some(figma_gallery_server) = figma_gallery_server else {
-            log::warn!("Could not find Figma MCP server in gallery");
-            return;
-        };
-        let Ok(templatable_mcp_server) = TemplatableMCPServer::try_from(figma_gallery_server)
-        else {
-            log::warn!("Failed to convert Figma gallery item to TemplatableMCPServer");
-            return;
-        };
-        self.install_from_template(templatable_mcp_server, HashMap::new(), true, ctx);
-    }
+    // Retired cloud-gallery Figma helpers are intentionally disabled. Local MCP
+    // installations are configured and started through the shared local paths above.
 
     pub fn delete_templatable_mcp_server_installation(
         &mut self,
@@ -1713,6 +1748,9 @@ impl TemplatableMCPServerManager {
         servers_to_restart: HashSet<Uuid>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         let cloud_legacy_servers = CloudMCPServer::get_all(ctx);
         log::info!(
             "Converting {} legacy MCP servers into templatable MCP servers",
@@ -1755,6 +1793,9 @@ impl TemplatableMCPServerManager {
         team_uid: ServerId,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         let sync_id = self
             .get_cloud_templatable_mcp_server(template_uuid)
             .map(|server| server.sync_id());
@@ -1792,6 +1833,9 @@ impl TemplatableMCPServerManager {
         template_uuid: Uuid,
         ctx: &mut ModelContext<Self>,
     ) {
+        if ChannelState::channel() == Channel::Local {
+            return;
+        }
         let cloud_templatable_mcp_server = self.get_cloud_templatable_mcp_server(template_uuid);
 
         if let Some(cloud_templatable_mcp_server) = cloud_templatable_mcp_server {

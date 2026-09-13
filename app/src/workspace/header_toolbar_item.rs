@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use settings::Setting as _;
 use warpui::{AppContext, SingletonEntity};
 
 use crate::auth::AuthStateProvider;
@@ -85,8 +84,12 @@ impl HeaderToolbarItemKind {
             return false;
         }
         match self {
-            Self::CodeReview => *TabSettings::as_ref(app).show_code_review_button.value(),
-            Self::NotificationsMailbox => *AISettings::as_ref(app).show_agent_notifications,
+            Self::ToolsPanel
+            | Self::AgentManagement
+            | Self::CodeReview
+            | Self::NotificationsMailbox => false,
+            // Self::CodeReview => *TabSettings::as_ref(app).show_code_review_button.value(),
+            // Self::NotificationsMailbox => *AISettings::as_ref(app).show_agent_notifications,
             _ => true,
         }
     }
@@ -98,11 +101,18 @@ impl HeaderToolbarItemKind {
     }
 
     pub fn default_left() -> Vec<Self> {
-        vec![Self::TabsPanel, Self::ToolsPanel, Self::AgentManagement]
+        vec![
+            Self::TabsPanel,
+            // Self::ToolsPanel,
+            // Self::AgentManagement,
+        ]
     }
 
     pub fn default_right() -> Vec<Self> {
-        vec![Self::CodeReview, Self::NotificationsMailbox]
+        vec![
+            // Self::CodeReview,
+            // Self::NotificationsMailbox,
+        ]
     }
 
     /// All toolbar item variants (availability filtering is done at the call site).

@@ -1,7 +1,9 @@
-//! Startup and retained-link state for a TUI cloud-child session.
+#![cfg(test)]
+
+//! Test-only startup and retained-link state for a TUI cloud-child session.
 //!
-//! Ongoing run lifecycle remains authoritative in `BlocklistAIHistoryModel`;
-//! this model covers the pre-run states that exist before history has a run ID.
+//! Production TUI cloud runs are disabled; this model remains for cloud-run
+//! view and orchestration tests that need the retained pre-run state.
 use warp::tui_export::{
     AIConversationId, AmbientAgentTaskId, CloudAgentStartupBlocker, CloudAgentStartupFailure,
 };

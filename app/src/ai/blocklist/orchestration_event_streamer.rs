@@ -1,68 +1,105 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+#[cfg(any(test, feature = "integration_tests"))]
 use std::sync::Arc;
+#[cfg(any(test, feature = "integration_tests"))]
 use std::time::Duration;
 
+#[cfg(any(test, feature = "integration_tests"))]
 use anyhow::anyhow;
+#[cfg(any(test, feature = "integration_tests"))]
 use async_trait::async_trait;
+#[cfg(any(test, feature = "integration_tests"))]
 use futures::channel::mpsc;
+#[cfg(any(test, feature = "integration_tests"))]
 use uuid::Uuid;
 use warp_cli::agent::Harness;
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_core::features::FeatureFlag;
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_multi_agent_api as api;
+#[cfg(any(test, feature = "integration_tests"))]
 use warpui::r#async::{SpawnedFutureHandle, Timer};
 use warpui::{
     Entity, EntityId, GetSingletonModelHandle, ModelContext, SingletonEntity, UpdateModel,
 };
 
 use super::history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
+#[cfg(any(test, feature = "integration_tests"))]
 use super::orchestration_child_tracker::{ChildSignal, OrchestrationChildTracker};
+#[cfg(any(test, feature = "integration_tests"))]
 use super::orchestration_events::{
     LifecycleEventDetailPayload, LifecycleEventDetailStage, OrchestrationEventService,
     PendingEvent, PendingEventDetail, build_lifecycle_event,
 };
-use crate::ai::agent::conversation::{AIAgentHarness, AIConversationId, ConversationStatus};
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::ai::agent::conversation::AIAgentHarness;
+use crate::ai::agent::conversation::{AIConversationId, ConversationStatus};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::agent::{AIAgentExchangeId, AIAgentOutputMessageType, ReceivedMessageInput};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::agent_conversations_model::AgentConversationsModel;
+#[cfg(any(
+    test,
+    feature = "integration_tests",
+    feature = "local_claude_codex_child_harnesses"
+))]
+use crate::ai::agent_events::AgentMessageEventMetadata;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::agent_events::{
     AgentEventConsumer, AgentEventConsumerControlFlow, AgentEventDriverConfig, AgentEventFilter,
-    AgentMessageEventMetadata, MessageHydrator, ServerApiAgentEventSource, run_agent_event_driver,
+    MessageHydrator, ServerApiAgentEventSource, run_agent_event_driver,
 };
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::ambient_agents::AmbientAgentTaskId;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::retry_strategies::is_transient_http_error;
-use crate::server::server_api::ai::{AIClient, AgentRunEvent, TaskListFilter};
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::server::server_api::ai::TaskListFilter;
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::server::server_api::ai::{AIClient, AgentRunEvent};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::server_api::{ServerApi, ServerApiProvider};
 
 /// Backoff schedule (seconds) for the post-restore
 /// `get_ambient_agent_task` retry on transient errors: 1s, 2s, 5s, then 10s max.
+#[cfg(any(test, feature = "integration_tests"))]
 const RESTORE_FETCH_BACKOFF_STEPS: &[u64] = &[1, 2, 5, 10];
 /// Slower backoff for permanent HTTP errors (e.g. 404 for deleted runs).
 /// Retries still happen in case the error was spurious, but at a much
 /// lower frequency to avoid log spam.
+#[cfg(any(test, feature = "integration_tests"))]
 const RESTORE_FETCH_PERMANENT_BACKOFF_STEPS: &[u64] = &[30];
 /// How often (milliseconds) the drain timer checks for SSE events.
+#[cfg(any(test, feature = "integration_tests"))]
 const SSE_DRAIN_INTERVAL_MS: u64 = 500;
 /// Cap killed-run tombstones while keeping normal sessions well below the limit.
 const MAX_KILLED_RUN_IDS: usize = 1024;
 /// Max child runs fetched per cold-start `?ancestor_run_id=` REST seed in
 /// viewer mode. The server caps at 100 regardless.
+#[cfg(any(test, feature = "integration_tests"))]
 const VIEWER_MODE_SEED_FETCH_LIMIT: i32 = 100;
 
 /// Wire `event_type` for a parent's own inbox message events.
+#[cfg(any(test, feature = "integration_tests"))]
 const EVENT_NEW_MESSAGE: &str = "new_message";
 /// Wire `event_type` emitted on a PARENT run when a child task is created
 /// (`AddTask` with `parent_run_id`); the child run id is carried in `ref_id`.
+#[cfg(any(test, feature = "integration_tests"))]
 const EVENT_CHILD_AGENT_STARTED: &str = "child_agent_started";
 /// Wire `event_type` emitted on a CHILD run when its sandbox session links;
 /// the session UUID is carried in `ref_id`.
+#[cfg(any(test, feature = "integration_tests"))]
 const EVENT_RUN_SESSION_LINKED: &str = "run_session_linked";
 
 /// Per-event item delivered from the SSE background task to the entity.
+#[cfg(any(test, feature = "integration_tests"))]
 struct SseStreamItem {
     event: AgentRunEvent,
     fetched_message: Option<ReceivedMessageInput>,
 }
 
 /// State for a single active SSE connection.
+#[cfg(any(test, feature = "integration_tests"))]
 struct SseConnectionState {
     /// Receives parsed events from the background SSE task.
     event_receiver: mpsc::UnboundedReceiver<SseStreamItem>,
@@ -74,6 +111,7 @@ struct SseConnectionState {
     connected_filter: AgentEventFilter,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 struct SseForwardingConsumer {
     tx: mpsc::UnboundedSender<SseStreamItem>,
     self_run_id: String,
@@ -84,23 +122,27 @@ struct SseForwardingConsumer {
 /// Per-event item delivered from the ancestor SSE background task to the
 /// entity. Carries no hydrated message because the ancestor consumer only
 /// surfaces lifecycle transitions.
+#[cfg(any(test, feature = "integration_tests"))]
 struct AncestorSseStreamItem {
     event: AgentRunEvent,
 }
 
 /// Forwarding consumer used by the ancestor SSE driver. Skips message
 /// hydration because the ancestor stream surfaces lifecycle events only.
+#[cfg(any(test, feature = "integration_tests"))]
 struct AncestorForwardingConsumer {
     tx: mpsc::UnboundedSender<AncestorSseStreamItem>,
 }
 
 /// State for an ancestor SSE connection.
+#[cfg(any(test, feature = "integration_tests"))]
 struct AncestorSseConnectionState {
     event_receiver: mpsc::UnboundedReceiver<AncestorSseStreamItem>,
     generation: u64,
     abort_handle: futures::future::AbortHandle,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl AgentEventConsumer for AncestorForwardingConsumer {
@@ -119,16 +161,19 @@ impl AgentEventConsumer for AncestorForwardingConsumer {
 /// observes the first wake-triggering message event, then asks the controller
 /// to cold-start the dormant Claude run so the parent bridge can take over
 /// delivery.
+#[cfg(any(test, feature = "integration_tests"))]
 struct WakeConnectionState {
     generation: u64,
     task: SpawnedFutureHandle,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 struct DormantClaudeWakeConsumer {
     run_id: String,
     wake_message: Option<AgentMessageEventMetadata>,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl DormantClaudeWakeConsumer {
     fn new(run_id: String) -> Self {
         Self {
@@ -138,6 +183,7 @@ impl DormantClaudeWakeConsumer {
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl AgentEventConsumer for DormantClaudeWakeConsumer {
@@ -157,6 +203,7 @@ impl AgentEventConsumer for DormantClaudeWakeConsumer {
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl AgentEventConsumer for SseForwardingConsumer {
@@ -196,10 +243,12 @@ struct ConversationStreamState {
     watched_run_ids: HashSet<String>,
     /// Last fully handled event sequence number. 0 means "no events
     /// processed yet".
+    #[cfg(any(test, feature = "integration_tests"))]
     event_cursor: i64,
     /// Message IDs awaiting server-side `mark_delivered` confirmation,
     /// triggered when the recipient streams a `MessagesReceivedFromAgents`
     /// chunk through `BlocklistAIHistoryEvent::UpdatedStreamingExchange`.
+    #[cfg(any(test, feature = "integration_tests"))]
     pending_message_ids: Vec<String>,
     /// Local consumers (terminal pane id for an open agent view, driver
     /// model id for `agent_sdk`) that need events delivered to this
@@ -209,21 +258,27 @@ struct ConversationStreamState {
     /// child conversations are created before they have server conversation
     /// metadata, so this lets us recognize dormant local Claude children
     /// without relying on `ServerAIConversationMetadata`.
+    #[cfg(any(test, feature = "integration_tests"))]
     harness: Option<Harness>,
     /// Whether a task request to resolve the execution harness is in progress.
+    #[cfg(any(test, feature = "integration_tests"))]
     harness_fetch_in_flight: bool,
     /// Active SSE connection, if one is open.
+    #[cfg(any(test, feature = "integration_tests"))]
     sse_connection: Option<SseConnectionState>,
     /// Active wake-only listener for dormant local Claude children, if one is
     /// open. This is separate from generic SSE because generic delivery would
     /// hydrate messages and advance the shared cursor before Claude's parent
     /// bridge can consume them.
+    #[cfg(any(test, feature = "integration_tests"))]
     wake_connection: Option<WakeConnectionState>,
     /// Consecutive `get_ambient_agent_task` failure count for the
     /// post-restore retry loop; resets on success.
+    #[cfg(any(test, feature = "integration_tests"))]
     restore_fetch_failures: usize,
     /// Primary-mode child tracker for this orchestrator family. `None` until
     /// the family drain creates one on the first batch it handles.
+    #[cfg(any(test, feature = "integration_tests"))]
     tracker: Option<OrchestrationChildTracker>,
 }
 
@@ -236,6 +291,7 @@ struct ConversationStreamState {
 /// [`Self::register_viewer_mode_consumer`]), which is why hydration and
 /// server-cursor push are absent on the ancestor path. See the note on
 /// [`AncestorForwardingConsumer`] for the future direction.
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Default)]
 struct OrchestratorStreamState {
     /// Active viewer-mode consumers. Keyed on the consumer's `EntityId`
@@ -282,18 +338,23 @@ struct OrchestratorStreamState {
 /// connection stays closed and the cursor is used to backfill once a
 /// consumer registers.
 pub struct OrchestrationEventStreamer {
+    #[cfg(any(test, feature = "integration_tests"))]
     ai_client: Arc<dyn AIClient>,
+    #[cfg(any(test, feature = "integration_tests"))]
     server_api: Arc<ServerApi>,
     /// Per-conversation streaming state.
     streams: HashMap<AIConversationId, ConversationStreamState>,
     /// Per-orchestrator viewer-mode entries (one ancestor SSE per
     /// `parent_task_id`, shared across viewer panes).
+    #[cfg(any(test, feature = "integration_tests"))]
     viewer_mode_orchestrators: HashMap<AmbientAgentTaskId, OrchestratorStreamState>,
     /// Monotonic counter for SSE connection generations. Ensures stale
     /// callbacks from replaced connections are discarded.
+    #[cfg(any(test, feature = "integration_tests"))]
     next_sse_generation: u64,
     /// Monotonic counter for wake-only listener generations. Ensures stale
     /// callbacks from replaced listeners are discarded.
+    #[cfg(any(test, feature = "integration_tests"))]
     next_wake_generation: u64,
     /// Run IDs killed locally; kept briefly to drop late server events.
     killed_run_ids: HashSet<String>,
@@ -302,17 +363,20 @@ pub struct OrchestrationEventStreamer {
 
 #[allow(private_interfaces)]
 pub enum OrchestrationEventStreamerEvent {
+    #[cfg(any(test, feature = "integration_tests"))]
     DormantClaudeWakeReady {
         conversation_id: AIConversationId,
         wake_message: AgentMessageEventMetadata,
     },
     /// First time the streamer has seen a particular `run_id` under
     /// `parent_task_id`. Emitted exactly once per child.
+    #[cfg(any(test, feature = "integration_tests"))]
     ChildSpawned {
         parent_task_id: AmbientAgentTaskId,
         run_id: String,
     },
     /// Lifecycle transition for a known child under `parent_task_id`.
+    #[cfg(any(test, feature = "integration_tests"))]
     ChildStatusChanged {
         parent_task_id: AmbientAgentTaskId,
         run_id: String,
@@ -328,6 +392,7 @@ pub enum OrchestrationEventStreamerEvent {
 }
 
 /// Outcome of selecting the SSE wire filter for an owner-side conversation.
+#[cfg(any(test, feature = "integration_tests"))]
 enum DesiredSseFilter {
     /// Open (or keep) a stream with this filter.
     Filter(AgentEventFilter),
@@ -339,15 +404,18 @@ enum DesiredSseFilter {
 /// (Primary only) and cursor authority (Primary pushes the server cursor,
 /// Observer persists locally only). Says nothing about authenticated ownership
 /// or pane capability.
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum FamilyDrainMode {
     Primary,
+    #[cfg(any(test, feature = "integration_tests"))]
     Observer,
 }
 
 /// Classification of a single event from a parent-family (`include_self`)
 /// SSE stream. Produced by [`classify_family_event`] and fanned out by
 /// [`OrchestrationEventStreamer::drain_family_events`].
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Debug, PartialEq)]
 enum FamilyEvent {
     /// Inbox message or lifecycle event on the parent's own run. Delivered by
@@ -378,6 +446,7 @@ enum FamilyEvent {
 /// only on other (child) runs; the parent's own inbox/lifecycle events
 /// become [`FamilyEvent::ParentSelf`]; everything else is
 /// [`FamilyEvent::Opaque`].
+#[cfg(any(test, feature = "integration_tests"))]
 fn classify_family_event(event: &AgentRunEvent, self_run_id: &str) -> FamilyEvent {
     let is_self = event.run_id == self_run_id;
     match (is_self, event.event_type.as_str()) {
@@ -419,6 +488,7 @@ fn classify_family_event(event: &AgentRunEvent, self_run_id: &str) -> FamilyEven
 }
 
 impl OrchestrationEventStreamer {
+    #[cfg(any(test, feature = "integration_tests"))]
     fn message_hydrator_for_run_id(&self, run_id: &str) -> MessageHydrator {
         match run_id.parse::<AmbientAgentTaskId>() {
             Ok(task_id) => MessageHydrator::for_task(self.server_api.clone(), task_id),
@@ -426,6 +496,7 @@ impl OrchestrationEventStreamer {
         }
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn persist_event_cursor(
         &mut self,
         conversation_id: AIConversationId,
@@ -501,6 +572,7 @@ impl OrchestrationEventStreamer {
     /// Primary cursor authority for the family drain: persists the cursor to
     /// SQLite and pushes it to the server, which only the Primary consumer of
     /// a run may do.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn persist_cursor_local_and_server(
         &mut self,
         conversation_id: AIConversationId,
@@ -514,6 +586,7 @@ impl OrchestrationEventStreamer {
     /// only, never pushing the server cursor (only a Primary consumer may
     /// write the server-side cursor). Monotonic: folds in the conversation's
     /// already-persisted sequence.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn persist_cursor_local_only(
         &mut self,
         conversation_id: AIConversationId,
@@ -542,6 +615,7 @@ impl OrchestrationEventStreamer {
     /// forwarded to `handle_event_batch` in Primary mode so the parent's
     /// `OrchestrationEventService` receives them for conversation injection.
     #[allow(clippy::too_many_arguments)]
+    #[cfg(any(test, feature = "integration_tests"))]
     fn drain_family_events(
         &mut self,
         cursor_conversation_id: AIConversationId,
@@ -668,6 +742,7 @@ impl OrchestrationEventStreamer {
                 // Ensure a child-only batch still advances the Primary cursor.
                 self.persist_cursor_local_and_server(cursor_conversation_id, max_seq, ctx);
             }
+            #[cfg(any(test, feature = "integration_tests"))]
             FamilyDrainMode::Observer => {
                 // Observer drops parent-self events and persists the cursor
                 // locally only (never pushes the server cursor).
@@ -689,6 +764,7 @@ impl OrchestrationEventStreamer {
     /// (e.g. an in-band child registered by `StartAgentExecutor`, a restored
     /// placeholder, or a race-completed fetch). Passive remote views are also
     /// skipped since they are not the authoritative process for the run.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn ensure_remote_child_placeholder(
         &mut self,
         parent_conversation_id: AIConversationId,
@@ -736,6 +812,7 @@ impl OrchestrationEventStreamer {
     /// Creates the child `AIConversation` from the fetched task metadata and
     /// marks it `is_remote_child` so no redundant per-child SSE is opened —
     /// the child's events already arrive on the parent's ancestor stream.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn finish_remote_child_placeholder(
         &mut self,
         parent_conversation_id: AIConversationId,
@@ -826,6 +903,7 @@ impl OrchestrationEventStreamer {
     /// it through [`Self::drain_family_events`]. Falls back to
     /// [`Self::drain_sse_events`] when there is no `self_run_id` yet, since
     /// there is nothing to key a tracker on but events still need delivering.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn drain_owner_family_events(
         &mut self,
         conversation_id: AIConversationId,
@@ -888,6 +966,7 @@ impl OrchestrationEventStreamer {
     /// and routes it through [`Self::drain_family_events`] as an Observer,
     /// then mirrors the advanced cursor onto the in-memory entry and every
     /// registered viewer placeholder.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn drain_viewer_family_events(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -952,6 +1031,7 @@ impl OrchestrationEventStreamer {
 
     /// Owner drain dispatcher: the unified family drain when
     /// `OrchestrationUnifiedStack` is on, else the per-conversation drain.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn drain_owner_events(
         &mut self,
         conversation_id: AIConversationId,
@@ -966,6 +1046,7 @@ impl OrchestrationEventStreamer {
 
     /// Viewer drain dispatcher: the unified family drain when
     /// `OrchestrationUnifiedStack` is on, else the ancestor-only drain.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn drain_viewer_events(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -978,7 +1059,11 @@ impl OrchestrationEventStreamer {
         }
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(
+        not(target_family = "wasm"),
+        feature = "local_claude_codex_child_harnesses",
+        any(test, feature = "integration_tests")
+    ))]
     pub(crate) fn persist_dormant_claude_wake_cursor(
         &mut self,
         conversation_id: AIConversationId,
@@ -987,20 +1072,40 @@ impl OrchestrationEventStreamer {
     ) {
         self.persist_event_cursor(conversation_id, wake_message.sequence, ctx);
     }
+    #[cfg(all(
+        not(target_family = "wasm"),
+        feature = "local_claude_codex_child_harnesses",
+        not(any(test, feature = "integration_tests"))
+    ))]
+    pub(crate) fn persist_dormant_claude_wake_cursor(
+        &mut self,
+        conversation_id: AIConversationId,
+        wake_message: &AgentMessageEventMetadata,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let _ = (conversation_id, wake_message, ctx);
+    }
     pub fn new(ctx: &mut ModelContext<Self>) -> Self {
-        let provider = ServerApiProvider::as_ref(ctx);
-        let ai_client = provider.get_ai_client();
-        let server_api = provider.get();
+        #[cfg(any(test, feature = "integration_tests"))]
+        let (ai_client, server_api) = {
+            let provider = ServerApiProvider::as_ref(ctx);
+            (provider.get_ai_client(), provider.get())
+        };
         let history_model = BlocklistAIHistoryModel::handle(ctx);
         ctx.subscribe_to_model(&history_model, |me, _, event, ctx| {
             me.handle_history_event(event, ctx);
         });
         Self {
+            #[cfg(any(test, feature = "integration_tests"))]
             ai_client,
+            #[cfg(any(test, feature = "integration_tests"))]
             server_api,
             streams: HashMap::new(),
+            #[cfg(any(test, feature = "integration_tests"))]
             viewer_mode_orchestrators: HashMap::new(),
+            #[cfg(any(test, feature = "integration_tests"))]
             next_sse_generation: 0,
+            #[cfg(any(test, feature = "integration_tests"))]
             next_wake_generation: 0,
             killed_run_ids: HashSet::new(),
             killed_run_id_order: VecDeque::new(),
@@ -1024,6 +1129,7 @@ impl OrchestrationEventStreamer {
             ai_client,
             server_api,
             streams: HashMap::new(),
+            #[cfg(any(test, feature = "integration_tests"))]
             viewer_mode_orchestrators: HashMap::new(),
             next_sse_generation: 0,
             next_wake_generation: 0,
@@ -1075,11 +1181,16 @@ impl OrchestrationEventStreamer {
     ) {
         let stream = self.streams.entry(conversation_id).or_default();
         stream.consumers.insert(consumer_id);
-        // If the server-token event fired before this registration, pick
-        // up the now-available child role here.
-        self.ensure_self_run_id_watched(conversation_id, ctx);
-        self.spawn_task_harness_fetch_if_needed(conversation_id, ctx);
-        self.reevaluate_eligibility(conversation_id, ctx);
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = ctx;
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            // If the server-token event fired before this registration, pick
+            // up the now-available child role here.
+            self.ensure_self_run_id_watched(conversation_id, ctx);
+            self.spawn_task_harness_fetch_if_needed(conversation_id, ctx);
+            self.reevaluate_eligibility(conversation_id, ctx);
+        }
     }
 
     /// Unregister a consumer for a conversation. Re-evaluates eligibility
@@ -1094,6 +1205,9 @@ impl OrchestrationEventStreamer {
         self.streams
             .get_mut(&conversation_id)
             .map(|s| s.consumers.remove(&consumer_id));
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = ctx;
+        #[cfg(any(test, feature = "integration_tests"))]
         self.reevaluate_eligibility(conversation_id, ctx);
     }
 
@@ -1112,13 +1226,18 @@ impl OrchestrationEventStreamer {
             .or_default()
             .watched_run_ids
             .insert(run_id);
-        // Adding the first child flips the conversation into the parent
-        // role; ensure self_run_id is also watched so child→parent
-        // messages match the SSE filter (without it the parent only sees
-        // child lifecycle events).
-        let self_inserted = self.ensure_self_run_id_watched(conversation_id, ctx);
-        if inserted || self_inserted {
-            self.reevaluate_eligibility(conversation_id, ctx);
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (inserted, ctx);
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            // Adding the first child flips the conversation into the parent
+            // role; ensure self_run_id is also watched so child→parent
+            // messages match the SSE filter (without it the parent only sees
+            // child lifecycle events).
+            let self_inserted = self.ensure_self_run_id_watched(conversation_id, ctx);
+            if inserted || self_inserted {
+                self.reevaluate_eligibility(conversation_id, ctx);
+            }
         }
     }
 
@@ -1132,6 +1251,7 @@ impl OrchestrationEventStreamer {
     /// multi-level orchestration a mid-tree node is simultaneously a child
     /// and a parent candidate, so a child blocked on `wait_for_events` must
     /// still confirm whether it has children of its own.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn should_register_parent_on_wait(
         &self,
         conversation_id: AIConversationId,
@@ -1155,24 +1275,29 @@ impl OrchestrationEventStreamer {
         conversation_id: AIConversationId,
         ctx: &mut ModelContext<Self>,
     ) {
-        if !self.should_register_parent_on_wait(conversation_id, ctx) {
-            return;
+        #[cfg(any(test, feature = "integration_tests"))]
+        {
+            if !self.should_register_parent_on_wait(conversation_id, ctx) {
+                return;
+            }
+            // No run_id yet (rare): nothing to query the server with; the next
+            // wait re-checks.
+            let Some(self_run_id) = self.self_run_id(conversation_id, ctx) else {
+                return;
+            };
+            let Ok(task_id) = self_run_id.parse::<AmbientAgentTaskId>() else {
+                return;
+            };
+            let ai_client = self.ai_client.clone();
+            ctx.spawn(
+                async move { ai_client.get_ambient_agent_task(&task_id).await },
+                move |me, result, ctx| {
+                    me.finish_register_parent_on_wait(conversation_id, result, ctx);
+                },
+            );
         }
-        // No run_id yet (rare): nothing to query the server with; the next
-        // wait re-checks.
-        let Some(self_run_id) = self.self_run_id(conversation_id, ctx) else {
-            return;
-        };
-        let Ok(task_id) = self_run_id.parse::<AmbientAgentTaskId>() else {
-            return;
-        };
-        let ai_client = self.ai_client.clone();
-        ctx.spawn(
-            async move { ai_client.get_ambient_agent_task(&task_id).await },
-            move |me, result, ctx| {
-                me.finish_register_parent_on_wait(conversation_id, result, ctx);
-            },
-        );
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = (conversation_id, ctx);
     }
 
     /// Completes the wait-time parent registration fetch. A non-empty
@@ -1181,6 +1306,7 @@ impl OrchestrationEventStreamer {
     /// `AncestorRunId { include_self: true }` stream that thereafter tracks
     /// all children dynamically. Empty children means it is not a parent; an
     /// error is a graceful no-op (the next wait re-checks).
+    #[cfg(any(test, feature = "integration_tests"))]
     fn finish_register_parent_on_wait(
         &mut self,
         conversation_id: AIConversationId,
@@ -1224,6 +1350,7 @@ impl OrchestrationEventStreamer {
     ///
     /// Idempotent. On first registration this kicks off the cold-start
     /// REST seed; the ancestor SSE opens automatically once it lands.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn register_viewer_mode_consumer(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -1270,6 +1397,7 @@ impl OrchestrationEventStreamer {
     /// from `parent_task_id`'s entry; when the last viewer unregisters,
     /// the entry is removed and the ancestor SSE is torn down.
     /// Idempotent.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn unregister_viewer_mode_consumer(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -1300,6 +1428,7 @@ impl OrchestrationEventStreamer {
 
     /// Placeholder `AIConversationId`s registered for `parent_task_id`.
     /// The cursor-persist path writes through to every entry.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn viewer_mode_placeholders(
         &self,
         parent_task_id: AmbientAgentTaskId,
@@ -1310,6 +1439,7 @@ impl OrchestrationEventStreamer {
             .unwrap_or_default()
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn emit_known_viewer_mode_children(
         &self,
         parent_task_id: AmbientAgentTaskId,
@@ -1323,6 +1453,7 @@ impl OrchestrationEventStreamer {
         self.emit_viewer_mode_child_spawns(parent_task_id, run_ids, ctx);
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn emit_viewer_mode_child_spawns(
         &self,
         parent_task_id: AmbientAgentTaskId,
@@ -1353,6 +1484,7 @@ impl OrchestrationEventStreamer {
     /// One-shot `?ancestor_run_id=` REST fetch that seeds the per-
     /// orchestrator entry's known-child set and SSE cursor. The ancestor
     /// SSE opens automatically once the seed lands.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn spawn_ancestor_seed_fetch(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -1380,6 +1512,7 @@ impl OrchestrationEventStreamer {
     /// the entry seeded, and opens the ancestor SSE. Failures are logged
     /// and retried at registration time (the SSE never opens on a failed
     /// seed, so re-registering kicks the fetch off again).
+    #[cfg(any(test, feature = "integration_tests"))]
     fn finish_ancestor_seed_fetch(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -1448,6 +1581,7 @@ impl OrchestrationEventStreamer {
     /// Opens the ancestor SSE for `parent_task_id` iff the entry has been
     /// seeded, has at least one viewer-mode consumer, and is not already
     /// connected. Idempotent.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_ancestor_sse_if_seeded(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -1468,6 +1602,7 @@ impl OrchestrationEventStreamer {
     /// (mirroring the per-conversation pipeline). The driver itself reuses
     /// `run_agent_event_driver::retry_forever` so reconnect / backoff /
     /// proactive recycle (~14m) are inherited from the shared driver.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_ancestor_sse(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -1533,6 +1668,7 @@ impl OrchestrationEventStreamer {
     /// Periodically fires to drain buffered ancestor SSE events into the
     /// broadcast event dispatch path. Mirrors
     /// [`Self::start_sse_drain_timer`] for the ancestor pipeline.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_ancestor_sse_drain_timer(
         &self,
         parent_task_id: AmbientAgentTaskId,
@@ -1562,6 +1698,7 @@ impl OrchestrationEventStreamer {
     /// `ChildStatusChanged` broadcasts, and advances the cursor.
     /// `new_message` events are dropped — viewer-mode consumers only
     /// surface lifecycle transitions.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn drain_ancestor_events(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -1633,6 +1770,7 @@ impl OrchestrationEventStreamer {
     /// Tears down and re-opens the ancestor SSE with the current cursor.
     /// Called from the spawn callback when the driver returns an error;
     /// drains buffered events first so we don't lose anything.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn reconnect_ancestor_sse(
         &mut self,
         parent_task_id: AmbientAgentTaskId,
@@ -1663,9 +1801,11 @@ impl OrchestrationEventStreamer {
         ctx: &mut ModelContext<Self>,
     ) {
         match event {
+            #[cfg(any(test, feature = "integration_tests"))]
             BlocklistAIHistoryEvent::ConversationServerTokenAssigned {
                 conversation_id, ..
             } => self.on_server_token_assigned(*conversation_id, ctx),
+            #[cfg(any(test, feature = "integration_tests"))]
             BlocklistAIHistoryEvent::UpdatedStreamingExchange {
                 conversation_id,
                 exchange_id,
@@ -1683,11 +1823,13 @@ impl OrchestrationEventStreamer {
             } => {
                 self.on_conversation_removed(*conversation_id, run_id.clone(), ctx);
             }
+            #[cfg(any(test, feature = "integration_tests"))]
             BlocklistAIHistoryEvent::RestoredConversations {
                 conversation_ids, ..
             } => {
                 self.on_restored_conversations(conversation_ids.clone(), ctx);
             }
+            #[cfg(any(test, feature = "integration_tests"))]
             BlocklistAIHistoryEvent::UpdatedConversationStatus {
                 conversation_id, ..
             }
@@ -1712,9 +1854,12 @@ impl OrchestrationEventStreamer {
             | BlocklistAIHistoryEvent::OrchestrationConfigUpdated { .. }
             | BlocklistAIHistoryEvent::ConversationUsageMetadataUpdated { .. }
             | BlocklistAIHistoryEvent::LocalSharedSessionEstablished { .. } => {}
+            #[cfg(not(any(test, feature = "integration_tests")))]
+            _ => {}
         }
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn on_server_token_assigned(
         &mut self,
         conversation_id: AIConversationId,
@@ -1726,6 +1871,7 @@ impl OrchestrationEventStreamer {
         }
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn spawn_task_harness_fetch_if_needed(
         &mut self,
         conversation_id: AIConversationId,
@@ -1783,6 +1929,7 @@ impl OrchestrationEventStreamer {
     /// conversation has any orchestration role (child or parent) and is
     /// not a passive remote-run view. Returns whether anything was
     /// inserted; callers reevaluate eligibility on `true`. Idempotent.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn ensure_self_run_id_watched(
         &mut self,
         conversation_id: AIConversationId,
@@ -1823,6 +1970,7 @@ impl OrchestrationEventStreamer {
             .insert(run_id)
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn on_streaming_exchange_updated(
         &mut self,
         conversation_id: AIConversationId,
@@ -1907,27 +2055,40 @@ impl OrchestrationEventStreamer {
         removed_run_id: Option<String>,
         ctx: &mut ModelContext<Self>,
     ) {
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = ctx;
         // Drop all per-conversation streamer state in one go (cursor,
         // pending IDs, consumers, watched run_ids, SSE connection).
         // Dropping the SSE receiver causes the driver task's next send
         // to fail and exit; the drain timer's `is_current` check then
         // no-ops on its next tick.
-        if let Some(mut stream) = self.streams.remove(&conversation_id) {
-            if let Some(connection) = stream.sse_connection.take() {
-                connection.abort_handle.abort();
+        if let Some(stream) = self.streams.remove(&conversation_id) {
+            #[cfg(any(test, feature = "integration_tests"))]
+            {
+                let mut stream = stream;
+                if let Some(connection) = stream.sse_connection.take() {
+                    connection.abort_handle.abort();
+                }
+                if let Some(connection) = stream.wake_connection.take() {
+                    connection.task.abort();
+                }
             }
-            if let Some(connection) = stream.wake_connection.take() {
-                connection.task.abort();
-            }
+            #[cfg(not(any(test, feature = "integration_tests")))]
+            let _ = stream;
         }
 
         if let Some(run_id) = removed_run_id.as_deref() {
+            #[cfg(any(test, feature = "integration_tests"))]
             let mut affected = Vec::new();
             for (other_id, stream) in self.streams.iter_mut() {
                 if stream.watched_run_ids.remove(run_id) {
+                    #[cfg(not(any(test, feature = "integration_tests")))]
+                    let _ = other_id;
+                    #[cfg(any(test, feature = "integration_tests"))]
                     affected.push(*other_id);
                 }
             }
+            #[cfg(any(test, feature = "integration_tests"))]
             for other_id in affected {
                 self.reevaluate_eligibility(other_id, ctx);
             }
@@ -1944,6 +2105,7 @@ impl OrchestrationEventStreamer {
     /// run_ids and merge the server-side cursor. SSE eligibility is then
     /// re-evaluated through the standard predicate — it opens an SSE iff
     /// a consumer registers and the conversation has a role in the tree.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn on_restored_conversations(
         &mut self,
         conversation_ids: Vec<AIConversationId>,
@@ -2003,6 +2165,7 @@ impl OrchestrationEventStreamer {
     /// Issues `GET /agent/runs/{task_id}` and routes the result through
     /// `finish_restore_fetch`. Used both for the initial post-restore
     /// fetch and for backoff-driven retries.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn spawn_restore_fetch(
         &mut self,
         conv_id: AIConversationId,
@@ -2027,6 +2190,7 @@ impl OrchestrationEventStreamer {
     /// fallback would be incomplete. Without network connectivity event
     /// delivery wouldn't function anyway, so retrying is the right
     /// behavior.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn finish_restore_fetch(
         &mut self,
         conv_id: AIConversationId,
@@ -2084,6 +2248,7 @@ impl OrchestrationEventStreamer {
     /// failure counter. Uses a fast schedule (1-10s) for transient errors
     /// and a slow schedule (30s) for permanent HTTP errors. The counter
     /// resets on success.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_restore_fetch_retry_timer(
         &mut self,
         conv_id: AIConversationId,
@@ -2122,6 +2287,7 @@ impl OrchestrationEventStreamer {
     /// absent from local history (including out-of-band CLI/API children)
     /// without replaying events already acknowledged locally. No-op if the
     /// stream was removed while the fetch was in flight.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn apply_task_children(
         &mut self,
         conversation_id: AIConversationId,
@@ -2152,6 +2318,7 @@ impl OrchestrationEventStreamer {
 
     /// Parent role: the conversation has at least one watched child
     /// run_id (i.e. a watched run_id that is not its own self_run_id).
+    #[cfg(any(test, feature = "integration_tests"))]
     fn is_parent_agent_conversation(
         &self,
         conversation_id: AIConversationId,
@@ -2167,6 +2334,7 @@ impl OrchestrationEventStreamer {
             .any(|id| Some(id.as_str()) != self_run_id.as_deref())
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn has_active_consumer(&self, conversation_id: AIConversationId) -> bool {
         self.streams
             .get(&conversation_id)
@@ -2179,6 +2347,7 @@ impl OrchestrationEventStreamer {
     /// `start_agent` with cloud `execution_mode`. Either way the actual
     /// run lives elsewhere (and that process owns the inbox), so this
     /// process should not open its own SSE for the conversation.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn is_remote_run_view(
         &self,
         conversation_id: AIConversationId,
@@ -2189,6 +2358,7 @@ impl OrchestrationEventStreamer {
             .is_some_and(|c| c.is_viewing_shared_session() || c.is_remote_child())
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn should_skip_sse_for_dormant_local_claude_child(
         &self,
         conversation_id: AIConversationId,
@@ -2217,6 +2387,7 @@ impl OrchestrationEventStreamer {
     /// this process (an open agent view or an agent_sdk driver) AND the
     /// conversation has a real role to consume events for. Passive views
     /// of agent runs hosted elsewhere are excluded regardless of state.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn is_eligible(&self, conversation_id: AIConversationId, ctx: &warpui::AppContext) -> bool {
         if !self.has_active_consumer(conversation_id) {
             return false;
@@ -2240,6 +2411,7 @@ impl OrchestrationEventStreamer {
     /// dormant local Claude children. Generic SSE intentionally stays closed
     /// for these conversations so it cannot hydrate messages or advance the
     /// server cursor before Claude's parent bridge starts.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn is_dormant_claude_wake_listener_eligible(
         &self,
         conversation_id: AIConversationId,
@@ -2256,6 +2428,7 @@ impl OrchestrationEventStreamer {
     /// child) and any registered child run_ids (when the conversation
     /// is a parent). Both contributions live in `watched_run_ids`
     /// already, so this is a straight clone.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn run_ids_for_sse(&self, conversation_id: AIConversationId) -> Vec<String> {
         self.streams
             .get(&conversation_id)
@@ -2264,6 +2437,7 @@ impl OrchestrationEventStreamer {
     }
 
     /// Selects the owner-side event stream filter for a conversation.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn desired_sse_filter(
         &self,
         conversation_id: AIConversationId,
@@ -2298,6 +2472,7 @@ impl OrchestrationEventStreamer {
 
     /// Re-evaluates eligibility and either opens / reconnects or tears
     /// down the SSE connection for the given conversation.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn reevaluate_eligibility(
         &mut self,
         conversation_id: AIConversationId,
@@ -2343,6 +2518,7 @@ impl OrchestrationEventStreamer {
     /// listener observes the child's run_id, stops on the first event, and
     /// emits the triggering message metadata so the controller can prime the
     /// Claude parent bridge before the CLI resumes.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_dormant_claude_wake_listener(
         &mut self,
         conversation_id: AIConversationId,
@@ -2405,6 +2581,7 @@ impl OrchestrationEventStreamer {
         });
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn finish_dormant_claude_wake_listener(
         &mut self,
         conversation_id: AIConversationId,
@@ -2454,6 +2631,7 @@ impl OrchestrationEventStreamer {
         }
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn teardown_dormant_claude_wake_listener(&mut self, conversation_id: AIConversationId) {
         if let Some(stream) = self.streams.get_mut(&conversation_id)
             && let Some(connection) = stream.wake_connection.take()
@@ -2469,6 +2647,7 @@ impl OrchestrationEventStreamer {
 
     /// Opens a long-lived SSE connection for `conversation_id`. Events
     /// are sent through an mpsc channel and drained by a periodic timer.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_sse_connection(
         &mut self,
         conversation_id: AIConversationId,
@@ -2551,6 +2730,7 @@ impl OrchestrationEventStreamer {
     /// filter shape (run-id set or parent-family ancestor scope) rather than
     /// the raw `watched_run_ids` set, so a parent-family stream is not
     /// reconnected just because additional child IDs were registered.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn stream_filter_stale(
         &self,
         conversation_id: AIConversationId,
@@ -2573,6 +2753,7 @@ impl OrchestrationEventStreamer {
 
     /// Periodically fires to drain buffered SSE events into the event
     /// service.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn start_sse_drain_timer(
         &self,
         conversation_id: AIConversationId,
@@ -2600,6 +2781,7 @@ impl OrchestrationEventStreamer {
 
     /// Drains all buffered SSE events and feeds them through the
     /// `handle_event_batch` sink.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn drain_sse_events(
         &mut self,
         conversation_id: AIConversationId,
@@ -2640,6 +2822,7 @@ impl OrchestrationEventStreamer {
     /// Feeds a batch of fetched events through the OrchestrationEventService,
     /// updating the in-memory and persisted cursors and tracking message
     /// IDs awaiting delivery confirmation.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_event_batch(
         &mut self,
         conversation_id: AIConversationId,
@@ -2722,6 +2905,7 @@ impl OrchestrationEventStreamer {
 
     /// Tears down the current SSE connection and (if still eligible)
     /// opens a new one with the latest run_ids list and cursor.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn reconnect_sse(&mut self, conversation_id: AIConversationId, ctx: &mut ModelContext<Self>) {
         // Drain buffered events before dropping the channel so we don't
         // discard already-fetched message bodies.
@@ -2740,6 +2924,7 @@ impl OrchestrationEventStreamer {
     /// Drops the SSE connection for a no-longer-eligible conversation.
     /// Leaves `watched_run_ids` and `consumers` alone — those reflect
     /// external state and are pruned through their own paths.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn teardown_sse(&mut self, conversation_id: AIConversationId, ctx: &mut ModelContext<Self>) {
         // Drain anything buffered so we don't lose hydrated messages.
         self.drain_owner_events(conversation_id, ctx);
@@ -2758,6 +2943,7 @@ impl Entity for OrchestrationEventStreamer {
 
 impl SingletonEntity for OrchestrationEventStreamer {}
 
+#[cfg(any(test, feature = "integration_tests"))]
 async fn resolve_dormant_claude_wake_cursor(
     ai_client: Arc<dyn AIClient>,
     run_id: String,
@@ -2779,6 +2965,7 @@ async fn resolve_dormant_claude_wake_cursor(
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 fn agent_event_filters_equivalent(a: &AgentEventFilter, b: &AgentEventFilter) -> bool {
     match (a, b) {
         (AgentEventFilter::RunIds(a), AgentEventFilter::RunIds(b)) => {
@@ -2811,6 +2998,7 @@ pub(crate) fn agent_task_harness(
         .filter(|harness| *harness != Harness::Unknown)
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 fn parse_occurred_at(s: &str) -> prost_types::Timestamp {
     chrono::DateTime::parse_from_rfc3339(s)
         .map(|dt| prost_types::Timestamp {
@@ -2839,6 +3027,7 @@ fn parse_occurred_at(s: &str) -> prost_types::Timestamp {
 ///
 /// `Blocked` is mapped with an empty `blocked_action`: the wire event does
 /// not currently carry a `blocked_action` payload, matching the REST path.
+#[cfg(any(test, feature = "integration_tests"))]
 #[allow(deprecated)]
 pub(super) fn conversation_status_from_lifecycle_event_type(
     event_type: api::LifecycleEventType,
@@ -2881,6 +3070,7 @@ pub(super) fn conversation_status_from_lifecycle_event_type(
 /// `PendingEventDetail::Lifecycle` items). Keeping the wire-string table
 /// in one place ensures both paths agree on which legacy variants are
 /// recognised.
+#[cfg(any(test, feature = "integration_tests"))]
 fn lifecycle_event_type_from_wire(event_type: &str) -> Option<api::LifecycleEventType> {
     match event_type {
         // New canonical event types aligned with task states.
@@ -2901,6 +3091,7 @@ fn lifecycle_event_type_from_wire(event_type: &str) -> Option<api::LifecycleEven
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 fn convert_lifecycle_events(events: &[AgentRunEvent], self_run_id: &str) -> Vec<api::AgentEvent> {
     events
         .iter()
@@ -2930,6 +3121,7 @@ fn convert_lifecycle_events(events: &[AgentRunEvent], self_run_id: &str) -> Vec<
         .collect()
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 fn build_pending_events(
     messages: Vec<ReceivedMessageInput>,
     lifecycle_events: Vec<api::AgentEvent>,

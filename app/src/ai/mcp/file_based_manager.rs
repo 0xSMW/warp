@@ -148,13 +148,17 @@ impl FileBasedMCPManager {
         );
         self.initial_global_scan_state =
             InitialGlobalMcpScanState::Complete(wait_server_uuids.clone());
-        ctx.emit(FileBasedMCPManagerEvent::InitialGlobalMcpScanComplete { wait_server_uuids });
+        ctx.emit(FileBasedMCPManagerEvent::InitialGlobalMcpScanComplete {
+            #[cfg(test)]
+            wait_server_uuids,
+        });
     }
 
     /// Returns the frozen initial-global-scan wait set, or `None` while the scan is pending.
     ///
     /// The watcher runs during application initialization, so a driver created later can miss
     /// the transient completion event. This cached result preserves the settled snapshot.
+    #[cfg(test)]
     pub fn initial_global_scan_result(&self) -> Option<Vec<Uuid>> {
         match &self.initial_global_scan_state {
             InitialGlobalMcpScanState::Complete(uuids) => Some(uuids.clone()),
@@ -482,6 +486,7 @@ impl FileBasedMCPManager {
         repo_path: &PathBuf,
         ctx: &mut ModelContext<Self>,
     ) {
+        #[cfg(test)]
         let mcp_enabled = AISettings::as_ref(ctx).is_file_based_mcp_enabled(ctx);
         // FileMCPWatcher emits ScanComplete for a cloud-environment repo only after emitting
         // ConfigParsed for every provider config in this repo scan. Each ConfigParsed call records
@@ -497,7 +502,9 @@ impl FileBasedMCPManager {
             .sorted_by_key(|uuid| uuid.to_string())
             .collect();
 
+        #[cfg(test)]
         let mut detected_servers: Vec<CloudEnvMcpScanServer> = Vec::new();
+        #[cfg(test)]
         if let Some(provider_map) = self.file_based_servers_by_root.get(repo_path) {
             for (provider, hash_set) in provider_map {
                 for hash in hash_set {
@@ -518,17 +525,27 @@ impl FileBasedMCPManager {
                 }
             }
         }
+        #[cfg(test)]
         log::info!(
             "Cloud environment file-based MCP scan complete for {}: {} detected server(s), {} auto-started server(s)",
             repo_path.display(),
             detected_servers.len(),
             wait_server_uuids.len()
         );
+        #[cfg(not(test))]
+        log::info!(
+            "Cloud environment file-based MCP scan complete for {}: {} auto-started server(s)",
+            repo_path.display(),
+            wait_server_uuids.len()
+        );
 
         // Pass the UUIDs of auto-start-requested file-based MCP servers to the AgentDriver.
         ctx.emit(FileBasedMCPManagerEvent::CloudEnvMcpScanComplete {
+            #[cfg(test)]
             repo_path: repo_path.clone(),
+            #[cfg(test)]
             detected_servers,
+            #[cfg(test)]
             wait_server_uuids,
         });
     }
@@ -591,7 +608,7 @@ impl FileBasedMCPManager {
             .collect()
     }
 
-    #[cfg(any(feature = "tui", test))]
+    #[cfg(test)]
     pub fn global_warp_servers(&self) -> Vec<&TemplatableMCPServerInstallation> {
         self.file_based_servers
             .iter()
@@ -600,7 +617,7 @@ impl FileBasedMCPManager {
             .collect()
     }
 
-    #[cfg(any(feature = "tui", test))]
+    #[cfg(test)]
     pub fn activate_global_warp_servers(&mut self, ctx: &mut ModelContext<Self>) {
         if self.global_warp_servers_activated {
             return;
@@ -772,8 +789,8 @@ enum FileBasedMCPServerType {
     ProjectScoped,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct CloudEnvMcpScanServer {
     pub uuid: Uuid,
     pub name: String,
@@ -794,15 +811,18 @@ pub enum FileBasedMCPManagerEvent {
         installation_hashes: Vec<u64>,
     },
     CloudEnvMcpScanComplete {
+        #[cfg(test)]
         repo_path: PathBuf,
-        #[allow(dead_code)]
+        #[cfg(test)]
         detected_servers: Vec<CloudEnvMcpScanServer>,
+        #[cfg(test)]
         wait_server_uuids: Vec<Uuid>,
     },
     /// The one-time initial global home-config scan settled. `AgentDriver` awaits
     /// [`FileBasedMCPManager::initial_global_scan_result`] instead of only listening for
     /// this event, since it can fire long before a given run's driver ever subscribes.
     InitialGlobalMcpScanComplete {
+        #[cfg(test)]
         wait_server_uuids: Vec<Uuid>,
     },
 }

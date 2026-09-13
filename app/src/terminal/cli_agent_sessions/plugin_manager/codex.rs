@@ -19,7 +19,10 @@ const PLUGIN_KEY: &str = "warp@codex-warp";
 const MARKETPLACE_REPO: &str = "warpdotdev/codex-warp";
 const MARKETPLACE_NAME: &str = "codex-warp";
 
+// Platform plugin setup is disabled in local-only production builds; retain these for tests.
+#[cfg(test)]
 const PLATFORM_PLUGIN_NAME: &str = "orchestration";
+#[cfg(test)]
 const PLATFORM_PLUGIN_KEY: &str = "orchestration@codex-warp";
 
 const CODEX_CONFIG_DIR: &str = ".codex";
@@ -28,6 +31,7 @@ const CODEX_HOME_ENV: &str = "CODEX_HOME";
 // Keep in sync with the plugin version in warpdotdev/codex-warp.
 const MINIMUM_PLUGIN_VERSION: &str = "0.4.0";
 // Keep in sync with the orchestration plugin version in warpdotdev/codex-warp.
+#[cfg(test)]
 const MINIMUM_PLATFORM_PLUGIN_VERSION: &str = "0.4.0";
 
 pub(super) struct CodexPluginManager {
@@ -115,6 +119,7 @@ impl CliAgentPluginManager for CodexPluginManager {
         plugin_needs_update(&codex_dir, PLUGIN_NAME, PLUGIN_KEY, MINIMUM_PLUGIN_VERSION)
     }
 
+    #[cfg(test)]
     fn is_platform_plugin_installed(&self) -> bool {
         if !FeatureFlag::CodexPlugin.is_enabled() {
             return false;
@@ -125,6 +130,7 @@ impl CliAgentPluginManager for CodexPluginManager {
         check_platform_plugin_installed(&codex_dir)
     }
 
+    #[cfg(test)]
     fn platform_plugin_needs_update(&self) -> bool {
         if !FeatureFlag::CodexPlugin.is_enabled() {
             return false;
@@ -143,6 +149,7 @@ impl CliAgentPluginManager for CodexPluginManager {
         )
     }
 
+    #[cfg(test)]
     fn has_local_marketplace_override(&self) -> bool {
         let Ok(codex_dir) = codex_home_dir() else {
             return false;
@@ -220,6 +227,7 @@ impl CliAgentPluginManager for CodexPluginManager {
         FeatureFlag::CodexPlugin.is_enabled()
     }
 
+    #[cfg(test)]
     async fn install_platform_plugin(&self) -> Result<(), PluginInstallError> {
         if !FeatureFlag::CodexPlugin.is_enabled() {
             return Ok(());
@@ -243,6 +251,7 @@ impl CliAgentPluginManager for CodexPluginManager {
         Ok(())
     }
 
+    #[cfg(test)]
     async fn update_platform_plugin(&self) -> Result<(), PluginInstallError> {
         if !FeatureFlag::CodexPlugin.is_enabled() {
             return Ok(());
@@ -350,6 +359,7 @@ fn check_installed(codex_dir: &Path) -> bool {
     check_plugin_enabled(codex_dir, PLUGIN_KEY)
 }
 
+#[cfg(test)]
 fn check_platform_plugin_installed(codex_dir: &Path) -> bool {
     check_plugin_enabled(codex_dir, PLATFORM_PLUGIN_KEY)
 }
@@ -377,10 +387,12 @@ fn installed_version(codex_dir: &Path) -> Option<String> {
 }
 
 /// Reads the latest cached orchestration plugin version, if present.
+#[cfg(test)]
 fn installed_platform_plugin_version(codex_dir: &Path) -> Option<String> {
     installed_plugin_version(codex_dir, PLATFORM_PLUGIN_NAME)
 }
 
+#[cfg(test)]
 fn platform_plugin_version_is_current(codex_dir: &Path) -> bool {
     installed_platform_plugin_version(codex_dir)
         .map(|v| !compare_versions(&v, MINIMUM_PLATFORM_PLUGIN_VERSION).is_lt())

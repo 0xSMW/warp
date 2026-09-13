@@ -1,9 +1,14 @@
+#[cfg(test)]
 use std::path::Path;
 
+#[cfg(test)]
 use anyhow::Context as _;
+#[cfg(test)]
 use futures::TryStreamExt as _;
+#[cfg(test)]
 use tokio_util::io::StreamReader;
 
+#[cfg(test)]
 pub(crate) async fn write_response_body_to_path(
     response: http_client::Response,
     path: &Path,

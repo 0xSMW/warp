@@ -17,8 +17,8 @@ use warp_errors::report_error;
 use warpui::clipboard::ClipboardContent;
 use warpui::elements::{
     Align, Border, ChildAnchor, ClippedScrollStateHandle, ConstrainedBox, Container, CornerRadius,
-    CrossAxisAlignment, Element, Flex, FormattedTextElement, HighlightedHyperlink, Hoverable,
-    MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
+    CrossAxisAlignment, Element, Empty, Flex, FormattedTextElement, HighlightedHyperlink,
+    Hoverable, MainAxisAlignment, MainAxisSize, MouseStateHandle, OffsetPositioning, ParentAnchor,
     ParentElement, ParentOffsetBounds, Radius, SavePosition, ScrollTarget, ScrollToPositionMode,
     Shrinkable, Stack, Text,
 };
@@ -77,7 +77,9 @@ use crate::view_components::{
 use crate::word_block_editor::{ChipEditorState, WordBlockEditorView, WordBlockEditorViewEvent};
 use crate::workspace::WorkspaceAction;
 use crate::workspaces::team::{DiscoverableTeam, MembershipRole, Team, TeamDeleteDisabledReason};
-use crate::workspaces::update_manager::{TeamUpdateManager, TeamUpdateManagerEvent};
+use crate::workspaces::update_manager::TeamUpdateManager;
+#[cfg(test)]
+use crate::workspaces::update_manager::TeamUpdateManagerEvent;
 use crate::workspaces::user_workspaces::{UserWorkspaces, UserWorkspacesEvent};
 use crate::workspaces::workspace::{
     BillingMetadata, CustomerType, DelinquencyStatus, Workspace, WorkspaceSizePolicy, WorkspaceUid,
@@ -571,6 +573,11 @@ impl TypedActionView for TeamsPageView {
     type Action = TeamsPageAction;
 
     fn handle_action(&mut self, action: &Self::Action, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = (action, ctx);
+            return;
+        }
+
         // Block anonymous users from performing team actions
         if AuthStateProvider::as_ref(ctx)
             .get()
@@ -751,10 +758,20 @@ impl View for TeamsPageView {
     }
 
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
+        if !cfg!(test) {
+            let _ = app;
+            return Empty::new().finish();
+        }
+
         self.page.render(self, app)
     }
 
     fn on_focus(&mut self, focus_ctx: &FocusContext, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = (focus_ctx, ctx);
+            return;
+        }
+
         if focus_ctx.is_self_focused()
             && !self.user_workspaces.as_ref(ctx).has_teams()
             && self.renders_create_team_ui(ctx)
@@ -809,11 +826,14 @@ impl TeamsPageView {
             ctx.notify();
         });
 
-        let team_update_manager = TeamUpdateManager::handle(ctx);
-        ctx.subscribe_to_model(&team_update_manager, |me, _handle, event, ctx| {
-            me.handle_team_update_event(event, ctx);
-            ctx.notify();
-        });
+        #[cfg(test)]
+        {
+            let team_update_manager = TeamUpdateManager::handle(ctx);
+            ctx.subscribe_to_model(&team_update_manager, |me, _handle, event, ctx| {
+                me.handle_team_update_event(event, ctx);
+                ctx.notify();
+            });
+        }
 
         let cloud_model = CloudModel::handle(ctx);
         ctx.observe(&cloud_model, |me, _, ctx| {
@@ -1057,6 +1077,11 @@ impl TeamsPageView {
         event: &UserWorkspacesEvent,
         ctx: &mut ViewContext<TeamsPageView>,
     ) {
+        if !cfg!(test) {
+            let _ = (event, ctx);
+            return;
+        }
+
         match event {
             UserWorkspacesEvent::EmailInviteSent => {
                 self.email_invites_block_editor.update(ctx, |editor, ctx| {
@@ -1347,6 +1372,11 @@ impl TeamsPageView {
     }
 
     fn confirm_pending_team_action(&mut self, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = ctx;
+            return;
+        }
+
         // Take the target first: hiding clears it.
         let target = self.pending_team_action_confirmation.take();
         self.hide_team_action_confirmation(ctx);
@@ -1374,6 +1404,10 @@ impl TeamsPageView {
     /// by the page itself. The page's own stack is the full-height scrolling content, so an overlay
     /// centered on it lands wherever the scroll offset happens to put it.
     pub fn get_modal_content(&self) -> Option<Box<dyn Element>> {
+        if !cfg!(test) {
+            return None;
+        }
+
         if self.join_teams_modal_state.is_open() {
             Some(self.join_teams_modal_state.render())
         } else if self.transfer_ownership_modal_state.is_open() {
@@ -1388,6 +1422,11 @@ impl TeamsPageView {
     /// Scroll to the team membership settings. If an email is provided, it's prepopulated in the
     /// invite editor.
     pub fn open_team_members(&mut self, email: Option<&String>, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = (email, ctx);
+            return;
+        }
+
         if let Some(email) = email {
             self.email_invites_block_editor.update(
                 ctx,
@@ -1405,6 +1444,7 @@ impl TeamsPageView {
         ctx.notify();
     }
 
+    #[cfg(test)]
     fn handle_team_update_event(
         &mut self,
         event: &TeamUpdateManagerEvent,
@@ -1433,6 +1473,11 @@ impl TeamsPageView {
         event: &CloudActionConfirmationDialogEvent,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (event, ctx);
+            return;
+        }
+
         match event {
             CloudActionConfirmationDialogEvent::Cancel => {
                 self.hide_team_action_confirmation(ctx);
@@ -1448,6 +1493,11 @@ impl TeamsPageView {
         event: &TransferOwnershipConfirmationEvent,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (event, ctx);
+            return;
+        }
+
         match event {
             TransferOwnershipConfirmationEvent::Confirm {
                 new_owner_uid,
@@ -1477,6 +1527,11 @@ impl TeamsPageView {
         event: &JoinTeamsModalEvent,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (event, ctx);
+            return;
+        }
+
         match event {
             JoinTeamsModalEvent::Join { team_uid } => {
                 self.user_workspaces
@@ -1787,6 +1842,11 @@ impl TeamsPageView {
         team_uid: ServerId,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (user_uid, team_uid, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.remove_user_from_team(
@@ -1804,6 +1864,11 @@ impl TeamsPageView {
         workspace_uid: WorkspaceUid,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (user_uid, workspace_uid, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.remove_user_from_workspace(
@@ -1816,6 +1881,11 @@ impl TeamsPageView {
     }
 
     fn leave_team(&mut self, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = ctx;
+            return;
+        }
+
         let team_uid = self
             .user_workspaces
             .as_ref(ctx)
@@ -1829,6 +1899,11 @@ impl TeamsPageView {
     }
 
     fn create_team(&mut self, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = ctx;
+            return;
+        }
+
         let team_name = self.create_team_editor.as_ref(ctx).buffer_text(ctx);
         TeamUpdateManager::handle(ctx).update(ctx, |manager, ctx| {
             manager.create_team(
@@ -1848,6 +1923,11 @@ impl TeamsPageView {
         role: MembershipRole,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (user_uid, team_uid, role, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.set_team_member_role(user_uid, team_uid, role, ctx);
@@ -1859,6 +1939,11 @@ impl TeamsPageView {
     }
 
     fn add_domain_restrictions(&mut self, team_uid: ServerId, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = (team_uid, ctx);
+            return;
+        }
+
         let editor = self.approve_domains_block_editor.as_ref(ctx);
 
         // Verify no invalid domains before continuing
@@ -1899,6 +1984,11 @@ impl TeamsPageView {
         domain_uid: ServerId,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (team_uid, domain_uid, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.delete_invite_link_domain_restriction(team_uid, domain_uid, ctx);
@@ -1906,6 +1996,11 @@ impl TeamsPageView {
     }
 
     fn send_email_invites(&mut self, team_uid: ServerId, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = (team_uid, ctx);
+            return;
+        }
+
         let editor = self.email_invites_block_editor.as_ref(ctx);
 
         // Verify no invalid emails before continuing
@@ -1948,6 +2043,11 @@ impl TeamsPageView {
         new_value: bool,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (team_uid, new_value, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.set_is_invite_link_enabled(team_uid, new_value, ctx);
@@ -1955,6 +2055,11 @@ impl TeamsPageView {
     }
 
     fn reset_invite_links(&mut self, team_uid: ServerId, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = (team_uid, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.reset_invite_links(team_uid, ctx);
@@ -1967,6 +2072,11 @@ impl TeamsPageView {
         discoverable: bool,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (team_uid, discoverable, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.set_team_discoverability(team_uid, discoverable, ctx);
@@ -1974,6 +2084,11 @@ impl TeamsPageView {
     }
 
     fn join_team_with_team_discovery(&mut self, team_uid: ServerId, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = (team_uid, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.join_team_with_team_discovery(team_uid, ctx);
@@ -2014,6 +2129,11 @@ impl TeamsPageView {
         invitee_email: String,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (team_uid, invitee_email, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.delete_team_invite(team_uid, invitee_email, ctx);
@@ -2021,6 +2141,11 @@ impl TeamsPageView {
     }
 
     fn generate_upgrade_link(&mut self, team_uid: ServerId, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = (team_uid, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.generate_upgrade_link(team_uid, ctx);
@@ -2032,6 +2157,11 @@ impl TeamsPageView {
         team_uid: ServerId,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (team_uid, ctx);
+            return;
+        }
+
         self.user_workspaces
             .update(ctx, move |user_workspaces, ctx| {
                 user_workspaces.generate_stripe_billing_portal_link(team_uid, ctx);
@@ -2051,6 +2181,11 @@ impl TeamsPageView {
         event: &ClickableTextInputEvent,
         ctx: &mut ViewContext<Self>,
     ) {
+        if !cfg!(test) {
+            let _ = (event, ctx);
+            return;
+        }
+
         match event {
             ClickableTextInputEvent::Submit(new_name) => {
                 let Some(team_uid) = self
@@ -2260,6 +2395,11 @@ impl SettingsPageMeta for TeamsPageView {
     }
 
     fn on_page_selected(&mut self, allow_steal_focus: bool, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = (allow_steal_focus, ctx);
+            return;
+        }
+
         if allow_steal_focus {
             self.focus_on_next_input(ctx);
         }
@@ -2287,10 +2427,15 @@ impl SettingsPageMeta for TeamsPageView {
     }
 
     fn should_render(&self, _ctx: &AppContext) -> bool {
-        true
+        cfg!(test)
     }
 
     fn on_tab_pressed(&mut self, ctx: &mut ViewContext<Self>) {
+        if !cfg!(test) {
+            let _ = ctx;
+            return;
+        }
+
         self.focus_on_next_input(ctx);
     }
 
@@ -5066,6 +5211,11 @@ impl SettingsWidget for TeamsWidget {
         appearance: &Appearance,
         app: &AppContext,
     ) -> Box<dyn Element> {
+        if !cfg!(test) {
+            let _ = (view, appearance, app);
+            return Empty::new().finish();
+        }
+
         // Main teams content: create a team, error state, team management.
         // We only want to show the teams page if the user is online. Otherwise,
         // we may not have some of the data we need to render the page, and

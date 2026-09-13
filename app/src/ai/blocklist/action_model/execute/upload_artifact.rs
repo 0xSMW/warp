@@ -1,4 +1,4 @@
-#[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 use std::path::PathBuf;
 
 #[cfg(test)]
@@ -7,17 +7,18 @@ mod tests;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 use warpui::SingletonEntity;
 use warpui::{Entity, EntityId, ModelContext, ModelHandle};
 
 use super::{ActionExecution, AnyActionExecution, ExecuteActionInput, PreprocessActionInput};
+use crate::ai::agent::{AIAgentActionResultType, UploadArtifactResult};
 use crate::terminal::model::session::active_session::ActiveSession;
 use crate::workspaces::user_workspaces::TeamContext;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
 use crate::{
     ai::{
-        agent::{AIAgentAction, AIAgentActionResultType, AIAgentActionType, UploadArtifactResult},
+        agent::{AIAgentAction, AIAgentActionType},
         agent_sdk::artifact_upload::{FileArtifactUploadRequest, FileArtifactUploader},
         blocklist::{BlocklistAIHistoryModel, BlocklistAIPermissions},
         paths::host_native_absolute_path,
@@ -25,7 +26,10 @@ use crate::{
     server::server_api::ServerApiProvider,
 };
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(test))]
+const ARTIFACT_UPLOAD_DISABLED_MESSAGE: &str = "Artifact upload is disabled in local-only mode";
+
+#[cfg(test)]
 fn format_upload_artifact_error(err: &anyhow::Error) -> String {
     let error_chain = format!("{err:#}");
 
@@ -37,33 +41,38 @@ fn format_upload_artifact_error(err: &anyhow::Error) -> String {
 }
 
 pub struct UploadArtifactExecutor {
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    #[cfg(test)]
     active_session: ModelHandle<ActiveSession>,
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    #[cfg(test)]
     terminal_view_id: EntityId,
 }
 
 impl UploadArtifactExecutor {
     pub fn new(active_session: ModelHandle<ActiveSession>, terminal_view_id: EntityId) -> Self {
+        #[cfg(not(test))]
+        let _ = (active_session, terminal_view_id);
+
         Self {
+            #[cfg(test)]
             active_session,
+            #[cfg(test)]
             terminal_view_id,
         }
     }
 
-    #[cfg_attr(target_family = "wasm", allow(unused_variables), allow(dead_code))]
     pub(super) fn should_autoexecute(
         &self,
         input: ExecuteActionInput,
         scope: &TeamContext<'_>,
         ctx: &ModelContext<Self>,
     ) -> bool {
-        #[cfg(target_family = "wasm")]
+        #[cfg(not(test))]
         {
+            let _ = (self, input, scope, ctx);
             false
         }
 
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(test)]
         {
             let ExecuteActionInput {
                 action:
@@ -90,18 +99,22 @@ impl UploadArtifactExecutor {
         }
     }
 
-    #[cfg_attr(target_family = "wasm", allow(unused_variables), allow(dead_code))]
     pub(super) fn execute(
         &mut self,
         input: ExecuteActionInput,
         ctx: &mut ModelContext<Self>,
     ) -> AnyActionExecution {
-        #[cfg(target_family = "wasm")]
+        #[cfg(not(test))]
         {
-            ActionExecution::<()>::InvalidAction.into()
+            let _ = (input, ctx);
+            ActionExecution::<()>::Sync(AIAgentActionResultType::UploadArtifact(
+                UploadArtifactResult::Error(ARTIFACT_UPLOAD_DISABLED_MESSAGE.to_string()),
+            ))
+            .into()
         }
 
-        #[cfg(not(target_family = "wasm"))]
+        // Cloud artifact upload is disabled in local-only production builds.
+        #[cfg(test)]
         {
             let ExecuteActionInput {
                 action,
@@ -179,7 +192,7 @@ impl UploadArtifactExecutor {
         futures::future::ready(()).boxed()
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(test)]
     fn resolve_path(&self, file_path: &str, ctx: &ModelContext<Self>) -> PathBuf {
         let current_working_directory = self
             .active_session

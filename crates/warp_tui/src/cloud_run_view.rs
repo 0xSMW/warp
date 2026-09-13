@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use instant::Instant;
 use warp::tui_export::{
     BlocklistAIHistoryModel, CloudAgentStartupAuthFlow, CloudAgentStartupPresentation,
@@ -18,6 +20,7 @@ use warpui_core::{
 };
 
 use crate::agent_message::{conversation_status_glyph, conversation_status_glyph_style};
+#[cfg(test)]
 use crate::cloud_run::{TuiCloudRunStartup, TuiCloudRunState};
 use crate::exit_confirmation::{CTRL_C_EXIT_WINDOW, ExitConfirmation};
 use crate::keybindings::TUI_BINDING_GROUP;
@@ -33,6 +36,51 @@ use crate::tab_bar::{TuiTabBarConfig, TuiTabBarEvent, TuiTabBarView};
 use crate::terminal_session_view::CTRL_C_KILL_CHILD_HINT;
 use crate::tui_builder::TuiUiBuilder;
 use crate::ui::centered_in_viewport;
+
+#[cfg(not(test))]
+mod local_cloud_run {
+    use warp::tui_export::{AIConversationId, CloudAgentStartupBlocker, CloudAgentStartupFailure};
+    use warpui_core::Entity;
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub(crate) enum TuiCloudRunStartup {
+        Dispatching,
+        Blocked(CloudAgentStartupBlocker),
+        Failed(CloudAgentStartupFailure),
+        Spawned,
+    }
+
+    pub(crate) struct TuiCloudRunState {
+        startup: TuiCloudRunStartup,
+    }
+
+    impl TuiCloudRunState {
+        pub(crate) fn new() -> Self {
+            Self {
+                startup: TuiCloudRunStartup::Dispatching,
+            }
+        }
+
+        pub(crate) fn conversation_id(&self) -> Option<AIConversationId> {
+            None
+        }
+
+        pub(crate) fn startup(&self) -> &TuiCloudRunStartup {
+            &self.startup
+        }
+
+        pub(crate) fn run_url(&self) -> Option<&str> {
+            None
+        }
+    }
+
+    impl Entity for TuiCloudRunState {
+        type Event = ();
+    }
+}
+
+#[cfg(not(test))]
+use local_cloud_run::{TuiCloudRunStartup, TuiCloudRunState};
 
 #[derive(Debug, Clone)]
 pub(crate) enum TuiCloudRunAction {
@@ -433,6 +481,7 @@ impl TuiCloudRunView {
     }
 }
 
+#[cfg(test)]
 fn render_cloud_agent_mark(builder: &TuiUiBuilder) -> Box<dyn TuiElement> {
     let styles = builder.cloud_run_mark_styles();
     TuiFlex::column()

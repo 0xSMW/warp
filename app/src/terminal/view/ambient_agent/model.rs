@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::time::Duration;
 
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
@@ -6,49 +7,79 @@ use instant::Instant;
 use session_sharing_protocol::common::SessionId;
 use warp_cli::agent::Harness;
 use warp_core::features::FeatureFlag;
+#[cfg(test)]
 use warp_core::send_telemetry_from_ctx;
+#[cfg(test)]
 use warp_errors::report_error;
 use warp_terminal::model::BlockId;
+#[cfg(test)]
+use warpui::AppContext;
+#[cfg(test)]
 use warpui::r#async::{SpawnedFutureHandle, Timer};
-use warpui::{AppContext, Entity, EntityId, ModelContext, SingletonEntity, WeakViewHandle};
+use warpui::{Entity, EntityId, ModelContext, SingletonEntity, WeakViewHandle};
 
 use super::AmbientAgentProgressUIState;
+#[cfg(test)]
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 use crate::ai::agent::conversation::AIConversationId;
+#[cfg(test)]
 use crate::ai::agent::extract_user_query_mode;
-use crate::ai::ambient_agents::github_auth_notifier::{GitHubAuthEvent, GitHubAuthNotifier};
+#[cfg(test)]
+use crate::ai::ambient_agents::AgentSource;
+use crate::ai::ambient_agents::AmbientAgentTaskId;
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+#[cfg(test)]
 use crate::ai::ambient_agents::spawn::monitor_spawned_task;
+#[cfg(test)]
 use crate::ai::ambient_agents::spawn::{AmbientAgentEvent, spawn_task, submit_run_followup};
+#[cfg(test)]
 use crate::ai::ambient_agents::task::{HarnessAuthSecretsConfig, HarnessConfig};
+#[cfg(test)]
 use crate::ai::ambient_agents::telemetry::CloudAgentTelemetryEvent;
-use crate::ai::ambient_agents::{AgentSource, AmbientAgentTaskId};
+#[cfg(test)]
 use crate::ai::blocklist::BlocklistAIHistoryModel;
+#[cfg(all(test, feature = "local_fs", not(target_family = "wasm")))]
+use crate::ai::blocklist::handoff::handoff_dispatch_error;
 #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
-use crate::ai::blocklist::handoff::{HandoffCommitFailure, HandoffCreated, handoff_dispatch_error};
+use crate::ai::blocklist::handoff::{HandoffCommitFailure, HandoffCreated};
+#[cfg(test)]
 use crate::ai::cloud_environments::CloudAmbientAgentEnvironment;
+#[cfg(test)]
 use crate::ai::execution_profiles::{
     CloudAgentComputerUseState, resolve_cloud_agent_computer_use_state,
 };
 use crate::ai::harness_availability::HarnessAvailabilityModel;
-use crate::ai::llms::{LLMId, LLMPreferences};
+#[cfg(test)]
+use crate::ai::llms::LLMId;
+#[cfg(test)]
+use crate::ai::llms::LLMPreferences;
+#[cfg(test)]
 use crate::ai::orchestration::{
     CloudAgentStartupBlocker, CloudAgentStartupFailure, CloudAgentStartupIssue,
     classify_cloud_agent_startup_error, should_disable_snapshot,
 };
+#[cfg(test)]
 use crate::cloud_object::CloudObjectLookup as _;
-use crate::cloud_object::model::persistence::{CloudModel, CloudModelEvent};
-use crate::server::cloud_objects::update_manager::UpdateManager;
-use crate::server::ids::{ServerId, SyncId};
+#[cfg(test)]
+use crate::cloud_object::model::persistence::CloudModelEvent;
+#[cfg(test)]
+use crate::server::ids::ServerId;
+use crate::server::ids::SyncId;
+#[cfg(test)]
 use crate::server::server_api::ServerApiProvider;
+#[cfg(test)]
 use crate::server::server_api::ai::{
-    AgentConfigSnapshot, AmbientAgentTaskState, AttachmentInput, RunFollowupRequest,
-    SpawnAgentRequest,
+    AgentConfigSnapshot, AmbientAgentTaskState, RunFollowupRequest,
 };
+use crate::server::server_api::ai::{AttachmentInput, SpawnAgentRequest};
 use crate::server::team_scope::RequestTeamScope;
 use crate::terminal::view::ambient_agent::{SetupCommandGroupId, SetupCommandState};
 use crate::terminal::{CLIAgent, TerminalView};
-use crate::workspaces::user_workspaces::{TeamScope, UserWorkspaces};
+use crate::workspaces::user_workspaces::TeamScope;
+#[cfg(test)]
+use crate::workspaces::user_workspaces::UserWorkspaces;
+
+const LOCAL_ONLY_ERROR: &str = "Ambient agents are unavailable in local-only mode";
 
 /// Tracks progress timestamps for each step during ambient agent spawning.
 #[derive(Debug, Clone)]
@@ -64,6 +95,7 @@ pub struct AgentProgress {
 }
 
 impl AgentProgress {
+    #[cfg(test)]
     fn new() -> Self {
         Self {
             spawned_at: Instant::now(),
@@ -119,7 +151,7 @@ pub enum Status {
     /// The agent was cancelled.
     Cancelled { progress: AgentProgress },
 }
-#[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+#[cfg(all(test, feature = "local_fs", not(target_family = "wasm")))]
 enum LocalToCloudHandoffState {
     Preparing { cancel: oneshot::Sender<()> },
     Monitoring,
@@ -133,11 +165,13 @@ pub struct AmbientAgentViewModel {
 
     /// The request with which the cloud agent was spawned, if it was spawned.
     request: Option<SpawnAgentRequest>,
+    #[cfg(test)]
     request_team_scope: Option<RequestTeamScope>,
 
     /// The terminal view this model is part of.
     terminal_view_id: EntityId,
 
+    #[cfg(test)]
     terminal_view: WeakViewHandle<TerminalView>,
 
     /// Selected cloud environment to launch the ambient agent with.
@@ -145,9 +179,11 @@ pub struct AmbientAgentViewModel {
     /// True when `environment_id` came from an existing run config rather than from local
     /// environment selection/defaulting. Existing runs may reference an environment before the
     /// local CloudModel has loaded it, so initial-load validation should not clear it.
+    #[cfg(test)]
     environment_id_from_viewed_task: bool,
 
     /// Handle for the periodic timer that updates progress durations.
+    #[cfg(test)]
     progress_timer_handle: Option<SpawnedFutureHandle>,
 
     /// UI state for rendering the ambient agent progress screen.
@@ -156,14 +192,17 @@ pub struct AmbientAgentViewModel {
     setup_commands_state: SetupCommandState,
 
     /// The task ID for the current cloud agent task, if one has been spawned.
+    #[cfg(test)]
     task_id: Option<AmbientAgentTaskId>,
 
     /// Source of the current cloud agent task, once known.
+    #[cfg(test)]
     source: Option<AgentSource>,
 
     /// The local conversation associated with this cloud agent run, if any.
     /// Set for remote child agents spawned via `start_agent` so the `run_id`
     /// from the server response can be wired back to the conversation.
+    #[cfg(test)]
     conversation_id: Option<AIConversationId>,
 
     /// Selected execution harness for the cloud agent run.
@@ -185,16 +224,19 @@ pub struct AmbientAgentViewModel {
 
     /// Session ID for the currently running ambient execution, if the run has attached to a live
     /// shared session.
+    #[cfg(test)]
     active_execution_session_id: Option<SessionId>,
     /// Session ID for the most recently finished ambient execution.
     /// Used as the previous session ID when submitting a follow-up so polling can wait for a
     /// different fresh session after the prior execution has ended.
+    #[cfg(test)]
     last_ended_execution_session_id: Option<SessionId>,
 
     /// Prompt text for a follow-up that has been submitted but not yet attached to a new session.
+    #[cfg(test)]
     pending_followup_prompt: Option<String>,
 
-    #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+    #[cfg(all(test, feature = "local_fs", not(target_family = "wasm")))]
     local_to_cloud_handoff_state: Option<LocalToCloudHandoffState>,
 }
 
@@ -204,30 +246,12 @@ impl AmbientAgentViewModel {
         terminal_view: WeakViewHandle<TerminalView>,
         ctx: &mut ModelContext<Self>,
     ) -> Self {
-        ctx.subscribe_to_model(&CloudModel::handle(ctx), |me, _, event, ctx| {
-            me.handle_cloud_model_event(event, ctx);
-        });
-
         ctx.subscribe_to_model(
             &HarnessAvailabilityModel::handle(ctx),
             |me, _, _event, ctx| {
                 me.validate_selected_harness(ctx);
             },
         );
-
-        ctx.subscribe_to_model(&GitHubAuthNotifier::handle(ctx), |me, _, event, ctx| {
-            if matches!(event, GitHubAuthEvent::AuthCompleted) {
-                me.handle_github_auth_completed(ctx);
-            }
-        });
-
-        // Validate the default environment once Warp Drive sync completes.
-        // The environment ID may be restored from settings before environments are synced,
-        // so we need to validate it once the initial load is complete.
-        let initial_load_complete = UpdateManager::as_ref(ctx).initial_load_complete();
-        ctx.spawn(initial_load_complete, |me, _, ctx| {
-            me.validate_environment_after_initial_load(ctx);
-        });
 
         let ui_state = AmbientAgentProgressUIState::new(ctx);
 
@@ -245,19 +269,29 @@ impl AmbientAgentViewModel {
             harness
         };
 
+        #[cfg(not(test))]
+        let _ = terminal_view;
+
         Self {
             status: Status::Composing,
             request: None,
+            #[cfg(test)]
             request_team_scope: None,
             terminal_view_id,
+            #[cfg(test)]
             terminal_view,
             environment_id: None,
+            #[cfg(test)]
             environment_id_from_viewed_task: false,
+            #[cfg(test)]
             progress_timer_handle: None,
             ui_state,
             setup_commands_state: Default::default(),
+            #[cfg(test)]
             task_id: None,
+            #[cfg(test)]
             source: None,
+            #[cfg(test)]
             conversation_id: None,
             harness,
             worker_host: None,
@@ -265,10 +299,13 @@ impl AmbientAgentViewModel {
             harness_reasoning_level: None,
             harness_auth_secret_name: None,
             harness_command_started: false,
+            #[cfg(test)]
             active_execution_session_id: None,
+            #[cfg(test)]
             last_ended_execution_session_id: None,
+            #[cfg(test)]
             pending_followup_prompt: None,
-            #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+            #[cfg(all(test, feature = "local_fs", not(target_family = "wasm")))]
             local_to_cloud_handoff_state: None,
         }
     }
@@ -277,6 +314,7 @@ impl AmbientAgentViewModel {
         self.request.as_ref()
     }
 
+    #[cfg(test)]
     fn team_uid(&self, app: &AppContext) -> Option<ServerId> {
         self.terminal_view.window_id(app).and_then(|window_id| {
             UserWorkspaces::as_ref(app)
@@ -347,6 +385,7 @@ impl AmbientAgentViewModel {
     /// `CloudModeSetupPhaseEnded` shared-session marker. Idempotent: the inner
     /// `finish_setup_command_group` no-ops when the group is not running, and
     /// `set_setup_command_group_visibility(false)` no-ops when already collapsed.
+    #[cfg(test)]
     pub(crate) fn tear_down_active_setup_command_group(&mut self, ctx: &mut ModelContext<Self>) {
         let group_id = self.setup_commands_state.current_group_id();
         self.finish_setup_command_group(group_id, ctx);
@@ -354,6 +393,7 @@ impl AmbientAgentViewModel {
     }
 
     /// Handles CloudModel events to keep environment_id in sync.
+    #[cfg(test)]
     fn handle_cloud_model_event(&mut self, event: &CloudModelEvent, ctx: &mut ModelContext<Self>) {
         match event {
             // If the selected environment is deleted, clear the selection.
@@ -386,6 +426,7 @@ impl AmbientAgentViewModel {
 
     /// Validates the environment ID after Warp Drive initial load completes.
     /// If the environment no longer exists, clears the selection.
+    #[cfg(test)]
     fn validate_environment_after_initial_load(&mut self, ctx: &mut ModelContext<Self>) {
         if let Some(id) = &self.environment_id {
             if self.environment_id_from_viewed_task {
@@ -507,11 +548,11 @@ impl AmbientAgentViewModel {
     /// True when this pane is a local-to-cloud handoff pane. Set when the handoff opens
     /// the pane and stays true through and past the spawn.
     pub(crate) fn is_local_to_cloud_handoff(&self) -> bool {
-        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        #[cfg(all(test, feature = "local_fs", not(target_family = "wasm")))]
         {
             self.local_to_cloud_handoff_state.is_some()
         }
-        #[cfg(not(all(feature = "local_fs", not(target_family = "wasm"))))]
+        #[cfg(not(all(test, feature = "local_fs", not(target_family = "wasm"))))]
         {
             false
         }
@@ -525,21 +566,33 @@ impl AmbientAgentViewModel {
         cancel: oneshot::Sender<()>,
         ctx: &mut ModelContext<Self>,
     ) {
-        let previous_harness = self.selected_harness();
-        self.local_to_cloud_handoff_state = Some(LocalToCloudHandoffState::Preparing { cancel });
-        self.request = Some(request);
-        self.request_team_scope = Some(team_scope);
-        self.source = None;
-        self.status = Status::WaitingForSession {
-            progress: AgentProgress::new(),
-            kind: SessionStartupKind::InitialRun,
-        };
-        self.start_progress_timer(ctx);
-        if self.selected_harness() != previous_harness {
-            ctx.emit(AmbientAgentViewModelEvent::HarnessSelected);
+        #[cfg(test)]
+        {
+            let previous_harness = self.selected_harness();
+            self.local_to_cloud_handoff_state =
+                Some(LocalToCloudHandoffState::Preparing { cancel });
+            self.request = Some(request);
+            self.request_team_scope = Some(team_scope);
+            self.source = None;
+            self.status = Status::WaitingForSession {
+                progress: AgentProgress::new(),
+                kind: SessionStartupKind::InitialRun,
+            };
+            self.start_progress_timer(ctx);
+            if self.selected_harness() != previous_harness {
+                ctx.emit(AmbientAgentViewModelEvent::HarnessSelected);
+            }
+            ctx.emit(AmbientAgentViewModelEvent::PendingHandoffChanged);
+            ctx.emit(AmbientAgentViewModelEvent::DispatchedAgent);
         }
-        ctx.emit(AmbientAgentViewModelEvent::PendingHandoffChanged);
-        ctx.emit(AmbientAgentViewModelEvent::DispatchedAgent);
+
+        #[cfg(not(test))]
+        {
+            let _ = (request, team_scope);
+            let _ = cancel.send(());
+            self.handle_local_only_error(ctx);
+            ctx.emit(AmbientAgentViewModelEvent::PendingHandoffChanged);
+        }
     }
     /// `HandoffInitiated.injection_path`. No-op when no handoff context is set.
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
@@ -548,47 +601,58 @@ impl AmbientAgentViewModel {
         created: HandoffCreated,
         ctx: &mut ModelContext<Self>,
     ) {
-        match self.local_to_cloud_handoff_state.take() {
-            Some(LocalToCloudHandoffState::Preparing { .. }) => {
-                self.local_to_cloud_handoff_state = Some(LocalToCloudHandoffState::Monitoring);
+        #[cfg(test)]
+        {
+            match self.local_to_cloud_handoff_state.take() {
+                Some(LocalToCloudHandoffState::Preparing { .. }) => {
+                    self.local_to_cloud_handoff_state = Some(LocalToCloudHandoffState::Monitoring);
+                }
+                Some(LocalToCloudHandoffState::Cancelled) => {
+                    self.local_to_cloud_handoff_state = Some(LocalToCloudHandoffState::Finished);
+                    Self::cancel_spawned_task(created.task_id, ctx);
+                    return;
+                }
+                state => {
+                    self.local_to_cloud_handoff_state = state;
+                    return;
+                }
             }
-            Some(LocalToCloudHandoffState::Cancelled) => {
-                self.local_to_cloud_handoff_state = Some(LocalToCloudHandoffState::Finished);
-                Self::cancel_spawned_task(created.task_id, ctx);
-                return;
+            send_telemetry_from_ctx!(
+                CloudAgentTelemetryEvent::HandoffSnapshotPrepared {
+                    derived_workspace_had_content: created.derived_workspace_had_content,
+                },
+                ctx
+            );
+            if created.snapshot_failed {
+                ctx.emit(AmbientAgentViewModelEvent::HandoffSnapshotUploadFailed {
+                    error_message:
+                        "Workspace changes could not be uploaded; continuing without them."
+                            .to_owned(),
+                });
             }
-            state => {
-                self.local_to_cloud_handoff_state = state;
-                return;
-            }
+            self.request = Some(created.request);
+            self.source = None;
+            let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
+            let stream = monitor_spawned_task(
+                created.task_id,
+                created.run_id,
+                created.at_capacity,
+                ai_client,
+                None,
+            );
+            ctx.spawn_stream_local(
+                stream,
+                |me, event_result, ctx| me.handle_ambient_agent_event_result(event_result, ctx),
+                |_me, _ctx| {},
+            );
         }
-        send_telemetry_from_ctx!(
-            CloudAgentTelemetryEvent::HandoffSnapshotPrepared {
-                derived_workspace_had_content: created.derived_workspace_had_content,
-            },
-            ctx
-        );
-        if created.snapshot_failed {
-            ctx.emit(AmbientAgentViewModelEvent::HandoffSnapshotUploadFailed {
-                error_message: "Workspace changes could not be uploaded; continuing without them."
-                    .to_owned(),
-            });
+
+        #[cfg(not(test))]
+        {
+            let _ = created;
+            self.handle_local_only_error(ctx);
+            ctx.emit(AmbientAgentViewModelEvent::PendingHandoffChanged);
         }
-        self.request = Some(created.request);
-        self.source = None;
-        let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
-        let stream = monitor_spawned_task(
-            created.task_id,
-            created.run_id,
-            created.at_capacity,
-            ai_client,
-            None,
-        );
-        ctx.spawn_stream_local(
-            stream,
-            |me, event_result, ctx| me.handle_ambient_agent_event_result(event_result, ctx),
-            |_me, _ctx| {},
-        );
     }
 
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
@@ -597,51 +661,64 @@ impl AmbientAgentViewModel {
         failure: HandoffCommitFailure,
         ctx: &mut ModelContext<Self>,
     ) {
-        match self.local_to_cloud_handoff_state.take() {
-            Some(LocalToCloudHandoffState::Preparing { .. })
-                if !matches!(self.status, Status::Cancelled { .. }) =>
-            {
-                self.local_to_cloud_handoff_state = Some(LocalToCloudHandoffState::Finished);
+        #[cfg(test)]
+        {
+            match self.local_to_cloud_handoff_state.take() {
+                Some(LocalToCloudHandoffState::Preparing { .. })
+                    if !matches!(self.status, Status::Cancelled { .. }) =>
+                {
+                    self.local_to_cloud_handoff_state = Some(LocalToCloudHandoffState::Finished);
+                }
+                state => {
+                    self.local_to_cloud_handoff_state = state;
+                    return;
+                }
             }
-            state => {
-                self.local_to_cloud_handoff_state = state;
-                return;
+            let error = handoff_dispatch_error(&failure.issue);
+            send_telemetry_from_ctx!(CloudAgentTelemetryEvent::DispatchFailed { error }, ctx);
+            if let Some(derived_workspace_had_content) = failure.derived_workspace_had_content {
+                send_telemetry_from_ctx!(
+                    CloudAgentTelemetryEvent::HandoffSnapshotPrepared {
+                        derived_workspace_had_content,
+                    },
+                    ctx
+                );
+            }
+            if failure.snapshot_failed {
+                ctx.emit(AmbientAgentViewModelEvent::HandoffSnapshotUploadFailed {
+                    error_message:
+                        "Workspace changes could not be uploaded; continuing without them."
+                            .to_owned(),
+                });
+            }
+            self.request = failure.request;
+            match failure.issue {
+                CloudAgentStartupIssue::Blocked(CloudAgentStartupBlocker::GitHubAuthRequired {
+                    message,
+                    auth_url,
+                }) => self.handle_needs_github_auth(auth_url, message, ctx),
+                CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::Capacity { message }) => {
+                    self.handle_spawn_error(message, ctx);
+                    ctx.emit(AmbientAgentViewModelEvent::ShowCloudAgentCapacityModal);
+                }
+                CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::OutOfCredits {
+                    message,
+                }) => {
+                    self.handle_spawn_error(message, ctx);
+                    ctx.emit(AmbientAgentViewModelEvent::ShowAICreditModal);
+                }
+                CloudAgentStartupIssue::Failed(
+                    CloudAgentStartupFailure::ServerOverloaded { message }
+                    | CloudAgentStartupFailure::Other { message },
+                ) => self.handle_spawn_error(message, ctx),
             }
         }
-        let error = handoff_dispatch_error(&failure.issue);
-        send_telemetry_from_ctx!(CloudAgentTelemetryEvent::DispatchFailed { error }, ctx);
-        if let Some(derived_workspace_had_content) = failure.derived_workspace_had_content {
-            send_telemetry_from_ctx!(
-                CloudAgentTelemetryEvent::HandoffSnapshotPrepared {
-                    derived_workspace_had_content,
-                },
-                ctx
-            );
-        }
-        if failure.snapshot_failed {
-            ctx.emit(AmbientAgentViewModelEvent::HandoffSnapshotUploadFailed {
-                error_message: "Workspace changes could not be uploaded; continuing without them."
-                    .to_owned(),
-            });
-        }
-        self.request = failure.request;
-        match failure.issue {
-            CloudAgentStartupIssue::Blocked(CloudAgentStartupBlocker::GitHubAuthRequired {
-                message,
-                auth_url,
-            }) => self.handle_needs_github_auth(auth_url, message, ctx),
-            CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::Capacity { message }) => {
-                self.handle_spawn_error(message, ctx);
-                ctx.emit(AmbientAgentViewModelEvent::ShowCloudAgentCapacityModal);
-            }
-            CloudAgentStartupIssue::Failed(CloudAgentStartupFailure::OutOfCredits { message }) => {
-                self.handle_spawn_error(message, ctx);
-                ctx.emit(AmbientAgentViewModelEvent::ShowAICreditModal);
-            }
-            CloudAgentStartupIssue::Failed(
-                CloudAgentStartupFailure::ServerOverloaded { message }
-                | CloudAgentStartupFailure::Other { message },
-            ) => self.handle_spawn_error(message, ctx),
+
+        #[cfg(not(test))]
+        {
+            let _ = failure;
+            self.handle_local_only_error(ctx);
+            ctx.emit(AmbientAgentViewModelEvent::PendingHandoffChanged);
         }
     }
 
@@ -668,21 +745,17 @@ impl AmbientAgentViewModel {
         ctx.emit(AmbientAgentViewModelEvent::HarnessCommandStarted { block_id });
     }
 
-    /// Sets the selected environment ID.
-    /// If the given ID does not exist in CloudModel, the environment ID is not changed.
+    /// Sets the selected environment ID used by the local model state.
     pub fn set_environment_id(
         &mut self,
         environment_id: Option<SyncId>,
         ctx: &mut ModelContext<Self>,
     ) {
-        if let Some(id) = &environment_id
-            && CloudAmbientAgentEnvironment::get_by_id(id, ctx).is_none()
-        {
-            log::warn!("Tried to select unknown environment {id:?}");
-            return;
-        }
         self.environment_id = environment_id;
-        self.environment_id_from_viewed_task = false;
+        #[cfg(test)]
+        {
+            self.environment_id_from_viewed_task = false;
+        }
         ctx.emit(AmbientAgentViewModelEvent::EnvironmentSelected);
     }
 
@@ -703,13 +776,27 @@ impl AmbientAgentViewModel {
 
     /// Returns the task ID for the current cloud agent task, if one has been spawned.
     pub fn task_id(&self) -> Option<AmbientAgentTaskId> {
-        self.task_id
+        #[cfg(test)]
+        {
+            self.task_id
+        }
+        #[cfg(not(test))]
+        {
+            None
+        }
     }
 
     pub(in crate::terminal::view) fn blocks_cloud_followups(&self) -> bool {
-        self.source
-            .as_ref()
-            .is_some_and(AgentSource::blocks_cloud_followups)
+        #[cfg(test)]
+        {
+            self.source
+                .as_ref()
+                .is_some_and(AgentSource::blocks_cloud_followups)
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     /// Whether or not this terminal session is in the setup state (first-time environment creation).
@@ -739,7 +826,14 @@ impl AmbientAgentViewModel {
 
     /// Whether or not the ambient agent needs GitHub authentication.
     pub fn is_needs_github_auth(&self) -> bool {
-        matches!(self.status, Status::NeedsGithubAuth { .. })
+        #[cfg(test)]
+        {
+            matches!(self.status, Status::NeedsGithubAuth { .. })
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     /// Whether or not the ambient agent is currently running.
@@ -754,10 +848,17 @@ impl AmbientAgentViewModel {
     /// the status stays `AgentRunning` while the active session is cleared, which is the editable
     /// post-run state where follow-ups are allowed.
     pub fn is_ready_for_cloud_followup_prompt(&self) -> bool {
-        self.task_id.is_some()
-            && self.active_execution_session_id.is_none()
-            && self.pending_followup_prompt.is_none()
-            && matches!(self.status, Status::AgentRunning)
+        #[cfg(test)]
+        {
+            self.task_id.is_some()
+                && self.active_execution_session_id.is_none()
+                && self.pending_followup_prompt.is_none()
+                && matches!(self.status, Status::AgentRunning)
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     /// Whether or not we should show a status footer (loading, error, auth, or cancelled).
@@ -782,17 +883,31 @@ impl AmbientAgentViewModel {
 
     /// Returns the GitHub auth URL if the agent needs GitHub authentication.
     pub fn github_auth_url(&self) -> Option<&str> {
-        match &self.status {
-            Status::NeedsGithubAuth { auth_url, .. } => Some(auth_url),
-            _ => None,
+        #[cfg(test)]
+        {
+            match &self.status {
+                Status::NeedsGithubAuth { auth_url, .. } => Some(auth_url),
+                _ => None,
+            }
+        }
+        #[cfg(not(test))]
+        {
+            None
         }
     }
 
     /// Returns the error message for GitHub authentication failures.
     pub fn github_auth_error_message(&self) -> Option<&str> {
-        match &self.status {
-            Status::NeedsGithubAuth { error_message, .. } => Some(error_message),
-            _ => None,
+        #[cfg(test)]
+        {
+            match &self.status {
+                Status::NeedsGithubAuth { error_message, .. } => Some(error_message),
+                _ => None,
+            }
+        }
+        #[cfg(not(test))]
+        {
+            None
         }
     }
 
@@ -816,31 +931,43 @@ impl AmbientAgentViewModel {
         task_id: AmbientAgentTaskId,
         ctx: &mut ModelContext<Self>,
     ) {
-        let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
+        #[cfg(test)]
+        {
+            let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
 
-        // Store the task ID for later use
-        self.task_id = Some(task_id);
-        self.source = None;
+            // Store the task ID for later use
+            self.task_id = Some(task_id);
+            self.source = None;
 
-        self.status = Status::AgentRunning;
-        ctx.emit(AmbientAgentViewModelEvent::RunLifecycleChanged);
+            self.status = Status::AgentRunning;
+            ctx.emit(AmbientAgentViewModelEvent::RunLifecycleChanged);
 
-        // Fetch the task so we can set the correct environment (instead of defaulting to the most
-        // recently-used one), harness, and harness model (so non-oz viewers know to use the
-        // queued-prompt / harness-command-started flow).
-        ctx.spawn(
-            async move { ai_client.get_ambient_agent_task(&task_id).await },
-            move |me, result, ctx| match result {
-                Ok(task) => {
-                    me.source = task.source.clone();
-                    me.apply_viewed_task_config_snapshot(task.agent_config_snapshot.as_ref(), ctx);
-                    ctx.emit(AmbientAgentViewModelEvent::ViewerHarnessResolved);
-                }
-                Err(_) => {
-                    me.set_environment_id(None, ctx);
-                }
-            },
-        );
+            // Fetch the task so we can set the correct environment (instead of defaulting to the most
+            // recently-used one), harness, and harness model (so non-oz viewers know to use the
+            // queued-prompt / harness-command-started flow).
+            ctx.spawn(
+                async move { ai_client.get_ambient_agent_task(&task_id).await },
+                move |me, result, ctx| match result {
+                    Ok(task) => {
+                        me.source = task.source.clone();
+                        me.apply_viewed_task_config_snapshot(
+                            task.agent_config_snapshot.as_ref(),
+                            ctx,
+                        );
+                        ctx.emit(AmbientAgentViewModelEvent::ViewerHarnessResolved);
+                    }
+                    Err(_) => {
+                        me.set_environment_id(None, ctx);
+                    }
+                },
+            );
+        }
+
+        #[cfg(not(test))]
+        {
+            let _ = task_id;
+            self.handle_local_only_error(ctx);
+        }
     }
 
     /// Records the live execution session for a viewer that just joined an already-running
@@ -850,8 +977,15 @@ impl AmbientAgentViewModel {
     /// `is_ready_for_cloud_followup_prompt` false while the session is live; the end path
     /// clears it via [`Self::record_ambient_execution_ended`] so follow-ups become available.
     pub fn set_live_execution_session(&mut self, session_id: SessionId) {
-        self.active_execution_session_id = Some(session_id);
-        self.last_ended_execution_session_id = None;
+        #[cfg(test)]
+        {
+            self.active_execution_session_id = Some(session_id);
+            self.last_ended_execution_session_id = None;
+        }
+        #[cfg(not(test))]
+        {
+            let _ = session_id;
+        }
     }
 
     /// Applies the run configuration for an existing shared ambient session.
@@ -859,6 +993,7 @@ impl AmbientAgentViewModel {
     /// Viewed sessions can join before Warp Drive has loaded the referenced environment object,
     /// especially on web. Preserve the server-provided environment ID anyway so the selector does
     /// not fall back to an unrelated default while waiting for the environment object to arrive.
+    #[cfg(test)]
     fn apply_viewed_task_config_snapshot(
         &mut self,
         snapshot: Option<&AgentConfigSnapshot>,
@@ -893,6 +1028,7 @@ impl AmbientAgentViewModel {
         self.set_harness_model_selection(harness_model_id, harness_reasoning_level, ctx);
     }
 
+    #[cfg(test)]
     fn set_environment_id_from_viewed_task(
         &mut self,
         environment_id: Option<SyncId>,
@@ -911,11 +1047,18 @@ impl AmbientAgentViewModel {
         session_id: SessionId,
         ctx: &mut ModelContext<Self>,
     ) {
-        if self.active_execution_session_id.as_ref() == Some(&session_id) {
-            self.active_execution_session_id = None;
-            ctx.emit(AmbientAgentViewModelEvent::RunLifecycleChanged);
+        #[cfg(test)]
+        {
+            if self.active_execution_session_id.as_ref() == Some(&session_id) {
+                self.active_execution_session_id = None;
+                ctx.emit(AmbientAgentViewModelEvent::RunLifecycleChanged);
+            }
+            self.last_ended_execution_session_id = Some(session_id);
         }
-        self.last_ended_execution_session_id = Some(session_id);
+        #[cfg(not(test))]
+        {
+            let _ = (session_id, ctx);
+        }
     }
 
     /// Attach a new execution session to an existing ambient agent pane (e.g. when the
@@ -927,20 +1070,40 @@ impl AmbientAgentViewModel {
         session_id: SessionId,
         ctx: &mut ModelContext<Self>,
     ) {
-        self.stop_progress_timer();
-        self.active_execution_session_id = Some(session_id);
-        self.last_ended_execution_session_id = None;
-        self.pending_followup_prompt = None;
-        self.status = Status::AgentRunning;
-        ctx.emit(AmbientAgentViewModelEvent::ExecutionSessionReady { session_id });
+        #[cfg(test)]
+        {
+            self.stop_progress_timer();
+            self.active_execution_session_id = Some(session_id);
+            self.last_ended_execution_session_id = None;
+            self.pending_followup_prompt = None;
+            self.status = Status::AgentRunning;
+            ctx.emit(AmbientAgentViewModelEvent::ExecutionSessionReady { session_id });
+        }
+        #[cfg(not(test))]
+        {
+            let _ = session_id;
+            self.handle_local_only_error(ctx);
+        }
     }
 
     pub fn submit_cloud_followup(&mut self, prompt: String, ctx: &mut ModelContext<Self>) {
-        if !FeatureFlag::HandoffCloudCloud.is_enabled() {
-            log::warn!("Attempted to submit cloud follow-up while HandoffCloudCloud is disabled");
-            return;
+        #[cfg(test)]
+        {
+            if !FeatureFlag::HandoffCloudCloud.is_enabled() {
+                log::warn!(
+                    "Attempted to submit cloud follow-up while HandoffCloudCloud is disabled"
+                );
+                return;
+            }
+            self.submit_run_followup_unchecked(prompt, ctx);
         }
-        self.submit_run_followup_unchecked(prompt, ctx);
+        #[cfg(not(test))]
+        {
+            let _ = prompt;
+            ctx.emit(AmbientAgentViewModelEvent::FollowupSubmissionFailed {
+                error_message: LOCAL_ONLY_ERROR.to_owned(),
+            });
+        }
     }
 
     /// Submits a follow-up into a retained environment-setup-failure debug session
@@ -954,35 +1117,46 @@ impl AmbientAgentViewModel {
         prompt: String,
         ctx: &mut ModelContext<Self>,
     ) {
-        let Some(task_id) = self.task_id else {
-            log::warn!(
-                "Attempted to submit a setup-failure debug follow-up without an ambient task ID"
+        #[cfg(test)]
+        {
+            let Some(task_id) = self.task_id else {
+                log::warn!(
+                    "Attempted to submit a setup-failure debug follow-up without an ambient task ID"
+                );
+                return;
+            };
+
+            let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
+            let request = RunFollowupRequest {
+                message: prompt.clone(),
+            };
+            self.pending_followup_prompt = Some(prompt);
+            ctx.emit(AmbientAgentViewModelEvent::FollowupDispatched);
+
+            ctx.spawn(
+                async move { ai_client.submit_run_followup(&task_id, request).await },
+                |me, result, ctx| {
+                    me.pending_followup_prompt = None;
+                    if let Err(err) = result {
+                        log::warn!("Failed to submit setup-failure debug follow-up: {err}");
+                        ctx.emit(AmbientAgentViewModelEvent::FollowupSubmissionFailed {
+                            error_message: err.to_string(),
+                        });
+                    }
+                    ctx.notify();
+                },
             );
-            return;
-        };
-
-        let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
-        let request = RunFollowupRequest {
-            message: prompt.clone(),
-        };
-        self.pending_followup_prompt = Some(prompt);
-        ctx.emit(AmbientAgentViewModelEvent::FollowupDispatched);
-
-        ctx.spawn(
-            async move { ai_client.submit_run_followup(&task_id, request).await },
-            |me, result, ctx| {
-                me.pending_followup_prompt = None;
-                if let Err(err) = result {
-                    log::warn!("Failed to submit setup-failure debug follow-up: {err}");
-                    ctx.emit(AmbientAgentViewModelEvent::FollowupSubmissionFailed {
-                        error_message: err.to_string(),
-                    });
-                }
-                ctx.notify();
-            },
-        );
+        }
+        #[cfg(not(test))]
+        {
+            let _ = prompt;
+            ctx.emit(AmbientAgentViewModelEvent::FollowupSubmissionFailed {
+                error_message: LOCAL_ONLY_ERROR.to_owned(),
+            });
+        }
     }
 
+    #[cfg(test)]
     fn submit_run_followup_unchecked(&mut self, prompt: String, ctx: &mut ModelContext<Self>) {
         let Some(task_id) = self.task_id else {
             log::warn!("Attempted to submit cloud follow-up without an ambient task ID");
@@ -1021,48 +1195,81 @@ impl AmbientAgentViewModel {
     }
 
     pub fn pending_followup_prompt(&self) -> Option<&str> {
-        self.pending_followup_prompt.as_deref()
+        #[cfg(test)]
+        {
+            self.pending_followup_prompt.as_deref()
+        }
+        #[cfg(not(test))]
+        {
+            None
+        }
     }
 
     pub fn should_show_followup_progress(&self) -> bool {
-        self.pending_followup_prompt.is_some()
-            && matches!(
-                self.status,
-                Status::WaitingForSession { .. }
-                    | Status::Failed { .. }
-                    | Status::NeedsGithubAuth { .. }
-                    | Status::Cancelled { .. }
-            )
+        #[cfg(test)]
+        {
+            self.pending_followup_prompt.is_some()
+                && matches!(
+                    self.status,
+                    Status::WaitingForSession { .. }
+                        | Status::Failed { .. }
+                        | Status::NeedsGithubAuth { .. }
+                        | Status::Cancelled { .. }
+                )
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     /// Reset cloud-specific prompt state so a retained cloud view can compose a new task.
     pub fn reset_for_new_cloud_prompt(&mut self, ctx: &mut ModelContext<Self>) {
         self.status = Status::Composing;
         self.environment_id = None;
-        self.environment_id_from_viewed_task = false;
-        self.task_id = None;
-        self.source = None;
-        self.conversation_id = None;
+        #[cfg(test)]
+        {
+            self.environment_id_from_viewed_task = false;
+            self.task_id = None;
+            self.source = None;
+            self.conversation_id = None;
+        }
         self.harness_model_id = None;
         self.harness_reasoning_level = None;
         self.harness_command_started = false;
-        self.active_execution_session_id = None;
-        self.last_ended_execution_session_id = None;
-        self.pending_followup_prompt = None;
+        #[cfg(test)]
+        {
+            self.active_execution_session_id = None;
+            self.last_ended_execution_session_id = None;
+            self.pending_followup_prompt = None;
+        }
         self.request = None;
-        self.request_team_scope = None;
-        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        #[cfg(test)]
+        {
+            self.request_team_scope = None;
+        }
+        #[cfg(all(test, feature = "local_fs", not(target_family = "wasm")))]
         {
             self.local_to_cloud_handoff_state = None;
         }
         self.setup_commands_state = Default::default();
-        self.stop_progress_timer();
+        #[cfg(test)]
+        {
+            self.stop_progress_timer();
+        }
         ctx.notify();
     }
 
     /// Sets the local conversation ID associated with this cloud agent run.
     pub fn set_conversation_id(&mut self, id: Option<AIConversationId>) {
-        self.conversation_id = id;
+        #[cfg(test)]
+        {
+            self.conversation_id = id;
+        }
+        #[cfg(not(test))]
+        {
+            let _ = id;
+        }
     }
 
     /// Builds the default `AgentConfigSnapshot` for spawning a cloud agent from this pane.
@@ -1071,6 +1278,7 @@ impl AmbientAgentViewModel {
     /// host (`WARP_CLOUD_MODE_DEFAULT_HOST`), and the pane's currently-selected env
     /// and harness. Shared by `spawn_agent` and the local-to-cloud handoff path so
     /// both flows route to the same worker host and inherit the same defaults.
+    #[cfg(test)]
     pub(crate) fn build_default_spawn_config(
         &self,
         scope: &impl TeamScope,
@@ -1133,29 +1341,37 @@ impl AmbientAgentViewModel {
         scope: &impl TeamScope,
         ctx: &mut ModelContext<Self>,
     ) {
-        let config = Some(self.build_default_spawn_config(scope, ctx));
+        #[cfg(test)]
+        {
+            let config = Some(self.build_default_spawn_config(scope, ctx));
 
-        let (prompt, mode) = extract_user_query_mode(prompt);
-        let request = SpawnAgentRequest {
-            prompt: Some(prompt),
-            mode,
-            config,
-            title: None,
-            team: Some(scope.team_uid().is_some()),
-            agent_identity_uid: None,
-            skill: None,
-            attachments,
-            interactive: None,
-            parent_run_id: None,
-            runtime_skills: vec![],
-            referenced_attachments: vec![],
-            conversation_id: None,
-            initial_snapshot_token: None,
-            snapshot_disabled: should_disable_snapshot(ctx).then_some(true),
-            orchestration_handoff: None,
-        };
+            let (prompt, mode) = extract_user_query_mode(prompt);
+            let request = SpawnAgentRequest {
+                prompt: Some(prompt),
+                mode,
+                config,
+                title: None,
+                team: Some(scope.team_uid().is_some()),
+                agent_identity_uid: None,
+                skill: None,
+                attachments,
+                interactive: None,
+                parent_run_id: None,
+                runtime_skills: vec![],
+                referenced_attachments: vec![],
+                conversation_id: None,
+                initial_snapshot_token: None,
+                snapshot_disabled: should_disable_snapshot(ctx).then_some(true),
+                orchestration_handoff: None,
+            };
 
-        self.spawn_internal(request, RequestTeamScope::from_scope(scope), ctx);
+            self.spawn_internal(request, RequestTeamScope::from_scope(scope), ctx);
+        }
+        #[cfg(not(test))]
+        {
+            let _ = (prompt, attachments, scope);
+            self.handle_local_only_error(ctx);
+        }
     }
 
     /// Spawn an ambient agent with a fully-constructed request.
@@ -1165,37 +1381,47 @@ impl AmbientAgentViewModel {
         team_scope: RequestTeamScope,
         ctx: &mut ModelContext<Self>,
     ) {
-        // Apply pane settings from the request.
-        if let Some(config) = request.config.as_ref() {
-            self.environment_id = config
-                .environment_id
-                .as_deref()
-                .and_then(|id| ServerId::try_from(id).ok())
-                .map(SyncId::ServerId);
-            self.environment_id_from_viewed_task = false;
+        #[cfg(test)]
+        {
+            // Apply pane settings from the request.
+            if let Some(config) = request.config.as_ref() {
+                self.environment_id = config
+                    .environment_id
+                    .as_deref()
+                    .and_then(|id| ServerId::try_from(id).ok())
+                    .map(SyncId::ServerId);
+                self.environment_id_from_viewed_task = false;
 
-            if let Some(model_id) = config.model_id.as_deref() {
-                let team_uid = self.team_uid(ctx);
-                LLMPreferences::handle(ctx).update(ctx, |prefs, ctx| {
-                    prefs.update_preferred_agent_mode_llm_for_team_uid(
-                        team_uid,
-                        &LLMId::from(model_id),
-                        self.terminal_view_id,
-                        ctx,
-                    )
-                });
+                if let Some(model_id) = config.model_id.as_deref() {
+                    let team_uid = self.team_uid(ctx);
+                    LLMPreferences::handle(ctx).update(ctx, |prefs, ctx| {
+                        prefs.update_preferred_agent_mode_llm_for_team_uid(
+                            team_uid,
+                            &LLMId::from(model_id),
+                            self.terminal_view_id,
+                            ctx,
+                        )
+                    });
+                }
+                if let Some(harness) = config.harness.as_ref() {
+                    self.harness = harness.harness_type;
+                    self.harness_model_id = harness.model_id.clone();
+                    self.harness_reasoning_level = harness.reasoning_level.clone();
+                }
             }
-            if let Some(harness) = config.harness.as_ref() {
-                self.harness = harness.harness_type;
-                self.harness_model_id = harness.model_id.clone();
-                self.harness_reasoning_level = harness.reasoning_level.clone();
-            }
+
+            self.spawn_internal(request, team_scope, ctx);
         }
-
-        self.spawn_internal(request, team_scope, ctx);
+        #[cfg(not(test))]
+        {
+            self.request = Some(request);
+            let _ = team_scope;
+            self.handle_local_only_error(ctx);
+        }
     }
 
     /// Stores `request` and starts the combined spawn-and-monitor stream.
+    #[cfg(test)]
     fn start_spawn_stream(
         &mut self,
         mut request: SpawnAgentRequest,
@@ -1216,6 +1442,7 @@ impl AmbientAgentViewModel {
     }
 
     /// Spawn an ambient agent given `request`.
+    #[cfg(test)]
     fn spawn_internal(
         &mut self,
         request: SpawnAgentRequest,
@@ -1231,6 +1458,7 @@ impl AmbientAgentViewModel {
         ctx.emit(AmbientAgentViewModelEvent::DispatchedAgent);
     }
 
+    #[cfg(test)]
     fn handle_ambient_agent_event_result(
         &mut self,
         event_result: Result<AmbientAgentEvent, anyhow::Error>,
@@ -1252,6 +1480,7 @@ impl AmbientAgentViewModel {
         }
     }
 
+    #[cfg(test)]
     fn handle_ambient_agent_event(
         &mut self,
         event: AmbientAgentEvent,
@@ -1384,6 +1613,7 @@ impl AmbientAgentViewModel {
         }
     }
 
+    #[cfg(test)]
     fn handle_ambient_agent_stream_error(
         &mut self,
         err: anyhow::Error,
@@ -1418,6 +1648,7 @@ impl AmbientAgentViewModel {
     }
 
     /// Starts the periodic timer that updates the progress UI while waiting for a session.
+    #[cfg(test)]
     fn start_progress_timer(&mut self, ctx: &mut ModelContext<Self>) {
         // Don't start a new timer if one is already running.
         if self.progress_timer_handle.is_some() {
@@ -1442,6 +1673,7 @@ impl AmbientAgentViewModel {
         self.progress_timer_handle = Some(handle);
     }
 
+    #[cfg(test)]
     fn stop_progress_timer(&mut self) {
         if let Some(handle) = self.progress_timer_handle.take() {
             handle.abort();
@@ -1450,7 +1682,10 @@ impl AmbientAgentViewModel {
 
     /// Handles a spawn error by transitioning to the Failed state.
     fn handle_spawn_error(&mut self, error_message: String, ctx: &mut ModelContext<Self>) {
-        self.stop_progress_timer();
+        #[cfg(test)]
+        {
+            self.stop_progress_timer();
+        }
 
         let now = Instant::now();
 
@@ -1474,11 +1709,19 @@ impl AmbientAgentViewModel {
             progress,
             error_message: error_message.clone(),
         };
-        self.pending_followup_prompt = None;
+        #[cfg(test)]
+        {
+            self.pending_followup_prompt = None;
+        }
         ctx.emit(AmbientAgentViewModelEvent::Failed { error_message });
     }
 
+    fn handle_local_only_error(&mut self, ctx: &mut ModelContext<Self>) {
+        self.handle_spawn_error(LOCAL_ONLY_ERROR.to_owned(), ctx);
+    }
+
     /// Handles the need for GitHub authentication by transitioning to the NeedsGithubAuth state.
+    #[cfg(test)]
     fn handle_needs_github_auth(
         &mut self,
         auth_url: String,
@@ -1523,6 +1766,7 @@ impl AmbientAgentViewModel {
         ctx.emit(AmbientAgentViewModelEvent::NeedsGithubAuth);
     }
 
+    #[cfg(test)]
     fn handle_github_auth_completed(&mut self, ctx: &mut ModelContext<Self>) {
         if !matches!(self.status, Status::NeedsGithubAuth { .. }) {
             return;
@@ -1536,7 +1780,10 @@ impl AmbientAgentViewModel {
 
     /// Handles cancellation by transitioning to the Cancelled state.
     fn handle_cancellation(&mut self, ctx: &mut ModelContext<Self>) {
-        self.stop_progress_timer();
+        #[cfg(test)]
+        {
+            self.stop_progress_timer();
+        }
 
         let now = Instant::now();
 
@@ -1557,8 +1804,11 @@ impl AmbientAgentViewModel {
         };
 
         self.status = Status::Cancelled { progress };
-        self.pending_followup_prompt = None;
-        #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
+        #[cfg(test)]
+        {
+            self.pending_followup_prompt = None;
+        }
+        #[cfg(all(test, feature = "local_fs", not(target_family = "wasm")))]
         {
             self.local_to_cloud_handoff_state = match self.local_to_cloud_handoff_state.take() {
                 Some(LocalToCloudHandoffState::Preparing { cancel }) => {
@@ -1575,6 +1825,7 @@ impl AmbientAgentViewModel {
         ctx.emit(AmbientAgentViewModelEvent::Cancelled);
     }
 
+    #[cfg(test)]
     fn cancel_spawned_task(task_id: AmbientAgentTaskId, ctx: &mut ModelContext<Self>) {
         let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
         ctx.spawn(
@@ -1590,26 +1841,20 @@ impl AmbientAgentViewModel {
         );
     }
 
-    /// Cancels the ambient agent task if one is currently running.
-    /// Sends a cancellation request to the server (if task_id is available) and transitions to the Cancelled state.
+    /// Cancels the ambient agent task locally if it is still waiting.
     pub fn cancel_task(&mut self, ctx: &mut ModelContext<Self>) {
         if !self.is_waiting_for_session() {
             log::warn!("Attempted to cancel ambient agent task but not in WaitingForSession state");
             return;
         }
 
-        // If we have a task_id, send cancellation request to the server
-        if let Some(task_id) = self.task_id {
-            Self::cancel_spawned_task(task_id, ctx);
-        } else {
-            // No task_id yet, but we can still cancel locally.
-            // The spawn stream will handle the cancellation when it receives the TaskSpawned event
-            // and sees we're no longer in WaitingForSession state.
-            log::info!("Cancelling ambient agent task before task_id was received");
+        #[cfg(test)]
+        {
+            if let Some(task_id) = self.task_id {
+                Self::cancel_spawned_task(task_id, ctx);
+            }
         }
 
-        // Always transition to cancelled state immediately, regardless of whether we have a task_id.
-        // This provides immediate UI feedback to the user.
         self.handle_cancellation(ctx);
     }
 }

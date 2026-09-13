@@ -5,34 +5,47 @@ use ai::api_keys::{
     GeapMintBinding, GeapRefreshOutcome, LoadGeapCredentialsError,
 };
 use futures::channel::oneshot;
+#[cfg(test)]
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use vec1::vec1;
 use warp_errors::report_error;
+#[cfg(test)]
 use warp_managed_secrets::client::{IdentityTokenOptions, TaskIdentityToken};
 use warpui::r#async::Timer;
 use warpui::{AppContext, ModelContext, SingletonEntity};
 
 use crate::auth::AuthStateProvider;
+#[cfg(test)]
 use crate::server::server_api::managed_secrets::AppManagedSecretManager as ManagedSecretManager;
 use crate::settings::{AISettings, AISettingsChangedEvent};
 use crate::workspaces::user_workspaces::{
     GeminiEnterpriseBackgroundHost, TeamScope, UserWorkspaces, UserWorkspacesEvent,
 };
 
+#[cfg(test)]
 const GEAP_IDENTITY_TOKEN_DURATION: Duration = Duration::from_secs(60 * 60);
 
 /// Floor on the proactive refresh timer delay so a near-expired store
 /// cannot spin mint -> store -> re-mint as a hot loop;
 const GEAP_MIN_TIMER_DELAY: Duration = Duration::from_secs(60);
 
+#[cfg(test)]
 const STS_TOKEN_URL: &str = "https://sts.googleapis.com/v1/token";
+#[cfg(test)]
 const IAM_GENERATE_ACCESS_TOKEN_URL: &str = "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{sa_email}:generateAccessToken";
+#[cfg(test)]
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
+#[cfg(test)]
 const TOKEN_EXCHANGE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
+#[cfg(test)]
 const ID_TOKEN_TYPE: &str = "urn:ietf:params:oauth:token-type:id_token";
+#[cfg(test)]
 const ACCESS_TOKEN_TYPE: &str = "urn:ietf:params:oauth:token-type:access_token";
+#[cfg(test)]
 const SA_ACCESS_TOKEN_LIFETIME: &str = "3600s";
 
+#[cfg(test)]
 const GEAP_MINT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -280,29 +293,47 @@ fn refresh_geap_credentials_with_options(
     manager.install_geap_refresh_waiter(waiter);
     manager.set_geap_credentials_state(GeapCredentialsState::Refreshing { previous }, ctx);
 
-    // Leg 1: every mint — initial or re-mint, timer/trigger/forced — starts
-    // with a brand-new Warp OIDC JWT, consumed exactly once by the STS
-    // exchange below and never cached across mints.
-    let token_future = ManagedSecretManager::handle(ctx)
-        .as_ref(ctx)
-        .issue_task_identity_token(IdentityTokenOptions {
-            audience: minted_for.audience.clone(),
-            requested_duration: GEAP_IDENTITY_TOKEN_DURATION,
-            subject_template: vec1!["principal".to_string()],
-        });
-    let binding = minted_for.clone();
-    let _ = ctx.spawn(
-        async move {
-            let identity_token =
-                token_future
-                    .await
-                    .map_err(|err| LoadGeapCredentialsError::MintIdentityToken {
+    #[cfg(not(test))]
+    {
+        apply_geap_mint_result(
+            manager,
+            Err(LoadGeapCredentialsError::MintIdentityToken {
+                detail: "GEAP credential minting is disabled in this build".to_owned(),
+            }),
+            minted_for,
+            force,
+            ctx,
+        );
+        return;
+    }
+
+    #[cfg(test)]
+    {
+        // Leg 1: every mint — initial or re-mint, timer/trigger/forced — starts
+        // with a brand-new Warp OIDC JWT, consumed exactly once by the STS
+        // exchange below and never cached across mints.
+        let token_future = ManagedSecretManager::handle(ctx)
+            .as_ref(ctx)
+            .issue_task_identity_token(IdentityTokenOptions {
+                audience: minted_for.audience.clone(),
+                requested_duration: GEAP_IDENTITY_TOKEN_DURATION,
+                subject_template: vec1!["principal".to_string()],
+            });
+        let binding = minted_for.clone();
+        let _ = ctx.spawn(
+            async move {
+                let identity_token = token_future.await.map_err(|err| {
+                    LoadGeapCredentialsError::MintIdentityToken {
                         detail: format!("{err:#}"),
-                    })?;
-            exchange_identity_token_for_geap_credentials(identity_token, &binding).await
-        },
-        move |manager, result, ctx| apply_geap_mint_result(manager, result, minted_for, force, ctx),
-    );
+                    }
+                })?;
+                exchange_identity_token_for_geap_credentials(identity_token, &binding).await
+            },
+            move |manager, result, ctx| {
+                apply_geap_mint_result(manager, result, minted_for, force, ctx)
+            },
+        );
+    }
 }
 
 fn apply_geap_mint_result(
@@ -467,6 +498,7 @@ fn geap_refresh_timer_delay(expires_at: SystemTime, now: SystemTime) -> Duration
         .max(GEAP_MIN_TIMER_DELAY)
 }
 
+#[cfg(test)]
 #[derive(Serialize)]
 struct StsTokenExchangeRequest<'a> {
     grant_type: &'a str,
@@ -477,6 +509,7 @@ struct StsTokenExchangeRequest<'a> {
     subject_token_type: &'a str,
 }
 
+#[cfg(test)]
 #[derive(Debug, Deserialize)]
 struct StsTokenExchangeResponse {
     access_token: String,
@@ -484,6 +517,7 @@ struct StsTokenExchangeResponse {
     expires_in: Option<u64>,
 }
 
+#[cfg(test)]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GenerateAccessTokenRequest {
@@ -491,6 +525,7 @@ struct GenerateAccessTokenRequest {
     lifetime: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GenerateAccessTokenResponse {
@@ -501,6 +536,7 @@ struct GenerateAccessTokenResponse {
 /// Legs 2 and 3 of the mint: exchanges the Warp OIDC JWT at Google STS for a
 /// federated token, then (when configured) impersonates the workspace's
 /// service account for the final ~1h access token.
+#[cfg(test)]
 async fn exchange_identity_token_for_geap_credentials(
     identity_token: TaskIdentityToken,
     binding: &GeapMintBinding,
@@ -607,6 +643,7 @@ async fn exchange_identity_token_for_geap_credentials(
     ))
 }
 
+#[cfg(test)]
 fn sts_expires_at(
     expires_in: Option<u64>,
     jwt_expires_at: SystemTime,
@@ -617,6 +654,7 @@ fn sts_expires_at(
         .unwrap_or(jwt_expires_at)
 }
 
+#[cfg(test)]
 fn parse_generate_access_token_expiry(expire_time: &str) -> Result<SystemTime, String> {
     chrono::DateTime::parse_from_rfc3339(expire_time)
         .map(SystemTime::from)

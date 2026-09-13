@@ -1,24 +1,42 @@
+#[cfg(any(test, feature = "integration_tests"))]
 use std::sync::Arc;
+#[cfg(any(test, feature = "integration_tests"))]
 use std::time::Duration;
 
+#[cfg(any(test, feature = "integration_tests"))]
 use anyhow::{Result, anyhow};
+#[cfg(any(test, feature = "integration_tests"))]
 use async_trait::async_trait;
+#[cfg(any(test, feature = "integration_tests"))]
 use futures::StreamExt;
+#[cfg(any(test, feature = "integration_tests"))]
 use futures::future::Either;
+#[cfg(any(test, feature = "integration_tests"))]
 use instant::Instant;
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_errors::{AnyhowErrorExt as _, report_error};
+#[cfg(any(test, feature = "integration_tests"))]
 use warpui::r#async::Timer;
 
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::retry_strategies::{is_auth_error, is_transient_http_error};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::server_api::ServerApi;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::server_api::ai::AgentRunEvent;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::server_api::presigned_upload::HttpStatusError;
 
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) const DEFAULT_AGENT_EVENT_RECONNECT_BACKOFF_STEPS: &[u64] = &[1, 2, 5, 10];
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) const DEFAULT_PERMANENT_ERROR_BACKOFF_STEPS: &[u64] = &[30];
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) const DEFAULT_AGENT_EVENT_PROACTIVE_RECONNECT: Duration = Duration::from_secs(14 * 60);
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) const DEFAULT_AGENT_EVENT_FAILURES_BEFORE_ERROR_LOG: usize = 5;
 
+/*
 /// Consecutive authentication failures (HTTP 401/403) after which a bounded
 /// listener gives up instead of reconnecting. A small threshold (rather than 1)
 /// tolerates a one-off token blip while still bailing quickly once credentials
@@ -34,6 +52,7 @@ pub(crate) const DEFAULT_AUTH_ERROR_GIVE_UP_FAILURES: usize = 3;
 /// affected; it only bounds sustained failure.
 #[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub(crate) const DEFAULT_AGENT_EVENT_MAX_RETRY_DURATION: Duration = Duration::from_secs(30 * 60);
+*/
 
 /// Selects which server-side filter shape an [`AgentEventSource`] should use
 /// when opening a stream.
@@ -47,6 +66,7 @@ pub(crate) const DEFAULT_AGENT_EVENT_MAX_RETRY_DURATION: Duration = Duration::fr
 /// own events so an owner-side orchestrator can receive child lifecycle
 /// events plus its own inbox on one ordered stream.
 #[derive(Clone, Debug)]
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) enum AgentEventFilter {
     /// One stream per multiplexed set of run IDs. Matches today's
     /// `?run_ids[]=` endpoint.
@@ -60,6 +80,7 @@ pub(crate) enum AgentEventFilter {
     },
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl AgentEventFilter {
     /// Returns a short debug label used in driver log lines so we don't have
     /// to format the full `Vec<String>` payload on every retry.
@@ -76,6 +97,7 @@ impl AgentEventFilter {
 
 /// Configuration for the shared agent-event stream driver.
 #[derive(Clone, Debug)]
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) struct AgentEventDriverConfig {
     /// Wire-level filter selecting which run IDs the stream serves. Either a
     /// concrete multiplexed list of run IDs or an ancestor-scoped child set;
@@ -110,6 +132,7 @@ pub(crate) struct AgentEventDriverConfig {
     pub max_retry_duration: Option<Duration>,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl AgentEventDriverConfig {
     /// Build the production reconnecting configuration used by long-lived
     /// orchestration and harness listeners, parameterised on the wire filter.
@@ -132,6 +155,7 @@ impl AgentEventDriverConfig {
         Self::retry_forever(AgentEventFilter::RunIds(run_ids), since_sequence)
     }
 
+    /*
     /// Build a reconnecting config for a cloud-agent listener that must NOT run
     /// forever. Unlike [`retry_forever`], this stops after sustained
     /// authentication failures or a bounded total retry window, so a listener
@@ -147,18 +171,20 @@ impl AgentEventDriverConfig {
             ..Self::retry_forever(AgentEventFilter::RunIds(run_ids), since_sequence)
         }
     }
+    */
 }
 
 /// Tells the shared driver whether to continue or stop after a handled event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) enum AgentEventConsumerControlFlow {
     Continue,
-    #[cfg_attr(not(test), allow(dead_code))]
     Stop,
 }
 
 /// High-level connection state updates emitted by the shared driver.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) enum AgentEventDriverState {
     Connected,
     RetryScheduled {
@@ -176,12 +202,18 @@ pub(crate) enum AgentEventDriverState {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg(any(
+    test,
+    feature = "integration_tests",
+    feature = "local_claude_codex_child_harnesses"
+))]
 pub(crate) struct AgentMessageEventMetadata {
     pub sequence: i64,
     pub message_id: String,
     pub occurred_at: String,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl AgentMessageEventMetadata {
     pub(crate) fn from_event(event: &AgentRunEvent) -> Option<Self> {
         if event.event_type != "new_message" {
@@ -197,11 +229,13 @@ impl AgentMessageEventMetadata {
 }
 
 /// Parsed items emitted by an [`AgentEventSource`].
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) enum AgentEventSourceItem {
     Open,
     Event(AgentRunEvent),
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 cfg_if::cfg_if! {
     if #[cfg(target_family = "wasm")] {
         type AgentEventSourceStream =
@@ -215,6 +249,7 @@ cfg_if::cfg_if! {
 /// Opens a stream of parsed agent events for the supplied filter.
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) trait AgentEventSource: Send + Sync {
     async fn open_stream(
         &self,
@@ -224,10 +259,12 @@ pub(crate) trait AgentEventSource: Send + Sync {
 }
 
 /// [`AgentEventSource`] backed by [`ServerApi::stream_agent_events`].
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) struct ServerApiAgentEventSource {
     server_api: Arc<ServerApi>,
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 impl ServerApiAgentEventSource {
     pub(crate) fn new(server_api: Arc<ServerApi>) -> Self {
         Self { server_api }
@@ -236,6 +273,7 @@ impl ServerApiAgentEventSource {
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg(any(test, feature = "integration_tests"))]
 impl AgentEventSource for ServerApiAgentEventSource {
     async fn open_stream(
         &self,
@@ -318,6 +356,7 @@ impl AgentEventSource for ServerApiAgentEventSource {
 /// their errors are logged and the driver continues.
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) trait AgentEventConsumer: Send {
     async fn on_event(&mut self, event: AgentRunEvent) -> Result<AgentEventConsumerControlFlow>;
 
@@ -332,6 +371,7 @@ pub(crate) trait AgentEventConsumer: Send {
 
 /// Runs a reconnecting agent-event stream until the consumer stops it or a
 /// fatal event-processing error occurs.
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) async fn run_agent_event_driver<S, C>(
     source: S,
     config: AgentEventDriverConfig,
@@ -494,6 +534,7 @@ where
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 enum NextDriverItem {
     StreamItem(Option<Result<AgentEventSourceItem>>),
     ProactiveReconnect,
@@ -503,6 +544,7 @@ enum NextDriverItem {
 /// reason if the driver should stop retrying. Bumps `consecutive_auth_failures`
 /// on an HTTP 401/403 error and resets it otherwise, then defers to
 /// [`agent_event_give_up_reason`].
+#[cfg(any(test, feature = "integration_tests"))]
 fn classify_failure_and_give_up_reason(
     config: &AgentEventDriverConfig,
     err: &anyhow::Error,
@@ -522,6 +564,7 @@ fn classify_failure_and_give_up_reason(
 /// pending retry, and waits out the backoff delay. Returns `Err` if the driver
 /// should stop — the error is ready to propagate directly — or `Ok(())` once the
 /// retry delay has elapsed.
+#[cfg(any(test, feature = "integration_tests"))]
 async fn handle_http_error<C: AgentEventConsumer>(
     config: &AgentEventDriverConfig,
     consumer: &mut C,
@@ -576,6 +619,7 @@ async fn handle_http_error<C: AgentEventConsumer>(
 /// caller resets it on any non-auth failure or success), and
 /// `retry_window_started_at` is seeded on the first call of a failure run so the
 /// `max_retry_duration` window measures sustained failure.
+#[cfg(any(test, feature = "integration_tests"))]
 fn agent_event_give_up_reason(
     config: &AgentEventDriverConfig,
     consecutive_auth_failures: usize,
@@ -604,6 +648,7 @@ fn agent_event_give_up_reason(
     None
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 async fn notify_driver_state<C: AgentEventConsumer>(
     consumer: &mut C,
     state: AgentEventDriverState,
@@ -613,6 +658,7 @@ async fn notify_driver_state<C: AgentEventConsumer>(
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 fn log_stream_failure(
     filter: &AgentEventFilter,
     failures: usize,
@@ -637,6 +683,7 @@ fn log_stream_failure(
     }
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) fn agent_event_backoff(failures: usize, backoff_steps: &[u64]) -> Duration {
     let safe_steps = if backoff_steps.is_empty() {
         DEFAULT_AGENT_EVENT_RECONNECT_BACKOFF_STEPS
@@ -652,6 +699,7 @@ pub(crate) fn agent_event_failures_exceeded_threshold(failures: usize, threshold
     failures >= threshold
 }
 
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) fn agent_event_failure_should_log_error(
     err: &anyhow::Error,
     failures: usize,

@@ -6,6 +6,8 @@ use futures::{AsyncWriteExt as _, TryStreamExt as _};
 use http_client::StatusCode;
 use remote_server::setup::RemotePlatform;
 use remote_server::transport::Error;
+use url::Url;
+use warp_core::channel::{Channel, ChannelState};
 
 const REMOTE_SERVER_TARBALL_CACHE_FILE_NAME: &str = "oz.tar.gz";
 
@@ -138,12 +140,45 @@ async fn cached_remote_server_tarball(platform: &RemotePlatform) -> anyhow::Resu
     }
 
     let url = remote_server::setup::download_tarball_url(platform);
+    if matches!(ChannelState::channel(), Channel::Local) && !is_loopback_url(&url) {
+        anyhow::bail!("External remote-server tarball downloads are disabled in local-only mode");
+    }
     log::info!(
         "Downloading remote-server tarball from {url} into cache at {}",
         cache_path.display()
     );
     download_remote_server_tarball_to_cache(&url, &cache_path).await?;
     Ok(cache_path)
+}
+
+fn is_loopback_url(url: &str) -> bool {
+    let Ok(url) = Url::parse(url) else {
+        return false;
+    };
+    matches!(url.scheme(), "http" | "https")
+        && url.host_str().is_some_and(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback())
+        })
+}
+
+fn remote_server_tarball_http_client() -> anyhow::Result<http_client::Client> {
+    if !matches!(ChannelState::channel(), Channel::Local) {
+        return Ok(http_client::Client::new());
+    }
+
+    http_client::Client::from_client_builder(reqwest::Client::builder().redirect(
+        reqwest::redirect::Policy::custom(|attempt| {
+            if is_loopback_url(attempt.url().as_str()) {
+                attempt.follow()
+            } else {
+                attempt.stop()
+            }
+        }),
+    ))
+    .context("Failed to create local remote-server tarball HTTP client")
 }
 
 async fn download_remote_server_tarball_to_cache(
@@ -213,7 +248,7 @@ async fn download_remote_server_tarball_with_retries(
     url: &str,
     temp_path: &Path,
 ) -> anyhow::Result<()> {
-    let http_client = http_client::Client::new();
+    let http_client = remote_server_tarball_http_client()?;
     let mut last_retryable_error = None;
 
     for attempt in 1..=REMOTE_SERVER_TARBALL_DOWNLOAD_ATTEMPTS {
@@ -302,4 +337,32 @@ fn is_retryable_download_status(status: StatusCode) -> bool {
         status,
         StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS
     ) || status.is_server_error()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_loopback_url;
+
+    #[test]
+    fn accepts_http_loopback_urls() {
+        for url in [
+            "http://localhost:8080/download/cli",
+            "https://127.0.0.1/download/cli",
+            "http://[::1]:8080/download/cli",
+        ] {
+            assert!(is_loopback_url(url), "expected loopback URL: {url}");
+        }
+    }
+
+    #[test]
+    fn rejects_external_and_non_http_urls() {
+        for url in [
+            "https://app.warp.dev/download/cli",
+            "http://localhost.evil.example/download/cli",
+            "file://localhost/download/cli",
+            "not a URL",
+        ] {
+            assert!(!is_loopback_url(url), "expected rejected URL: {url}");
+        }
+    }
 }

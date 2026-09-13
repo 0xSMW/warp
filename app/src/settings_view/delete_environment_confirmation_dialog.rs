@@ -53,6 +53,7 @@ impl DeleteEnvironmentConfirmationDialog {
         }
     }
 
+    #[cfg(test)]
     pub fn show(&mut self, env_id: SyncId, env_name: String, ctx: &mut ViewContext<Self>) {
         self.env_id = Some(env_id);
         self.env_name = env_name;

@@ -1,28 +1,41 @@
 //! Stream-based API for spawning and monitoring ambient agents.
-#![cfg_attr(target_family = "wasm", expect(dead_code))]
 
+#[cfg(test)]
 use std::str::FromStr;
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
 
+#[cfg(test)]
 use anyhow::anyhow;
-use futures::{FutureExt, Stream, StreamExt, select};
+#[cfg(test)]
+use futures::Stream;
+#[cfg(test)]
+use futures::{FutureExt, StreamExt, select};
+#[cfg(test)]
 use session_sharing_protocol::common::SessionId;
 
+#[cfg(test)]
 use super::{AmbientAgentTask, AmbientAgentTaskId, AmbientAgentTaskState};
+#[cfg(test)]
 use crate::server::retry_strategies::with_bounded_retry;
-use crate::server::server_api::ai::{
-    AIClient, RunFollowupRequest, SpawnAgentRequest, TaskStatusMessage,
-};
+#[cfg(test)]
+use crate::server::server_api::ai::RunFollowupRequest;
+#[cfg(test)]
+use crate::server::server_api::ai::{AIClient, SpawnAgentRequest, TaskStatusMessage};
+#[cfg(test)]
 use crate::server::team_scope::RequestTeamScope;
+#[cfg(test)]
 use crate::terminal::shared_session;
 
+// Cloud-only CLI polling is disabled in local-only mode.
+/*
 /// How long to poll for the agent to be ready.
 /// This should be long enough that the shared session will be joinable.
 pub const TASK_STATUS_POLLING_DURATION: Duration = Duration::from_secs(80);
+*/
 
-#[cfg(not(test))]
-const TASK_STATUS_POLL_INTERVAL: Duration = Duration::from_secs(3);
 #[cfg(test)]
 const TASK_STATUS_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
@@ -32,15 +45,18 @@ const TASK_STATUS_POLL_INTERVAL: Duration = Duration::from_millis(1);
 /// state. At the production `TASK_STATUS_POLL_INTERVAL` of 3s, 10 skipped observations
 /// is ~30s — comfortably longer than the dispatcher's `ProcessingInterval` plus typical
 /// worker claim latency.
+#[cfg(test)]
 const MAX_STALE_POLLS_BEFORE_FAILURE: usize = 10;
 
 /// Information about a session join link for an ambient agent task.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionJoinInfo {
     pub session_id: Option<SessionId>,
     pub session_link: String,
 }
 
+#[cfg(test)]
 impl SessionJoinInfo {
     pub fn from_task(task: &AmbientAgentTask) -> Option<Self> {
         let run_execution = task.active_run_execution();
@@ -63,6 +79,7 @@ impl SessionJoinInfo {
 }
 
 /// Lifecycle events during ambient agent startup.
+#[cfg(test)]
 #[derive(Debug)]
 pub enum AmbientAgentEvent {
     /// The task was successfully spawned with the given task ID and run ID.
@@ -84,6 +101,7 @@ pub enum AmbientAgentEvent {
     AtCapacity,
 }
 
+#[cfg(test)]
 enum RunPollMode {
     InitialRun,
     Followup {
@@ -100,6 +118,7 @@ enum RunPollMode {
 /// - An error occurs
 ///
 /// If `timeout` is `None`, there is no timeout.
+#[cfg(test)]
 pub fn spawn_task(
     request: SpawnAgentRequest,
     team_scope: RequestTeamScope,
@@ -135,6 +154,7 @@ pub fn spawn_task(
 ///
 /// This preserves the event contract of [`spawn_task`] while allowing callers
 /// that own task creation to avoid issuing a second spawn request.
+#[cfg(test)]
 pub fn monitor_spawned_task(
     task_id: AmbientAgentTaskId,
     run_id: String,
@@ -162,6 +182,7 @@ pub fn monitor_spawned_task(
     }
 }
 
+#[cfg(test)]
 pub fn submit_run_followup(
     message: String,
     run_id: AmbientAgentTaskId,
@@ -190,6 +211,7 @@ pub fn submit_run_followup(
     }
 }
 
+#[cfg(test)]
 fn poll_run_until_joinable_session(
     run_id: AmbientAgentTaskId,
     ai_client: Arc<dyn AIClient>,

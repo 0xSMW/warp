@@ -7,10 +7,28 @@
 
 // Re-export for tests only; the canonical definitions live in retry_strategies.
 #[cfg(test)]
-pub(crate) use crate::server::retry_strategies::{MAX_ATTEMPTS, is_transient_http_error};
 pub(crate) use crate::server::retry_strategies::{
-    is_transient_graphql_or_http_error, with_bounded_retry, with_bounded_retry_using,
+    MAX_ATTEMPTS, is_transient_http_error, with_bounded_retry, with_bounded_retry_using,
 };
+
+// Managed MCP resolution retains a production-compatible signature while cloud Agent SDK
+// operations are disabled in local-only mode. Keep this path fail-closed until the resolver is
+// removed from the local driver entirely.
+#[cfg(not(test))]
+pub(crate) async fn with_bounded_retry_using<T, F, Fut>(
+    _: &str,
+    _: usize,
+    _: impl Fn(&anyhow::Error) -> bool,
+    _: F,
+) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    anyhow::bail!("Agent SDK cloud retries are disabled in local-only mode")
+}
+
+pub(crate) use crate::server::retry_strategies::is_transient_graphql_or_http_error;
 
 #[cfg(test)]
 #[path = "retry_tests.rs"]

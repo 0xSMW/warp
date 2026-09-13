@@ -30,10 +30,7 @@ use warpui::{
 
 use crate::ai::active_agent_views_model::{ActiveAgentViewsModel, ConversationOrTaskId};
 use crate::ai::agent::conversation::AIConversationId;
-use crate::ai::blocklist::agent_view::{
-    AgentViewController, AgentViewEntryOrigin, ENTER_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE,
-    ENTER_CLOUD_AGENT_VIEW_NEW_CONVERSATION_KEYSTROKE,
-};
+use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewEntryOrigin};
 use crate::ai::blocklist::history_model::{BlocklistAIHistoryEvent, BlocklistAIHistoryModel};
 use crate::ai::conversation_navigation::ConversationNavigationData;
 use crate::appearance::Appearance;
@@ -63,9 +60,6 @@ const MAX_RECENT_CONVERSATION_COUNT: usize = 3;
 
 #[derive(Default)]
 struct StateHandles {
-    start_new_conversation: MouseStateHandle,
-    start_cloud_conversation: MouseStateHandle,
-    switch_model: MouseStateHandle,
     exit: MouseStateHandle,
     init_callout: MouseStateHandle,
     oz_updates: MouseStateHandle,
@@ -734,6 +728,8 @@ fn render_body(props: ZeroStateBodyProps<'_>, app: &AppContext) -> Vec<Box<dyn E
         }
         _ => {
             let mut body_items = vec![
+                // Commented out: Start Agent and Cloud Agent conversation shortcuts
+                /*
                 render_standard_message(
                     Message::new(vec![MessageItem::clickable(
                         vec![
@@ -768,6 +764,9 @@ fn render_body(props: ZeroStateBodyProps<'_>, app: &AppContext) -> Vec<Box<dyn E
                     )]),
                     app,
                 ),
+                */
+                // Commented out: Model selector shortcut
+                /*
                 render_standard_message(
                     Message::new(vec![MessageItem::clickable(
                         vec![
@@ -784,6 +783,7 @@ fn render_body(props: ZeroStateBodyProps<'_>, app: &AppContext) -> Vec<Box<dyn E
                     )]),
                     app,
                 ),
+                */
             ];
 
             // Only show "escape to go back" if there's a parent terminal

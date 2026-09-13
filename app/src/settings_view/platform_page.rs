@@ -1,3 +1,12 @@
+#[cfg(test)]
+macro_rules! test_only {
+    ($($item:item)*) => {
+        $(#[cfg(test)] $item)*
+    };
+}
+
+#[cfg(test)]
+test_only! {
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
@@ -955,3 +964,7 @@ impl From<ViewHandle<PlatformPageView>> for SettingsPageViewHandle {
 #[cfg(test)]
 #[path = "platform_page_tests.rs"]
 mod tests;
+}
+
+#[cfg(not(test))]
+pub use super::main_page::MainSettingsPageView as PlatformPageView;

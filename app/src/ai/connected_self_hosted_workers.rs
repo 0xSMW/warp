@@ -1,15 +1,11 @@
 use std::collections::HashMap;
 
-use warp_errors::report_error;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
-use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::{AuthManager, AuthManagerEvent};
 use crate::network::{NetworkStatus, NetworkStatusEvent, NetworkStatusKind};
 use crate::server::ids::ServerId;
-use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::ConnectedSelfHostedWorker;
-use crate::server::team_scope::RequestTeamScope;
 use crate::workspaces::user_workspaces::{TeamScope, UserWorkspaces, UserWorkspacesEvent};
 pub const WARP_WORKER_HOST: &str = "warp";
 
@@ -33,19 +29,27 @@ impl ConnectedSelfHostedWorkersModel {
         });
 
         ctx.subscribe_to_model(&AuthManager::handle(ctx), |me, _, event, ctx| match event {
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             AuthManagerEvent::AuthComplete => {
                 me.clear_workers(ctx);
             }
-            AuthManagerEvent::AuthFailed(_)
-            | AuthManagerEvent::SkippedLogin
-            | AuthManagerEvent::NeedsReauth => {
+            AuthManagerEvent::AuthFailed(_) => {
                 me.clear_workers(ctx);
             }
-            AuthManagerEvent::CreateAnonymousUserFailed
-            | AuthManagerEvent::AttemptedLoginGatedFeature { .. }
-            | AuthManagerEvent::LoginOverrideDetected(_)
-            | AuthManagerEvent::MintCustomTokenFailed(_)
-            | AuthManagerEvent::ReceivedDeviceAuthorizationCode { .. } => {}
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            AuthManagerEvent::SkippedLogin => {
+                me.clear_workers(ctx);
+            }
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            AuthManagerEvent::NeedsReauth => {
+                me.clear_workers(ctx);
+            }
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            AuthManagerEvent::CreateAnonymousUserFailed => {}
+            AuthManagerEvent::MintCustomTokenFailed(_) => {}
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            AuthManagerEvent::AttemptedLoginGatedFeature { .. }
+            | AuthManagerEvent::LoginOverrideDetected(_) => {}
         });
 
         ctx.subscribe_to_model(&UserWorkspaces::handle(ctx), |me, _, event, ctx| {
@@ -81,35 +85,11 @@ impl ConnectedSelfHostedWorkersModel {
     }
 
     pub fn refresh(&mut self, scope: &impl TeamScope, ctx: &mut ModelContext<Self>) {
-        if !AuthStateProvider::as_ref(ctx).get().is_logged_in() {
-            self.clear_workers(ctx);
+        if scope.team_uid().is_none() {
             return;
         }
-        let Some(team_uid) = scope.team_uid() else {
-            return;
-        };
-        let request_scope = RequestTeamScope::from_scope(scope);
-        let ai_client = ServerApiProvider::as_ref(ctx).get_ai_client();
-        ctx.spawn(
-            async move {
-                ai_client
-                    .list_connected_self_hosted_workers(request_scope)
-                    .await
-            },
-            move |me, result, ctx| match result {
-                Ok(response) => {
-                    let mut workers = response.workers;
-                    workers.sort_by(|left, right| left.worker_host.cmp(&right.worker_host));
-                    if me.workers_by_team.get(&team_uid) != Some(&workers) {
-                        me.workers_by_team.insert(team_uid, workers);
-                        ctx.emit(ConnectedSelfHostedWorkersEvent::Changed);
-                    }
-                }
-                Err(e) => {
-                    report_error!(e.context("Failed to fetch connected self-hosted workers"));
-                }
-            },
-        );
+
+        self.clear_workers(ctx);
     }
 
     fn workers_for_scope(&self, scope: &(impl TeamScope + ?Sized)) -> &[ConnectedSelfHostedWorker] {

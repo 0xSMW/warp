@@ -74,17 +74,6 @@ pub enum RunnerCommand {
     Delete(DeleteRunnerArgs),
 }
 
-impl RunnerCommand {
-    pub(crate) fn as_str_for_tracing(&self) -> &'static str {
-        match self {
-            RunnerCommand::List(_) => "runner list",
-            RunnerCommand::Create(_) => "runner create",
-            RunnerCommand::Update(_) => "runner update",
-            RunnerCommand::Delete(_) => "runner delete",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Args)]
 pub struct ListRunnersArgs {
     #[command(flatten)]

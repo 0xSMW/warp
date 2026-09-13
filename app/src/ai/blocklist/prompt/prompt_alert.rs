@@ -272,6 +272,7 @@ impl PromptAlertView {
         &self.state
     }
 
+    #[cfg(test)]
     pub fn does_alert_block_ai_requests<S: TeamScope + ?Sized>(
         scope: &S,
         app: &AppContext,

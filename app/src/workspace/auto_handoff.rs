@@ -22,6 +22,8 @@ use crate::terminal::view::TerminalView;
 use crate::view_components::DismissibleToast;
 use crate::workspaces::user_workspaces::{ResolvedTeamScope, UserWorkspaces};
 
+const AUTO_CLOUD_HANDOFF_DISABLED: bool = true;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AutoCloudHandoffSkipReason {
     EmptyConversation,
@@ -125,6 +127,10 @@ struct AutoCloudHandoffCandidate {
 
 impl AutoCloudHandoffRequest {
     fn dispatch(&self, ctx: &mut AppContext) {
+        if AUTO_CLOUD_HANDOFF_DISABLED {
+            return;
+        }
+
         self.workspace.update(ctx, |workspace, ctx| {
             workspace.handle_action(
                 &WorkspaceAction::AutoHandoffActiveAgentToCloud {
@@ -177,6 +183,10 @@ impl AutoCloudHandoffController {
         window_id: WindowId,
         ctx: &mut ModelContext<Self>,
     ) {
+        if AUTO_CLOUD_HANDOFF_DISABLED {
+            return;
+        }
+
         self.attempted_conversation_ids.insert(conversation_id);
 
         if self.is_system_sleeping {
@@ -187,6 +197,10 @@ impl AutoCloudHandoffController {
     }
     #[cfg(all(feature = "local_fs", not(target_family = "wasm")))]
     pub(crate) fn record_handoff_failed(&mut self, conversation_id: AIConversationId) {
+        if AUTO_CLOUD_HANDOFF_DISABLED {
+            return;
+        }
+
         self.attempted_conversation_ids.remove(&conversation_id);
     }
 
@@ -195,6 +209,10 @@ impl AutoCloudHandoffController {
         event: &SystemStatsEvent,
         ctx: &mut ModelContext<Self>,
     ) {
+        if AUTO_CLOUD_HANDOFF_DISABLED {
+            return;
+        }
+
         match event {
             SystemStatsEvent::CpuWillSleep => {
                 self.is_system_sleeping = true;
@@ -233,6 +251,10 @@ impl AutoCloudHandoffController {
     /// surfaced on wake by [`Self::maybe_show_sleep_prompt`] and shown at most
     /// once per user (enforced by `OneTimeModalModel`).
     fn handle_cpu_will_sleep(&mut self, ctx: &mut ModelContext<Self>) {
+        if AUTO_CLOUD_HANDOFF_DISABLED {
+            return;
+        }
+
         self.pending_sleep_prompt = false;
 
         let candidate = match self.evaluate_handoff_candidate(ctx) {
@@ -287,6 +309,10 @@ impl AutoCloudHandoffController {
     }
 
     fn trigger(&mut self, trigger: AutoCloudHandoffTrigger, ctx: &mut ModelContext<Self>) {
+        if AUTO_CLOUD_HANDOFF_DISABLED {
+            return;
+        }
+
         if !Self::is_trigger_enabled(trigger, ctx) {
             log::info!(
                 "auto handoff: skipping {trigger:?} trigger, auto-handoff-on-sleep is disabled"
@@ -368,6 +394,10 @@ impl AutoCloudHandoffController {
         trigger: AutoCloudHandoffTrigger,
         ctx: &mut ModelContext<Self>,
     ) {
+        if AUTO_CLOUD_HANDOFF_DISABLED {
+            return;
+        }
+
         self.attempted_conversation_ids
             .insert(candidate.conversation_id);
 
@@ -407,6 +437,10 @@ impl AutoCloudHandoffController {
     }
 
     fn is_trigger_enabled(trigger: AutoCloudHandoffTrigger, ctx: &ModelContext<Self>) -> bool {
+        if AUTO_CLOUD_HANDOFF_DISABLED {
+            return false;
+        }
+
         match trigger {
             AutoCloudHandoffTrigger::MacOsSleep | AutoCloudHandoffTrigger::Uri => {
                 AISettings::as_ref(ctx).is_auto_handoff_on_sleep_enabled(ctx)
@@ -452,6 +486,10 @@ pub(crate) fn trigger_auto_handoff_to_cloud(
     trigger: AutoCloudHandoffTrigger,
     ctx: &mut AppContext,
 ) {
+    if AUTO_CLOUD_HANDOFF_DISABLED {
+        return;
+    }
+
     AutoCloudHandoffController::handle(ctx).update(ctx, |controller, ctx| {
         controller.trigger(trigger, ctx);
     });

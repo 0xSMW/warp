@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::PathBuf;
@@ -5,15 +6,17 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use warpui::{Entity, ModelContext, SingletonEntity};
 
+#[cfg(test)]
+use crate::ai::mcp::TemplatableMCPServer;
 use crate::ai::mcp::file_based_manager::FileBasedMCPServerScope;
-use crate::ai::mcp::gallery::MCPGalleryManagerEvent;
 use crate::ai::mcp::parsing::resolve_json;
 use crate::ai::mcp::templatable_manager::TemplatableMCPServerManagerEvent;
 use crate::ai::mcp::{
-    FileBasedMCPManager, FileMCPWatcher, MCPGalleryManager, MCPServer, MCPServerExt,
-    MCPServerState, TemplatableMCPServer, TemplatableMCPServerInstallation,
-    TemplatableMCPServerManager, TransportType, VariableType, VariableValue,
+    FileBasedMCPManager, FileMCPWatcher, MCPServer, MCPServerExt, MCPServerState,
+    TemplatableMCPServerInstallation, TemplatableMCPServerManager, TransportType,
 };
+#[cfg(test)]
+use crate::ai::mcp::{VariableType, VariableValue};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum TuiMcpServerId {
@@ -183,11 +186,10 @@ pub enum TuiMcpManagerEvent {
     Updated,
 }
 
-/// TUI-facing aggregate over installed, synced, gallery, and file-based MCPs.
+/// TUI-facing aggregate over locally installed and file-based MCPs.
 ///
-/// Refreshing this model is a pure read. Available catalog items become
-/// runnable only through [`Self::install_and_enable`], after the frontend has
-/// collected any required values.
+/// Refreshing this model is a pure read. Cloud catalog metadata and template
+/// installation are intentionally unavailable to the local-only TUI.
 pub struct TuiMcpManager {
     snapshot: TuiMcpSnapshot,
 }
@@ -212,8 +214,11 @@ impl TuiMcpManager {
                     TemplatableMCPServerManagerEvent::StateChanged { uuid, state } => {
                         let _ = (uuid, state);
                     }
-                    TemplatableMCPServerManagerEvent::AuthenticationRequired { uuid }
-                    | TemplatableMCPServerManagerEvent::CredentialsChanged { uuid } => {
+                    #[cfg(test)]
+                    TemplatableMCPServerManagerEvent::AuthenticationRequired { uuid } => {
+                        let _ = uuid;
+                    }
+                    TemplatableMCPServerManagerEvent::CredentialsChanged { uuid } => {
                         let _ = uuid;
                     }
                     TemplatableMCPServerManagerEvent::ServerInstallationAdded(uuid)
@@ -226,13 +231,6 @@ impl TuiMcpManager {
                 me.refresh(ctx);
             },
         );
-        ctx.subscribe_to_model(
-            &MCPGalleryManager::handle(ctx),
-            |me, _, event, ctx| match event {
-                MCPGalleryManagerEvent::ItemsRefreshed => me.refresh(ctx),
-            },
-        );
-
         let mut model = Self {
             snapshot: TuiMcpSnapshot::default(),
         };
@@ -246,82 +244,21 @@ impl TuiMcpManager {
 
     pub fn prepare_install(
         &self,
-        id: TuiMcpServerId,
-        ctx: &ModelContext<Self>,
+        _id: TuiMcpServerId,
+        _ctx: &ModelContext<Self>,
     ) -> Result<TuiMcpInstallRequest, String> {
-        if !self
-            .snapshot
-            .servers
-            .iter()
-            .any(|server| server.id == id && matches!(server.status, TuiMcpServerStatus::Available))
-        {
-            return Err("This MCP is no longer available to enable".to_owned());
-        }
-
-        let server = match id {
-            TuiMcpServerId::SyncedTemplate(template_uuid) => {
-                TemplatableMCPServerManager::as_ref(ctx)
-                    .get_templatable_mcp_server(template_uuid)
-                    .cloned()
-                    .ok_or_else(|| "The synced MCP template is no longer available".to_owned())?
-            }
-            TuiMcpServerId::Gallery(gallery_uuid) => MCPGalleryManager::as_ref(ctx)
-                .get_templatable_mcp_server(gallery_uuid)
-                .cloned()
-                .ok_or_else(|| "The gallery MCP template is no longer available".to_owned())?,
-            TuiMcpServerId::FileBased(_) | TuiMcpServerId::Installation(_) => {
-                return Err("This MCP is already installed".to_owned());
-            }
-        };
-
-        Ok(TuiMcpInstallRequest {
-            id,
-            name: server.name,
-            variables: server
-                .template
-                .variables
-                .into_iter()
-                .map(|variable| TuiMcpTemplateVariable {
-                    key: variable.key,
-                    allowed_values: variable.allowed_values,
-                })
-                .collect(),
-        })
+        Err("Cloud MCP template installation is disabled in the local-only TUI".to_owned())
     }
 
-    /// Installs and starts an available template after collecting any required
-    /// values. Catalog refresh and selection never call this method.
+    /// Rejects cloud template installation in the local-only TUI.
     pub fn install_and_enable(
         &mut self,
         id: TuiMcpServerId,
         values: Vec<TuiMcpVariableValue>,
         ctx: &mut ModelContext<Self>,
     ) -> Result<Uuid, String> {
-        let request = self.prepare_install(id, ctx)?;
-        let values = validate_variable_values(&request.variables, values)?;
-        let server = match id {
-            TuiMcpServerId::SyncedTemplate(template_uuid) => {
-                TemplatableMCPServerManager::as_ref(ctx)
-                    .get_templatable_mcp_server(template_uuid)
-                    .cloned()
-                    .ok_or_else(|| "The synced MCP template is no longer available".to_owned())?
-            }
-            TuiMcpServerId::Gallery(gallery_uuid) => MCPGalleryManager::as_ref(ctx)
-                .get_templatable_mcp_server(gallery_uuid)
-                .cloned()
-                .ok_or_else(|| "The gallery MCP template is no longer available".to_owned())?,
-            TuiMcpServerId::FileBased(_) | TuiMcpServerId::Installation(_) => {
-                return Err("This MCP is already installed".to_owned());
-            }
-        };
-        let installation = TemplatableMCPServerManager::handle(ctx).update(ctx, |manager, ctx| {
-            manager.install_from_template(server, values, true, ctx)
-        });
-        let installation =
-            installation.ok_or_else(|| "Unable to install this MCP server".to_owned())?;
-        let uuid = installation.uuid();
-        self.refresh(ctx);
-        Ok(uuid)
+        let _ = (id, values, ctx);
+        Err("Cloud MCP template installation is disabled in the local-only TUI".to_owned())
     }
 
     pub fn apply_action(&mut self, action: TuiMcpAction, ctx: &mut ModelContext<Self>) {
@@ -332,17 +269,7 @@ impl TuiMcpManager {
                     watcher.reload_global_config(ctx);
                 });
             }
-            TuiMcpAction::ReopenAuthorization(id) => {
-                if let Some(url) = self
-                    .snapshot
-                    .servers
-                    .iter()
-                    .find(|server| server.id == id)
-                    .and_then(|server| server.authorization_url.as_deref())
-                {
-                    ctx.open_url(url);
-                }
-            }
+            TuiMcpAction::ReopenAuthorization(_) => {}
             TuiMcpAction::Start(id) | TuiMcpAction::Retry(id) => match id {
                 TuiMcpServerId::FileBased(hash) => {
                     let installation = FileBasedMCPManager::as_ref(ctx)
@@ -365,7 +292,7 @@ impl TuiMcpManager {
                 }
                 TuiMcpServerId::SyncedTemplate(_) | TuiMcpServerId::Gallery(_) => {}
             },
-            TuiMcpAction::Stop(id) | TuiMcpAction::LogOut(id) => {
+            TuiMcpAction::Stop(id) => {
                 let installation_uuid = match id {
                     TuiMcpServerId::FileBased(hash) => FileBasedMCPManager::as_ref(ctx)
                         .installation_by_hash(hash)
@@ -376,20 +303,16 @@ impl TuiMcpManager {
                 if let Some(installation_uuid) = installation_uuid {
                     TemplatableMCPServerManager::handle(ctx).update(ctx, |manager, ctx| {
                         manager.shutdown_server(installation_uuid, ctx);
-                        if matches!(action, TuiMcpAction::LogOut(_)) {
-                            manager.delete_credentials_from_secure_storage(installation_uuid, ctx);
-                        }
                     });
                 }
             }
+            TuiMcpAction::LogOut(_) => {}
         }
     }
 
     fn refresh(&mut self, ctx: &mut ModelContext<Self>) {
         let file_manager = FileBasedMCPManager::as_ref(ctx);
         let runtime_manager = TemplatableMCPServerManager::as_ref(ctx);
-        let gallery_manager = MCPGalleryManager::as_ref(ctx);
-
         let mut diagnostics = file_manager
             .config_diagnostics()
             .into_iter()
@@ -412,83 +335,12 @@ impl TuiMcpManager {
             .values()
             .cloned()
             .collect::<Vec<_>>();
-        let installed_template_uuids = installations
-            .iter()
-            .map(TemplatableMCPServerInstallation::template_uuid)
-            .collect::<HashSet<_>>();
-        let installed_gallery_uuids = installations
-            .iter()
-            .filter_map(TemplatableMCPServerInstallation::gallery_uuid)
-            .collect::<HashSet<_>>();
-        let global_warp_server_identities = file_manager
-            .global_warp_servers()
-            .into_iter()
-            .filter_map(|installation| template_identity(installation.templatable_mcp_server()))
-            .collect::<HashSet<_>>();
-
         for installation in installations {
             servers.push(snapshot_for_installation(
                 TuiMcpServerId::Installation(installation.uuid()),
                 TuiMcpServerSource::Installation,
                 &installation,
                 runtime_manager,
-                ctx,
-            ));
-        }
-
-        let synced_templates = runtime_manager
-            .get_all_templatable_mcp_servers()
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        let reserved_gallery_uuids = synced_templates
-            .iter()
-            .filter_map(|template| template.gallery_data.map(|data| data.gallery_item_id))
-            .chain(installed_gallery_uuids.iter().copied())
-            .collect::<HashSet<_>>();
-        let reserved_names = synced_templates
-            .iter()
-            .map(|template| template.name.to_ascii_lowercase())
-            .chain(installations_names(
-                runtime_manager.get_installed_templatable_servers(),
-            ))
-            .collect::<HashSet<_>>();
-
-        for template in synced_templates {
-            if installed_template_uuids.contains(&template.uuid) {
-                continue;
-            }
-            let source = synced_template_source(template.uuid, runtime_manager, ctx);
-            if is_represented_by_global_warp_server(
-                &template,
-                &source,
-                &global_warp_server_identities,
-            ) {
-                continue;
-            }
-            servers.push(snapshot_for_available(
-                TuiMcpServerId::SyncedTemplate(template.uuid),
-                source,
-                &template,
-            ));
-        }
-
-        for gallery in gallery_manager.get_gallery() {
-            if reserved_gallery_uuids.contains(&gallery.uuid())
-                || reserved_names.contains(&gallery.title().to_ascii_lowercase())
-            {
-                continue;
-            }
-            let Some(template) = gallery_manager
-                .get_templatable_mcp_server(gallery.uuid())
-                .cloned()
-            else {
-                continue;
-            };
-            servers.push(snapshot_for_available(
-                TuiMcpServerId::Gallery(gallery.uuid()),
-                TuiMcpServerSource::Gallery,
-                &template,
             ));
         }
 
@@ -516,7 +368,6 @@ impl TuiMcpManager {
                 TuiMcpServerSource::FileBased { sources },
                 &installation,
                 runtime_manager,
-                ctx,
             ));
         }
 
@@ -533,17 +384,7 @@ impl TuiMcpManager {
     }
 }
 
-fn installations_names(
-    installations: &HashMap<Uuid, TemplatableMCPServerInstallation>,
-) -> impl Iterator<Item = String> + '_ {
-    installations.values().map(|installation| {
-        installation
-            .templatable_mcp_server()
-            .name
-            .to_ascii_lowercase()
-    })
-}
-
+#[cfg(test)]
 fn validate_variable_values(
     variables: &[TuiMcpTemplateVariable],
     values: Vec<TuiMcpVariableValue>,
@@ -588,32 +429,11 @@ fn validate_variable_values(
     Ok(resolved)
 }
 
-fn snapshot_for_available(
-    id: TuiMcpServerId,
-    source: TuiMcpServerSource,
-    template: &TemplatableMCPServer,
-) -> TuiMcpServerSnapshot {
-    TuiMcpServerSnapshot {
-        id,
-        installation_uuid: None,
-        name: template.name.clone(),
-        description: template.description.clone(),
-        source,
-        transport: transport_from_template(template),
-        status: TuiMcpServerStatus::Available,
-        tool_count: 0,
-        resource_count: 0,
-        can_log_out: false,
-        authorization_url: None,
-    }
-}
-
 fn snapshot_for_installation(
     id: TuiMcpServerId,
     source: TuiMcpServerSource,
     installation: &TemplatableMCPServerInstallation,
     runtime_manager: &TemplatableMCPServerManager,
-    ctx: &ModelContext<TuiMcpManager>,
 ) -> TuiMcpServerSnapshot {
     let uuid = installation.uuid();
     TuiMcpServerSnapshot {
@@ -626,28 +446,12 @@ fn snapshot_for_installation(
         status: runtime_status(uuid, runtime_manager),
         tool_count: runtime_manager.tools_for_server(uuid).len(),
         resource_count: runtime_manager.resources_for_server(uuid).len(),
-        can_log_out: runtime_manager.can_log_out(uuid, ctx),
-        authorization_url: runtime_manager
-            .authorization_url(uuid)
-            .map(ToOwned::to_owned),
+        can_log_out: false,
+        authorization_url: None,
     }
 }
 
-fn synced_template_source(
-    template_uuid: Uuid,
-    runtime_manager: &TemplatableMCPServerManager,
-    ctx: &ModelContext<TuiMcpManager>,
-) -> TuiMcpServerSource {
-    let provenance = if runtime_manager.is_server_template_shared(template_uuid, ctx) {
-        TuiMcpSyncedTemplateProvenance::Shared {
-            creator: runtime_manager.get_creator(template_uuid, ctx),
-        }
-    } else {
-        TuiMcpSyncedTemplateProvenance::FromAnotherDevice
-    };
-    TuiMcpServerSource::SyncedTemplate { provenance }
-}
-
+#[cfg(test)]
 #[derive(Debug, Eq, Hash, PartialEq)]
 enum TuiMcpServerIdentity {
     Stdio {
@@ -662,6 +466,7 @@ enum TuiMcpServerIdentity {
     },
 }
 
+#[cfg(test)]
 fn template_identity(template: &TemplatableMCPServer) -> Option<TuiMcpServerIdentity> {
     let mut servers = MCPServer::from_user_json(&template.template.json).ok()?;
     if servers.len() != 1 {
@@ -683,6 +488,7 @@ fn template_identity(template: &TemplatableMCPServer) -> Option<TuiMcpServerIden
     }
 }
 
+#[cfg(test)]
 fn is_represented_by_global_warp_server(
     template: &TemplatableMCPServer,
     source: &TuiMcpServerSource,
@@ -696,13 +502,6 @@ fn is_represented_by_global_warp_server(
     ) && template_identity(template)
         .is_some_and(|identity| global_warp_server_identities.contains(&identity))
 }
-fn transport_from_template(template: &TemplatableMCPServer) -> Option<TuiMcpTransport> {
-    MCPServer::from_user_json(&template.template.json)
-        .ok()?
-        .pop()
-        .map(|server| transport_type(server.transport_type))
-}
-
 fn transport_from_installation(
     installation: &TemplatableMCPServerInstallation,
 ) -> Option<TuiMcpTransport> {

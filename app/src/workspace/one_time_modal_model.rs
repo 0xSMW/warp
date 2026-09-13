@@ -14,6 +14,7 @@ use super::view::free_ai_removal_modal::{
 };
 use crate::ai::blocklist::agent_view::toolbar_item::AgentToolbarItemKind;
 use crate::ai::{AIRequestUsageModel, AIRequestUsageModelEvent};
+#[cfg(any(test, all(feature = "tui", feature = "test-util")))]
 use crate::auth::auth_manager::AuthManagerEvent;
 use crate::auth::{AuthManager, AuthStateProvider};
 use crate::channel::{Channel, ChannelState};
@@ -102,9 +103,12 @@ impl OneTimeModalModel {
 
         // Subscribe to auth manager events to automatically trigger modal when user becomes onboarded
         ctx.subscribe_to_model(&AuthManager::handle(ctx), |_, _, event, ctx| {
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             let AuthManagerEvent::AuthComplete = event else {
                 return;
             };
+            #[cfg(not(any(test, all(feature = "tui", feature = "test-util"))))]
+            let _ = event;
 
             let auth_state = crate::auth::AuthStateProvider::as_ref(ctx).get().clone();
             let is_existing_user = auth_state.is_onboarded().unwrap_or_default();

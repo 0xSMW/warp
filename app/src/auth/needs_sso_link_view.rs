@@ -30,6 +30,7 @@ impl NeedsSsoLinkView {
         }
     }
 
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn set_email(&mut self, email: String) {
         self.email = Some(email);
     }
@@ -95,7 +96,9 @@ impl TypedActionView for NeedsSsoLinkView {
 
                 AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
                     let url = auth_manager.link_sso_url(email);
-                    ctx.open_url(&url);
+                    if !url.is_empty() {
+                        ctx.open_url(&url);
+                    }
                 });
             }
         }

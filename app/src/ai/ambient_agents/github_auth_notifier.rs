@@ -1,24 +1,20 @@
-//! Notifier for GitHub authentication state changes.
+//! Compatibility notifier for GitHub authentication state changes.
 //!
-//! This singleton emits events when GitHub OAuth completes, allowing
-//! any component in the app (e.g., `UpdateEnvironmentForm`) to react to
-//! auth state changes without relying on window activation timing.
+//! The cloud auth-completion notification path is disabled in normal and local builds, but the
+//! notifier remains available for shared initialization and test-only wiring.
 
-use warpui::{Entity, ModelContext, SingletonEntity};
+use warpui::{Entity, SingletonEntity};
 
-/// Events emitted by the GitHub auth notifier.
+/// Compatibility event type for the disabled GitHub auth notifier.
 #[derive(Debug, Clone)]
 pub enum GitHubAuthEvent {
-    /// GitHub authentication completed successfully.
-    /// Components should refetch GitHub data when this fires.
-    AuthCompleted,
+    // /// Reserved for the disabled cloud auth-completion notification.
+    // AuthCompleted,
 }
 
-/// Singleton notifier for GitHub authentication state.
+/// Minimal singleton notifier retained for local and test compatibility.
 ///
-/// This serves as a coordination point for GitHub OAuth flows.
-/// When auth completes (detected via URI callback), this notifier emits
-/// an `AuthCompleted` event that any subscribed component can react to.
+/// Cloud auth-completion notifications are disabled in normal builds.
 pub struct GitHubAuthNotifier;
 
 impl GitHubAuthNotifier {
@@ -26,11 +22,8 @@ impl GitHubAuthNotifier {
         Self
     }
 
-    /// Notify subscribers that GitHub auth has completed.
-    /// Call this from within an update closure on the notifier.
-    pub fn notify_auth_completed(&self, ctx: &mut ModelContext<Self>) {
-        ctx.emit(GitHubAuthEvent::AuthCompleted);
-    }
+    // /// Retained as a compatibility no-op for disabled cloud auth-completion callers.
+    // pub fn notify_auth_completed(&self, _: &mut ModelContext<Self>) {}
 }
 
 impl Default for GitHubAuthNotifier {

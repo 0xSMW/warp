@@ -1,17 +1,28 @@
 //! Snapshot derivation and upload used by the shared handoff commit pipeline.
 
+#[cfg(test)]
 use std::path::PathBuf;
+#[cfg(any(test, feature = "tui"))]
 use std::sync::Arc;
 
 use remote_server::proto::UploadHandoffSnapshotResponse;
 use warp_util::standardized_path::StandardizedPath;
-use warpui::{SingletonEntity, ViewContext};
+#[cfg(test)]
+use warpui::SingletonEntity;
+use warpui::ViewContext;
 
+#[cfg(test)]
 use crate::ai::agent_sdk::driver::upload_snapshot_for_handoff;
-use crate::ai::blocklist::handoff::touched_repos::{TouchedWorkspace, derive_touched_workspace};
+use crate::ai::blocklist::handoff::touched_repos::TouchedWorkspace;
+#[cfg(test)]
+use crate::ai::blocklist::handoff::touched_repos::derive_touched_workspace;
+#[cfg(test)]
 use crate::remote_server::manager::RemoteServerManager;
+#[cfg(test)]
 use crate::server::server_api::ServerApiProvider;
-use crate::server::server_api::ai::{AIClient, InitialSnapshotToken};
+#[cfg(any(test, feature = "tui"))]
+use crate::server::server_api::ai::AIClient;
+use crate::server::server_api::ai::InitialSnapshotToken;
 use crate::terminal::model::session::SessionId;
 use crate::workspace::Workspace;
 
@@ -26,6 +37,7 @@ use crate::workspace::Workspace;
 /// upload).
 pub(super) enum HandoffUploadResult {
     /// The upload succeeded and the server returned a snapshot token.
+    #[cfg(test)]
     Uploaded(InitialSnapshotToken),
     /// The workspace had no files to upload (no repos, no orphans).
     EmptyWorkspace,
@@ -37,15 +49,20 @@ pub(super) enum HandoffUploadResult {
 /// Callers resolve this from `RemoteServerManager::host_request_handle` before
 /// committing, keeping session-awareness out of the upload function itself.
 pub enum SnapshotUploadTarget {
+    #[cfg(any(test, feature = "tui"))]
     /// Run `derive_touched_workspace` + `upload_snapshot_for_handoff` locally.
     Local {
         ai_client: Arc<dyn AIClient>,
         http: Arc<http_client::Client>,
     },
+    #[cfg(test)]
     /// Delegate to the remote server daemon via `UploadHandoffSnapshot` RPC.
     Remote {
         handle: remote_server::manager::HostRequestHandle,
     },
+    #[cfg(not(test))]
+    /// Leave workspace state local when cloud handoff is disabled.
+    LocalOnly,
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +72,7 @@ pub enum SnapshotUploadTarget {
 /// Convert an `UploadHandoffSnapshotResponse` (proto) into a domain result.
 ///
 /// Maps the daemon response into the same result used by the local branch.
+#[cfg(test)]
 fn try_upload_result_from_proto(
     resp: UploadHandoffSnapshotResponse,
 ) -> Result<HandoffUploadResult, anyhow::Error> {
@@ -111,6 +129,7 @@ pub(crate) fn upload_result_to_proto(
 /// Returns the derived workspace and the upload result. For remote sessions the
 /// daemon handles workspace derivation internally, so we return a default
 /// `TouchedWorkspace`.
+#[cfg(test)]
 pub(super) async fn upload_handoff_snapshot(
     paths: Vec<StandardizedPath>,
     target: SnapshotUploadTarget,
@@ -145,8 +164,21 @@ pub(super) async fn upload_handoff_snapshot(
     }
 }
 
+/// Local-only builds retain the handoff API without uploading a workspace snapshot.
+#[cfg(not(test))]
+pub(super) async fn upload_handoff_snapshot(
+    _paths: Vec<StandardizedPath>,
+    _target: SnapshotUploadTarget,
+) -> (TouchedWorkspace, Result<HandoffUploadResult, anyhow::Error>) {
+    (
+        TouchedWorkspace::default(),
+        Ok(HandoffUploadResult::EmptyWorkspace),
+    )
+}
+
 /// Resolve the upload target for a session. Returns `Remote` when the session
 /// has a connected daemon, `Local` otherwise.
+#[cfg(test)]
 pub(crate) fn resolve_upload_target(
     session_id: SessionId,
     ctx: &mut ViewContext<Workspace>,
@@ -166,4 +198,13 @@ pub(crate) fn resolve_upload_target(
             }
         }
     }
+}
+
+/// Local-only builds do not resolve a remote daemon or an AI server client.
+#[cfg(not(test))]
+pub(crate) fn resolve_upload_target(
+    _session_id: SessionId,
+    _ctx: &mut ViewContext<Workspace>,
+) -> SnapshotUploadTarget {
+    SnapshotUploadTarget::LocalOnly
 }

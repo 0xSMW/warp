@@ -120,9 +120,11 @@ use session_sharing_protocol::sharer::{
     RoleUpdateReason, SessionEndedReason, SessionRetentionReason,
 };
 use settings::{Setting, ToggleableSetting};
+#[cfg(test)]
+pub(crate) use shared_session::cloud_conversation_continuation::AIQueryRouting;
 use shared_session::cloud_conversation_continuation::CloudConversationContinuationUiState;
 pub(crate) use shared_session::cloud_conversation_continuation::{
-    AIQueryRouting, CloudRoutingIndicator, CompletedChildPresentation, ConversationAccess,
+    CloudRoutingIndicator, CompletedChildPresentation, ConversationAccess,
     completed_child_conversation_access, completed_child_presentation,
     is_retained_setup_failure_debug_editable_for_task, resolve_ai_query_routing,
     resolve_ambient_agent_task_id,
@@ -260,17 +262,17 @@ use crate::ai::blocklist::usage::conversation_usage_view::{
     ConversationUsageInfo, ConversationUsageView, TimingInfo,
 };
 use crate::ai::blocklist::{
-    AIBlock, AIBlockEvent, ATTACH_AS_AGENT_MODE_CONTEXT_TEXT, AutofireAction,
-    BlocklistAIActionEvent, BlocklistAIActionModel, BlocklistAIContextEvent,
-    BlocklistAIContextModel, BlocklistAIController, BlocklistAIControllerEvent,
-    BlocklistAIHistoryEvent, BlocklistAIHistoryModel, BlocklistAIInputEvent, BlocklistAIInputModel,
-    ClientIdentifiers, ConversationSelection, ConversationStatusUpdate, InputConfig, InputType,
-    InputTypeAutoDetectionSource, LegacyPassiveSuggestionsEvent, LegacyPassiveSuggestionsModel,
-    MaaPassiveSuggestionsEvent, MaaPassiveSuggestionsModel, PRE_REWIND_PREFIX,
-    PassiveSuggestionsModels, PendingAttachment, PendingQueryState, QueuedQuery, QueuedQueryId,
-    QueuedQueryModel, QueuedQueryOrigin, RequestFileEditsFormatKind, ShellCommandExecutor,
-    ShellCommandExecutorEvent, SlashCommandRequest, StartAgentExecutor, StartAgentExecutorEvent,
-    StartAgentRequest, ai_brand_color, block_context_from_terminal_model,
+    AIBlock, AIBlockEvent, AutofireAction, BlocklistAIActionEvent, BlocklistAIActionModel,
+    BlocklistAIContextEvent, BlocklistAIContextModel, BlocklistAIController,
+    BlocklistAIControllerEvent, BlocklistAIHistoryEvent, BlocklistAIHistoryModel,
+    BlocklistAIInputEvent, BlocklistAIInputModel, ClientIdentifiers, ConversationSelection,
+    ConversationStatusUpdate, InputConfig, InputType, InputTypeAutoDetectionSource,
+    LegacyPassiveSuggestionsEvent, LegacyPassiveSuggestionsModel, MaaPassiveSuggestionsEvent,
+    MaaPassiveSuggestionsModel, PRE_REWIND_PREFIX, PassiveSuggestionsModels, PendingAttachment,
+    PendingQueryState, QueuedQuery, QueuedQueryId, QueuedQueryModel, QueuedQueryOrigin,
+    RequestFileEditsFormatKind, ShellCommandExecutor, ShellCommandExecutorEvent,
+    SlashCommandRequest, StartAgentExecutor, StartAgentExecutorEvent, StartAgentRequest,
+    ai_brand_color, block_context_from_terminal_model,
     get_ai_block_overflow_menu_element_position_id, get_attached_blocks_chip_element_position_id,
     is_lrc_auto_queue_active,
 };
@@ -289,7 +291,7 @@ use crate::ai::predict::prompt_suggestions::{
     is_accept_prompt_suggestion_bound_to_cmd_enter,
     is_accept_prompt_suggestion_bound_to_ctrl_enter,
 };
-use crate::ai_assistant::{ASK_AI_ASSISTANT_TEXT, AskAIType};
+use crate::ai_assistant::AskAIType;
 use crate::antivirus::AntivirusInfo;
 use crate::appearance::{Appearance, AppearanceEvent};
 use crate::auth::auth_manager::AuthManager;
@@ -464,7 +466,6 @@ use crate::terminal::session_settings::{
     SessionSettings, SessionSettingsChangedEvent, ToolbarChipSelection,
 };
 use crate::terminal::settings::{TerminalSettings, TerminalSettingsChangedEvent};
-use crate::terminal::shared_session::manager::Manager;
 use crate::terminal::shared_session::role_change_modal::{
     RoleChangeCloseSource, RoleChangeOpenSource,
 };
@@ -1199,7 +1200,7 @@ impl SizeUpdateBuilder {
         }
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), any(test, feature = "integration_tests")))]
     fn for_viewer_size_report(last_size: SizeInfo, num_rows: usize, num_cols: usize) -> Self {
         // Viewer size reports don't change the sharer's actual pane size.
         Self {
@@ -5102,6 +5103,7 @@ impl TerminalView {
     }
 
     /// Clears queued-command state for this terminal view if dispatch fails.
+    #[cfg(any(test, feature = "integration_tests"))]
     pub(crate) fn clear_queued_command_in_flight(&mut self, ctx: &mut ViewContext<Self>) {
         let Some(conversation_id) = QueuedQueryModel::as_ref(ctx)
             .command_in_flight_for_terminal_view(
@@ -5116,6 +5118,7 @@ impl TerminalView {
         });
     }
 
+    #[cfg(test)]
     pub(crate) fn has_queued_command_in_flight(&self, ctx: &AppContext) -> bool {
         QueuedQueryModel::as_ref(ctx)
             .command_in_flight_for_terminal_view(self.view_id, BlocklistAIHistoryModel::as_ref(ctx))
@@ -5774,6 +5777,7 @@ impl TerminalView {
 
     /// Drains one queued prompt when the cloud setup phase completes for a promptless handoff run
     /// (a prompt will not be auto-sent by the worker so there's no normal event to initiate a queued prompt sending).
+    #[cfg(test)]
     pub(crate) fn maybe_drain_queue_after_promptless_setup(&mut self, ctx: &mut ViewContext<Self>) {
         let is_promptless_run = self
             .ambient_agent_view_model()
@@ -8174,6 +8178,7 @@ impl TerminalView {
     /// ambient setup command group. Owns both pieces of state so callers
     /// (the shared-session viewer arm, legacy fallbacks) don't have to
     /// orchestrate two unrelated mutations. Idempotent across both.
+    #[cfg(test)]
     pub(crate) fn tear_down_cloud_mode_setup_phase(&mut self, ctx: &mut ViewContext<Self>) {
         self.model
             .lock()
@@ -8433,6 +8438,7 @@ impl TerminalView {
         self.model.lock().is_shared_session_viewer()
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     pub(crate) fn apply_viewer_shared_session_input_update(
         &mut self,
         block_id: &BlockId,
@@ -8448,6 +8454,7 @@ impl TerminalView {
         });
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn should_suppress_ambient_setup_input_sync(&self, app: &AppContext) -> bool {
         FeatureFlag::CloudModeSetupV2.is_enabled()
             && self.ambient_agent_view_model.as_ref().is_some_and(|model| {
@@ -8901,7 +8908,7 @@ impl TerminalView {
     /// interrupt) for the live conversation bound to `server_conversation_token`. The conversation
     /// is stopped the same way a local stop is, so an in-flight agent command is interrupted along
     /// with the turn rather than left running to completion.
-    #[cfg(feature = "local_tty")]
+    #[cfg(all(feature = "local_tty", any(test, feature = "integration_tests")))]
     pub(crate) fn handle_shared_session_cancel_action(
         &mut self,
         server_conversation_token: SessionSharingServerConversationToken,
@@ -17064,7 +17071,7 @@ impl TerminalView {
                 None,
                 true,
             ) => {
-                let mut fields = vec![
+                let fields = vec![
                     MenuItemFields::new("Copy")
                         .with_on_select_action(TerminalAction::ContextMenu(
                             ContextMenuAction::CopySelectedText,
@@ -17080,25 +17087,26 @@ impl TerminalView {
                         ))
                         .into_item(),
                 ];
-                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-                    fields.extend([
-                        MenuItem::Separator,
-                        MenuItemFields::new(if FeatureFlag::AgentMode.is_enabled() {
-                            *ATTACH_AS_AGENT_MODE_CONTEXT_TEXT
-                        } else {
-                            ASK_AI_ASSISTANT_TEXT
-                        })
-                        .with_on_select_action(TerminalAction::ContextMenu(
-                            ContextMenuAction::AskAI(if FeatureFlag::AgentMode.is_enabled() {
-                                AskAISource::SelectedTerminalText
-                            } else {
-                                AskAISource::SelectedBlockOrText
-                            }),
-                        ))
-                        .with_key_shortcut_label(Some("⌃ ⇧ Space"))
-                        .into_item(),
-                    ]);
-                }
+                // Commented out: Attach as Agent Context / Ask Warp AI
+                // if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+                //     fields.extend([
+                //         MenuItem::Separator,
+                //         MenuItemFields::new(if FeatureFlag::AgentMode.is_enabled() {
+                //             *ATTACH_AS_AGENT_MODE_CONTEXT_TEXT
+                //         } else {
+                //             ASK_AI_ASSISTANT_TEXT
+                //         })
+                //         .with_on_select_action(TerminalAction::ContextMenu(
+                //             ContextMenuAction::AskAI(if FeatureFlag::AgentMode.is_enabled() {
+                //                 AskAISource::SelectedTerminalText
+                //             } else {
+                //                 AskAISource::SelectedBlockOrText
+                //             }),
+                //         ))
+                //         .with_key_shortcut_label(Some("⌃ ⇧ Space"))
+                //         .into_item(),
+                //     ]);
+                // }
                 fields
             }
             (
@@ -17152,17 +17160,17 @@ impl TerminalView {
                 };
 
                 // currently, we don't support share for multi selections
-                let is_share_disabled =
+                let _is_share_disabled =
                     !is_single_selection || (is_active_block_selected && is_active_block_running);
 
-                let is_ask_ai_disabled = !is_single_selection;
+                let _is_ask_ai_disabled = !is_single_selection;
 
                 let is_copy_commands_disabled =
                     is_single_selection && tail_block.command_to_string().trim().is_empty();
                 let is_copy_both_disabled =
                     is_copy_commands_disabled && tail_block.output_to_string().trim().is_empty();
 
-                let share_block_label = if FeatureFlag::CreatingSharedSessions.is_enabled()
+                let _share_block_label = if FeatureFlag::CreatingSharedSessions.is_enabled()
                     && ContextFlag::CreateSharedSession.is_enabled()
                 {
                     "Share block..."
@@ -17246,89 +17254,90 @@ impl TerminalView {
                     items.push(self.paste_menu_item(ctx));
                 }
 
-                items.push(MenuItem::Separator);
-                items.push(
-                    MenuItemFields::new(share_block_label)
-                        .with_on_select_action(TerminalAction::ContextMenu(
-                            ContextMenuAction::OpenShareBlockModal {
-                                block_index: tail_block_index,
-                            },
-                        ))
-                        .with_key_shortcut_label(keybinding_name_to_display_string(
-                            "terminal:open_share_block_modal",
-                            ctx,
-                        ))
-                        .with_disabled(is_share_disabled)
-                        .into_item(),
-                );
+                // Commented out: Share block, Share session, Save as workflow, and Ask AI / Agent Context
+                // items.push(MenuItem::Separator);
+                // items.push(
+                //     MenuItemFields::new(share_block_label)
+                //         .with_on_select_action(TerminalAction::ContextMenu(
+                //             ContextMenuAction::OpenShareBlockModal {
+                //                 block_index: tail_block_index,
+                //             },
+                //         ))
+                //         .with_key_shortcut_label(keybinding_name_to_display_string(
+                //             "terminal:open_share_block_modal",
+                //             ctx,
+                //         ))
+                //         .with_disabled(is_share_disabled)
+                //         .into_item(),
+                // );
 
-                if FeatureFlag::CreatingSharedSessions.is_enabled()
-                    && ContextFlag::CreateSharedSession.is_enabled()
-                {
-                    // Sharing a session from a context menu is disabled for multi block selections, restored blocks, and viewers.
-                    let is_share_session_disabled = !is_single_selection
-                        || model
-                            .block_list()
-                            .block_at(tail_block_index)
-                            .is_none_or(|b| b.is_restored());
+                // if FeatureFlag::CreatingSharedSessions.is_enabled()
+                //     && ContextFlag::CreateSharedSession.is_enabled()
+                // {
+                //     // Sharing a session from a context menu is disabled for multi block selections, restored blocks, and viewers.
+                //     let is_share_session_disabled = !is_single_selection
+                //         || model
+                //             .block_list()
+                //             .block_at(tail_block_index)
+                //             .is_none_or(|b| b.is_restored());
 
-                    let has_session_link = Manager::as_ref(ctx)
-                        .has_session_link(&ctx.view_id(), model.shared_session_status());
-                    items.extend(self.session_sharing_context_menu_items(
-                        &model,
-                        is_share_session_disabled,
-                        has_session_link,
-                    ));
-                }
+                //     let has_session_link = Manager::as_ref(ctx)
+                //         .has_session_link(&ctx.view_id(), model.shared_session_status());
+                //     items.extend(self.session_sharing_context_menu_items(
+                //         &model,
+                //         is_share_session_disabled,
+                //         has_session_link,
+                //     ));
+                // }
 
-                if WarpDriveSettings::is_warp_drive_enabled(ctx) {
-                    items.push(MenuItem::Separator);
-                    items.push(
-                        MenuItemFields::new("Save as workflow")
-                            .with_on_select_action(TerminalAction::ContextMenu(
-                                ContextMenuAction::OpenWorkflowModal,
-                            ))
-                            .with_key_shortcut_label(keybinding_name_to_display_string(
-                                "terminal:toggle_teams_modal",
-                                ctx,
-                            ))
-                            .into_item(),
-                    );
-                }
+                // if WarpDriveSettings::is_warp_drive_enabled(ctx) {
+                //     items.push(MenuItem::Separator);
+                //     items.push(
+                //         MenuItemFields::new("Save as workflow")
+                //             .with_on_select_action(TerminalAction::ContextMenu(
+                //                 ContextMenuAction::OpenWorkflowModal,
+                //             ))
+                //             .with_key_shortcut_label(keybinding_name_to_display_string(
+                //                 "terminal:toggle_teams_modal",
+                //                 ctx,
+                //             ))
+                //             .into_item(),
+                //     );
+                // }
 
-                if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-                    if FeatureFlag::AgentMode.is_enabled() {
-                        // We can only attach selected blocks if the input box is visible.
-                        if self.is_input_box_visible(&model, ctx) {
-                            items.extend([
-                                MenuItem::Separator,
-                                MenuItemFields::new(*ATTACH_AS_AGENT_MODE_CONTEXT_TEXT)
-                                    .with_on_select_action(TerminalAction::ContextMenu(
-                                        ContextMenuAction::AskAI(AskAISource::SelectedBlocks),
-                                    ))
-                                    .with_key_shortcut_label(keybinding_name_to_display_string(
-                                        "terminal:ask_ai_assistant",
-                                        ctx,
-                                    ))
-                                    .into_item(),
-                            ]);
-                        }
-                    } else {
-                        items.extend([
-                            MenuItem::Separator,
-                            MenuItemFields::new("Ask Warp AI")
-                                .with_on_select_action(TerminalAction::ContextMenu(
-                                    ContextMenuAction::AskAI(AskAISource::SelectedBlockOrText),
-                                ))
-                                .with_key_shortcut_label(keybinding_name_to_display_string(
-                                    "terminal:ask_ai_assistant",
-                                    ctx,
-                                ))
-                                .with_disabled(is_ask_ai_disabled)
-                                .into_item(),
-                        ]);
-                    }
-                }
+                // if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+                //     if FeatureFlag::AgentMode.is_enabled() {
+                //         // We can only attach selected blocks if the input box is visible.
+                //         if self.is_input_box_visible(&model, ctx) {
+                //             items.extend([
+                //                 MenuItem::Separator,
+                //                 MenuItemFields::new(*ATTACH_AS_AGENT_MODE_CONTEXT_TEXT)
+                //                     .with_on_select_action(TerminalAction::ContextMenu(
+                //                         ContextMenuAction::AskAI(AskAISource::SelectedBlocks),
+                //                     ))
+                //                     .with_key_shortcut_label(keybinding_name_to_display_string(
+                //                         "terminal:ask_ai_assistant",
+                //                         ctx,
+                //                     ))
+                //                     .into_item(),
+                //             ]);
+                //         }
+                //     } else {
+                //         items.extend([
+                //             MenuItem::Separator,
+                //             MenuItemFields::new("Ask Warp AI")
+                //                 .with_on_select_action(TerminalAction::ContextMenu(
+                //                     ContextMenuAction::AskAI(AskAISource::SelectedBlockOrText),
+                //                 ))
+                //                 .with_key_shortcut_label(keybinding_name_to_display_string(
+                //                     "terminal:ask_ai_assistant",
+                //                     ctx,
+                //                 ))
+                //                 .with_disabled(is_ask_ai_disabled)
+                //                 .into_item(),
+                //         ]);
+                //     }
+                // }
 
                 items.append(&mut vec![
                     MenuItem::Separator,
@@ -17442,19 +17451,20 @@ impl TerminalView {
                 true,
             ) => {
                 // If selection is empty, only show non-block related options
-                let mut items = Vec::new();
+                let items = Vec::new();
 
-                if FeatureFlag::CreatingSharedSessions.is_enabled()
-                    && ContextFlag::CreateSharedSession.is_enabled()
-                {
-                    let has_session_link = Manager::as_ref(ctx)
-                        .has_session_link(&ctx.view_id(), model.shared_session_status());
-                    items.extend(self.session_sharing_context_menu_items(
-                        &model,
-                        false,
-                        has_session_link,
-                    ));
-                }
+                // Commented out: Share session and remote control.
+                // if FeatureFlag::CreatingSharedSessions.is_enabled()
+                //     && ContextFlag::CreateSharedSession.is_enabled()
+                // {
+                //     let has_session_link = Manager::as_ref(ctx)
+                //         .has_session_link(&ctx.view_id(), model.shared_session_status());
+                //     items.extend(self.session_sharing_context_menu_items(
+                //         &model,
+                //         false,
+                //         has_session_link,
+                //     ));
+                // }
 
                 items
             }
@@ -17930,13 +17940,14 @@ impl TerminalView {
                 .into_item(),
         );
 
-        if FeatureFlag::CreatingSharedSessions.is_enabled()
-            && ContextFlag::CreateSharedSession.is_enabled()
-        {
-            let has_session_link = Manager::as_ref(ctx)
-                .has_session_link(&ctx.view_id(), model.shared_session_status());
-            items.extend(self.session_sharing_context_menu_items(&model, false, has_session_link));
-        }
+        // Commented out: Share session
+        // if FeatureFlag::CreatingSharedSessions.is_enabled()
+        //     && ContextFlag::CreateSharedSession.is_enabled()
+        // {
+        //     let has_session_link = Manager::as_ref(ctx)
+        //         .has_session_link(&ctx.view_id(), model.shared_session_status());
+        //     items.extend(self.session_sharing_context_menu_items(&model, false, has_session_link));
+        // }
 
         // Section 2: AI Command Search, Ask Warp AI
         items.extend([
@@ -17953,42 +17964,43 @@ impl TerminalView {
                 .into_item(),
         ]);
 
-        if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-            items.push(
-                MenuItemFields::new("AI command search")
-                    .with_on_select_action(TerminalAction::InputContextMenuItem(
-                        InputContextMenuAction::ShowAICommandSearch,
-                    ))
-                    .with_key_shortcut_label(keybinding_name_to_display_string(
-                        "input:toggle_natural_language_command_search",
-                        ctx,
-                    ))
-                    .with_disabled(is_editor_disabled)
-                    .into_item(),
-            );
+        // Commented out: AI command search & Ask Warp AI
+        // if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+        //     items.push(
+        //         MenuItemFields::new("AI command search")
+        //             .with_on_select_action(TerminalAction::InputContextMenuItem(
+        //                 InputContextMenuAction::ShowAICommandSearch,
+        //             ))
+        //             .with_key_shortcut_label(keybinding_name_to_display_string(
+        //                 "input:toggle_natural_language_command_search",
+        //                 ctx,
+        //             ))
+        //             .with_disabled(is_editor_disabled)
+        //             .into_item(),
+        //     );
 
-            if !selected_input_text.is_empty() && !FeatureFlag::AgentMode.is_enabled() {
-                items.push(
-                    MenuItemFields::new("Ask Warp AI")
-                        .with_on_select_action(TerminalAction::InputContextMenuItem(
-                            InputContextMenuAction::AskWarpAI,
-                        ))
-                        .into_item(),
-                );
-            }
-        }
+        //     if !selected_input_text.is_empty() && !FeatureFlag::AgentMode.is_enabled() {
+        //         items.push(
+        //             MenuItemFields::new("Ask Warp AI")
+        //                 .with_on_select_action(TerminalAction::InputContextMenuItem(
+        //                     InputContextMenuAction::AskWarpAI,
+        //                 ))
+        //                 .into_item(),
+        //         );
+        //     }
+        // }
 
-        // Section 3: Teams related
-        if !all_current_input_text.is_empty() && WarpDriveSettings::is_warp_drive_enabled(ctx) {
-            items.extend([
-                MenuItem::Separator,
-                MenuItemFields::new("Save as workflow")
-                    .with_on_select_action(TerminalAction::InputContextMenuItem(
-                        InputContextMenuAction::SaveAsWorkflow,
-                    ))
-                    .into_item(),
-            ]);
-        }
+        // Commented out: Section 3: Teams related (Save as workflow)
+        // if !all_current_input_text.is_empty() && WarpDriveSettings::is_warp_drive_enabled(ctx) {
+        //     items.extend([
+        //         MenuItem::Separator,
+        //         MenuItemFields::new("Save as workflow")
+        //             .with_on_select_action(TerminalAction::InputContextMenuItem(
+        //                 InputContextMenuAction::SaveAsWorkflow,
+        //             ))
+        //             .into_item(),
+        //     ]);
+        // }
 
         // Section 4: input hint text toggle
         if !is_editor_disabled {
@@ -18153,34 +18165,36 @@ impl TerminalView {
                     .with_key_shortcut_label(Some("⌘-C"))
                     .into_item(),
             );
-            if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
-                menu_items.extend([
-                    MenuItem::Separator,
-                    MenuItemFields::new(if FeatureFlag::AgentMode.is_enabled() {
-                        *ATTACH_AS_AGENT_MODE_CONTEXT_TEXT
-                    } else {
-                        ASK_AI_ASSISTANT_TEXT
-                    })
-                    .with_on_select_action(TerminalAction::ContextMenu(ContextMenuAction::AskAI(
-                        AskAISource::SelectedTerminalText,
-                    )))
-                    .with_key_shortcut_label(Some("⌃-⇧-Space"))
-                    .into_item(),
-                ]);
-            }
+            // Commented out: Attach as Agent Context / Ask Warp AI
+            // if AISettings::as_ref(ctx).is_any_ai_enabled(ctx) {
+            //     menu_items.extend([
+            //         MenuItem::Separator,
+            //         MenuItemFields::new(if FeatureFlag::AgentMode.is_enabled() {
+            //             *ATTACH_AS_AGENT_MODE_CONTEXT_TEXT
+            //         } else {
+            //             ASK_AI_ASSISTANT_TEXT
+            //         })
+            //         .with_on_select_action(TerminalAction::ContextMenu(ContextMenuAction::AskAI(
+            //             AskAISource::SelectedTerminalText,
+            //         )))
+            //         .with_key_shortcut_label(Some("⌃-⇧-Space"))
+            //         .into_item(),
+            //     ]);
+            // }
         }
 
-        if FeatureFlag::CreatingSharedSessions.is_enabled()
-            && ContextFlag::CreateSharedSession.is_enabled()
-        {
-            let has_session_link = Manager::as_ref(ctx)
-                .has_session_link(&ctx.view_id(), model.shared_session_status());
-            menu_items.extend(self.session_sharing_context_menu_items(
-                &model,
-                false,
-                has_session_link,
-            ));
-        }
+        // Commented out: Share session
+        // if FeatureFlag::CreatingSharedSessions.is_enabled()
+        //     && ContextFlag::CreateSharedSession.is_enabled()
+        // {
+        //     let has_session_link = Manager::as_ref(ctx)
+        //         .has_session_link(&ctx.view_id(), model.shared_session_status());
+        //     menu_items.extend(self.session_sharing_context_menu_items(
+        //         &model,
+        //         false,
+        //         has_session_link,
+        //     ));
+        // }
         let current_shell = model.shell_launch_state().available_shell();
         let mut pane_context_menu_items = self.pane_context_menu_items(current_shell, ctx);
         if !menu_items.is_empty() && !pane_context_menu_items.is_empty() {

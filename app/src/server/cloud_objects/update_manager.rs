@@ -10,9 +10,11 @@ pub use cloud_object_client::GetCloudObjectResponse;
 pub use cloud_object_client::InitialLoadResponse;
 use futures::channel::oneshot::{self, Receiver};
 use futures::stream::AbortHandle;
+#[cfg(test)]
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
+#[cfg(any(test, feature = "integration_tests"))]
 use warp_core::features::FeatureFlag;
 use warp_errors::report_error;
 use warp_graphql::mcp_gallery_template::MCPGalleryTemplate;
@@ -25,12 +27,11 @@ use warpui::{
     duration_with_jitter,
 };
 
+#[cfg(any(test, feature = "integration_tests"))]
 use super::listener::ObjectUpdateMessage;
 use crate::ai::agent::conversation::AIConversationId;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::ambient_agents::AmbientAgentTaskId;
-use crate::ai::ambient_agents::scheduled::{
-    CloudScheduledAmbientAgentModel, ScheduledAmbientAgent,
-};
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::cloud_environments::{AmbientAgentEnvironment, CloudAmbientAgentEnvironmentModel};
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
@@ -40,6 +41,7 @@ use crate::ai::facts::{AIFact, CloudAIFactModel};
 use crate::ai::mcp::templatable::{CloudTemplatableMCPServerModel, TemplatableMCPServer};
 use crate::auth::AuthStateProvider;
 use crate::auth::auth_manager::AuthManager;
+use crate::channel::{Channel, ChannelState};
 use crate::cloud_object::model::actions::{
     ObjectAction, ObjectActionHistory, ObjectActionType, ObjectActions,
 };
@@ -57,7 +59,6 @@ use crate::cloud_object::{
     ServerAmbientAgentEnvironment, ServerCloudAgentConfig, ServerCloudObject,
     ServerEnvVarCollection, ServerMCPServer, ServerMetadata, ServerPermissions, ServerPreference,
     ServerScheduledAmbientAgent, ServerTemplatableMCPServer, ServerWorkflowEnum, Space,
-    UpdateCloudObjectResult,
 };
 use crate::drive::CloudObjectTypeAndId;
 use crate::drive::drive_helpers::{
@@ -87,8 +88,11 @@ use crate::workflows::workflow::Workflow;
 use crate::workflows::workflow_enum::{CloudWorkflowEnum, CloudWorkflowEnumModel, WorkflowEnum};
 use crate::workflows::{CloudWorkflowModel, WorkflowId};
 use crate::workspaces::team_tester::{TeamTesterStatus, TeamTesterStatusEvent};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::workspaces::update_manager::TeamUpdateManager;
-use crate::workspaces::user_profiles::{UserProfileWithUID, UserProfiles};
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::workspaces::user_profiles::UserProfileWithUID;
+use crate::workspaces::user_profiles::UserProfiles;
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
 lazy_static! {
@@ -100,6 +104,10 @@ lazy_static! {
 
     static ref DUPLICATE_OBJECT_NAME_REGEX: Regex = Regex::new(r" \((\d+)\)$").expect("regex should not fail to compile");
 
+}
+
+fn is_local_mode() -> bool {
+    matches!(ChannelState::channel(), Channel::Local)
 }
 
 #[derive(Debug, PartialEq)]
@@ -146,6 +154,7 @@ pub enum UpdateManagerEvent {
     MCPGalleryUpdated {
         templates: Vec<MCPGalleryTemplate>,
     },
+    #[cfg(any(test, feature = "integration_tests"))]
     AmbientTaskUpdated {
         task_id: AmbientAgentTaskId,
         timestamp: DateTime<Utc>,
@@ -161,6 +170,7 @@ pub enum FetchSingleObjectOption {
     ForceOverwrite,
     /// Only perform the normal upsert behavior if the object doesn't already
     /// exist in-memory.
+    #[cfg(any(test, feature = "integration_tests"))]
     IgnoreIfExists,
 }
 
@@ -220,6 +230,12 @@ impl UpdateManager {
             me.handle_model_event(event, ctx);
         });
 
+        let has_initial_load = Condition::new();
+        if is_local_mode() {
+            // Commented out for local mode: the initial cloud-object fetch.
+            has_initial_load.set();
+        }
+
         Self {
             model_event_sender,
             object_client,
@@ -227,7 +243,7 @@ impl UpdateManager {
             in_flight_request_abort_handle: None,
             should_poll_for_updated_objects: false,
             spawned_futures: Default::default(),
-            has_initial_load: Condition::new(),
+            has_initial_load,
         }
     }
 
@@ -269,7 +285,13 @@ impl UpdateManager {
     }
 
     /// Remove team-owned objects in response to leaving a team.
+    #[cfg(test)]
     pub fn remove_team_objects(&mut self, left_team_uid: ServerId, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: removing team-owned cloud objects after leaving a team.
+            return;
+        }
+
         let cloud_model = CloudModel::handle(ctx);
         let objects_to_remove = cloud_model
             .as_ref(ctx)
@@ -319,6 +341,11 @@ impl UpdateManager {
     }
 
     fn handle_model_event(&mut self, event: &SyncQueueEvent, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: cloud sync queue responses.
+            return;
+        }
+
         match event {
             SyncQueueEvent::ObjectCreationSuccessful {
                 server_creation_info,
@@ -603,6 +630,11 @@ impl UpdateManager {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: re-enqueueing an object for cloud synchronization.
+            return;
+        }
+
         CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
             if let Some(object) = cloud_model.get_mut_by_uid(&cloud_object_type_and_id.uid()) {
                 let queue_item = object
@@ -624,6 +656,14 @@ impl UpdateManager {
     }
 
     pub fn start_polling_for_updated_objects(&mut self, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: initial and periodic cloud-object polling.
+            self.should_poll_for_updated_objects = false;
+            self.abort_existing_poll();
+            self.has_initial_load.set();
+            return;
+        }
+
         let is_online = NetworkStatus::as_ref(ctx).is_online();
 
         if !self.should_poll_for_updated_objects && is_online {
@@ -634,6 +674,12 @@ impl UpdateManager {
 
     /// Out-of-band (from the regular poll) refresh of updated objects.
     pub fn refresh_updated_objects(&mut self, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: refresh-triggered cloud-object fetch.
+            self.has_initial_load.set();
+            return;
+        }
+
         let object_client = self.object_client.clone();
         let cloud_model = CloudModel::as_ref(ctx);
         let versions_for_all_objects = cloud_model.get_versions_for_all_objects(ctx);
@@ -677,6 +723,11 @@ impl UpdateManager {
     }
 
     fn poll_for_updated_objects(&mut self, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: periodic cloud-object fetch and retry scheduling.
+            return;
+        }
+
         self.abort_existing_poll();
 
         if !self.should_poll_for_updated_objects {
@@ -744,6 +795,11 @@ impl UpdateManager {
         event: &NetworkStatusEvent,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: network-driven cloud polling and queue control.
+            return;
+        }
+
         match event {
             NetworkStatusEvent::NetworkStatusChanged { new_status } => match new_status {
                 NetworkStatusKind::Online => {
@@ -763,6 +819,11 @@ impl UpdateManager {
         force_refresh: bool,
         ctx: &mut ModelContext<UpdateManager>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: processing cloud-object fetch responses.
+            return;
+        }
+
         match request_state {
             RequestState::RequestSucceeded(response) => {
                 self.on_changed_objects_fetched(response, force_refresh, ctx);
@@ -786,6 +847,13 @@ impl UpdateManager {
         force_refresh: bool,
         ctx: &mut ModelContext<UpdateManager>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: applying cloud objects, preferences, and MCP gallery
+            // updates from an initial or periodic fetch.
+            self.has_initial_load.set();
+            return;
+        }
+
         let is_first_load = !self.has_initial_load.is_set();
         let cloud_model = CloudModel::as_ref(ctx);
         // any folder from the server will have its `is_open` model parameter set to false,
@@ -1099,7 +1167,13 @@ impl UpdateManager {
         }
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_team_memberships_changed(&mut self, ctx: &mut ModelContext<UpdateManager>) {
+        if is_local_mode() {
+            // Commented out for local mode: team metadata and cloud-object refreshes.
+            return;
+        }
+
         // Immediately check for updates in workspace metadata
         TeamUpdateManager::handle(ctx).update(ctx, |manager, ctx| {
             std::mem::drop(manager.refresh_workspace_metadata(ctx));
@@ -1107,6 +1181,7 @@ impl UpdateManager {
         self.refresh_updated_objects(ctx);
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_ambient_task_changed(
         &mut self,
         task_id: String,
@@ -1128,6 +1203,11 @@ impl UpdateManager {
     /// Fetches environment "last used" timestamps from the server and merges them
     /// into the in-memory environment objects.
     fn fetch_and_merge_environment_timestamps(&mut self, ctx: &mut ModelContext<UpdateManager>) {
+        if is_local_mode() {
+            // Commented out for local mode: cloud environment timestamp fetch.
+            return;
+        }
+
         let object_client = self.object_client.clone();
         let future = ctx.spawn(
             async move {
@@ -1243,16 +1323,29 @@ impl UpdateManager {
     /// the next load finishes. Call this when the user identity changes (e.g.
     /// after signup/login) to prevent stale cloud data from a previous session
     /// being used.
+    #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
     pub fn reset_initial_load(&self) {
+        if is_local_mode() {
+            // Commented out for local mode: waiting for a subsequent cloud-object load.
+            self.has_initial_load.set();
+            return;
+        }
+
         log::info!("Resetting initial_load_complete condition for fresh cloud object fetch");
         self.has_initial_load.reset();
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     pub fn received_message_from_server(
         &mut self,
         message: ObjectUpdateMessage,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: websocket cloud-object updates and refresh triggers.
+            return;
+        }
+
         match message {
             ObjectUpdateMessage::ObjectContentChanged {
                 server_object,
@@ -1297,6 +1390,7 @@ impl UpdateManager {
     /// is split into two parts. (1) If the incoming revision is > in-memory revision (or there is no in-memory revision),
     /// we update the data and fields in metadata that are tied to the revision. (2) If the incoming metadata_ts is >
     /// in-memory metadata_ts, we update the metadata fields that are tied to the metadata ts (current_editor, trashed_ts, etc.)
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_cloud_object_changed_event(
         &mut self,
         cloud_object: ServerCloudObject,
@@ -1362,6 +1456,7 @@ impl UpdateManager {
 
     /// Compare incoming metadata_ts and in_memory metadata_ts to determine whether to accept a new incoming metadata
     /// for a given object. This is a message that pertains just to the fields protected by the metadata ts
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_cloud_object_metadata_changed_event(
         &mut self,
         new_metadata: ServerMetadata,
@@ -1391,6 +1486,7 @@ impl UpdateManager {
         });
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_cloud_object_deleted_event(
         &mut self,
         object_uid: ServerId,
@@ -1400,6 +1496,7 @@ impl UpdateManager {
         ctx.notify();
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_object_action_event(
         &mut self,
         history: &ObjectActionHistory,
@@ -1482,9 +1579,15 @@ impl UpdateManager {
         fetch_single_object_option: FetchSingleObjectOption,
         ctx: &mut ModelContext<Self>,
     ) -> Receiver<()> {
+        let (fetch_cloud_object_tx, fetch_cloud_object_rx) = oneshot::channel::<()>();
+        if is_local_mode() {
+            // Commented out for local mode: server-backed single-object fetch.
+            drop(fetch_cloud_object_tx);
+            return fetch_cloud_object_rx;
+        }
+
         let object_client = self.object_client.clone();
         let server_id_copy = *server_id;
-        let (fetch_cloud_object_tx, fetch_cloud_object_rx) = oneshot::channel::<()>();
         let future = ctx.spawn(
             async move {
                 object_client
@@ -1500,10 +1603,20 @@ impl UpdateManager {
                         for object in objects {
                             let uid = object.uid();
                             let object_is_some = cloud_model.get_by_uid(&uid).is_some();
-                            let should_skip = matches!(
-                                fetch_single_object_option,
-                                FetchSingleObjectOption::IgnoreIfExists
-                            ) && object_is_some;
+                            let should_skip = {
+                                #[cfg(any(test, feature = "integration_tests"))]
+                                {
+                                    matches!(
+                                        fetch_single_object_option,
+                                        FetchSingleObjectOption::IgnoreIfExists
+                                    ) && object_is_some
+                                }
+                                #[cfg(not(any(test, feature = "integration_tests")))]
+                                {
+                                    let _ = object_is_some;
+                                    false
+                                }
+                            };
 
                             if should_skip {
                                 continue;
@@ -1569,6 +1682,7 @@ impl UpdateManager {
     //
     // Permissions messages actually can't be out-of-order because the rtc server ignores
     // stale messages, but we could get a message that's staler than info compared to the initial load.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn should_ignore_permissions_message(
         &self,
         object_uid: &ObjectUid,
@@ -1585,6 +1699,7 @@ impl UpdateManager {
         false
     }
 
+    #[cfg(any(test, feature = "integration_tests"))]
     fn handle_cloud_object_permissions_changed_v2_event(
         &mut self,
         object_uid: ServerId,
@@ -1592,6 +1707,11 @@ impl UpdateManager {
         profiles: Vec<UserProfileWithUID>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: server permission updates and granted-object fetches.
+            return;
+        }
+
         let uid = object_uid.uid();
         if self.should_ignore_permissions_message(
             &uid,
@@ -1876,6 +1996,11 @@ impl UpdateManager {
     /// Replace an object's data with the conflicting version from the server. If the object does
     /// not have a conflict, this has no effect.
     pub fn replace_object_with_conflict(&mut self, uid: &ObjectUid, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: replacing local object data with a server conflict.
+            return;
+        }
+
         let cloud_model_handle = CloudModel::handle(ctx);
 
         // Update the in-memory model first, and check for conflicts.
@@ -1970,6 +2095,7 @@ impl UpdateManager {
         );
     }
 
+    #[cfg(test)]
     pub fn update_ambient_agent_environment(
         &mut self,
         environment: AmbientAgentEnvironment,
@@ -2358,6 +2484,11 @@ impl UpdateManager {
 
     /// Leaves a shared object, removing all of the current user's ACLs on it.
     pub fn leave_object(&mut self, server_id: ServerId, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed shared-object leave.
+            return;
+        }
+
         let uid = server_id.uid();
 
         // If there's a pending online-only operation for this object, don't leave it.
@@ -2715,6 +2846,11 @@ impl UpdateManager {
         <S as Future>::Output: warpui::r#async::SpawnableOutput,
         F: 'static + FnMut(R, &mut AppContext) -> Option<ServerPermissions>,
     {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed AI conversation permission updates.
+            return;
+        }
+
         let object_client = self.object_client.clone();
 
         ctx.spawn_with_retry_on_error(
@@ -2776,6 +2912,11 @@ impl UpdateManager {
         S: warpui::r#async::Spawnable + Future<Output = anyhow::Result<M>>,
         <S as Future>::Output: warpui::r#async::SpawnableOutput,
     {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed object permission updates.
+            return;
+        }
+
         let cloud_model = CloudModel::handle(ctx);
         let uid = server_id.uid();
 
@@ -2949,6 +3090,11 @@ impl UpdateManager {
         new_location: CloudObjectLocation,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed object moves and trash operations.
+            return;
+        }
+
         // If we are moving into the trash, we really mean to trash the object
         if let CloudObjectLocation::Trash = new_location {
             return self.trash_object(object_id, ctx);
@@ -3086,6 +3232,11 @@ impl UpdateManager {
         cloud_object_type_and_id: &CloudObjectTypeAndId,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: server-synchronized object duplication.
+            return;
+        }
+
         match cloud_object_type_and_id {
             CloudObjectTypeAndId::Notebook(notebook_id) => {
                 self.duplicate_object_internal::<NotebookId, CloudNotebookModel>(notebook_id, ctx);
@@ -3245,6 +3396,7 @@ impl UpdateManager {
         )
     }
 
+    /* Scheduled ambient-agent mutations are disabled in local-only mode.
     #[cfg_attr(target_family = "wasm", allow(dead_code))]
     pub fn create_scheduled_ambient_agent_online(
         &mut self,
@@ -3279,6 +3431,7 @@ impl UpdateManager {
             ctx,
         )
     }
+    */
 
     #[allow(dead_code)]
     pub fn create_ai_execution_profile(
@@ -3552,6 +3705,11 @@ impl UpdateManager {
             > + 'static,
         S: Serializer<T> + 'static,
     {
+        if is_local_mode() {
+            // Commented out for local mode: cloud-synchronized bulk object creation.
+            return;
+        }
+
         let mut objects = Vec::new();
         let mut sync_queue_objects = Vec::new();
         for input in inputs {
@@ -3636,6 +3794,11 @@ impl UpdateManager {
             + 'static,
         M: CloudModelType<IdType = K, CloudObjectType = GenericCloudObject<K, M>> + 'static,
     {
+        if is_local_mode() {
+            // Commented out for local mode: cloud-synchronized object creation.
+            return;
+        }
+
         let object_id = SyncId::ClientId(client_id);
         let auth_state = AuthStateProvider::as_ref(ctx).get();
         let initial_editor = auth_state.user_id();
@@ -3706,6 +3869,14 @@ impl UpdateManager {
     {
         let (tx, rx) = oneshot::channel();
         let completion = async move { rx.await? };
+
+        if is_local_mode() {
+            // Commented out for local mode: server-backed online object creation.
+            let _ = tx.send(Err(anyhow::anyhow!(
+                "Cloud object creation is disabled in local-only mode"
+            )));
+            return completion;
+        }
 
         let initial_server_folder_id = match initial_folder_id {
             Some(SyncId::ServerId(id)) => Some(FolderId::from(id)),
@@ -3803,7 +3974,8 @@ impl UpdateManager {
         completion
     }
 
-    /// Update an existing cloud object as an online-only operation.
+    /* Update an existing cloud object as an online-only operation. Cloud object mutation is
+    disabled in local-only mode.
     ///
     /// This is intended for updating objects where the caller will await completion and
     /// handle retries, such as the CLI.
@@ -3831,6 +4003,14 @@ impl UpdateManager {
     {
         let (tx, rx) = oneshot::channel();
         let completion = async move { rx.await? };
+
+        if is_local_mode() {
+            // Commented out for local mode: server-backed online object updates.
+            let _ = tx.send(Err(anyhow::anyhow!(
+                "Cloud object updates are disabled in local-only mode"
+            )));
+            return completion;
+        }
 
         let server_id = match object_id {
             SyncId::ServerId(id) => id,
@@ -3921,6 +4101,7 @@ impl UpdateManager {
         self.spawned_futures.push(handle.future_id());
         completion
     }
+    */
 
     /// Generic function for updating a cloud object with a new model.
     pub fn update_object<K, M>(
@@ -3941,6 +4122,11 @@ impl UpdateManager {
             + 'static,
         M: CloudModelType<IdType = K, CloudObjectType = GenericCloudObject<K, M>> + 'static,
     {
+        if is_local_mode() {
+            // Commented out for local mode: cloud-synchronized object updates.
+            return;
+        }
+
         // Update in-memory model.
         CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
             cloud_model.update_object_from_edit(model.clone(), object_id, ctx);
@@ -3973,6 +4159,11 @@ impl UpdateManager {
         data: Option<String>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: server-synchronized object actions.
+            return;
+        }
+
         // Take the action timestamp from the client.
         let action_timestamp = Utc::now();
 
@@ -4079,6 +4270,11 @@ impl UpdateManager {
         optimistically_grant_access: bool,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed notebook edit access updates.
+            return;
+        }
+
         // If the object isn't known to the server yet, we should not proceed
         let SyncId::ServerId(server_id) = notebook_id else {
             return;
@@ -4157,6 +4353,11 @@ impl UpdateManager {
         notebook_id: SyncId,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed notebook edit access updates.
+            return;
+        }
+
         // If the object isn't known to the server yet, we should not proceed
         let SyncId::ServerId(server_id) = notebook_id else {
             return;
@@ -4236,6 +4437,11 @@ impl UpdateManager {
     }
 
     pub fn trash_object(&mut self, id: CloudObjectTypeAndId, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed trash operations.
+            return;
+        }
+
         // // If the object isn't known to the server yet, we can't trash it.
         let Some(server_id) = id.server_id() else {
             return;
@@ -4349,6 +4555,11 @@ impl UpdateManager {
     }
 
     pub fn untrash_object(&mut self, id: CloudObjectTypeAndId, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed untrash operations.
+            return;
+        }
+
         // If the object isn't known to the server yet, we can't untrash it.
         let Some(server_id) = id.server_id() else {
             return;
@@ -4500,6 +4711,11 @@ impl UpdateManager {
         initiated_by: InitiatedBy,
         ctx: &mut ModelContext<Self>,
     ) {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed object deletion.
+            return;
+        }
+
         // If the object isn't known to the server yet, we can't delete it.
         let Some(server_id) = id.server_id() else {
             return;
@@ -4610,6 +4826,11 @@ impl UpdateManager {
     }
 
     pub fn empty_trash(&mut self, space: Space, ctx: &mut ModelContext<Self>) {
+        if is_local_mode() {
+            // Commented out for local mode: server-backed empty-trash operations.
+            return;
+        }
+
         let object_client = self.object_client.clone();
 
         let owner = match UserWorkspaces::as_ref(ctx).space_to_owner(space, ctx) {
@@ -4704,6 +4925,11 @@ impl UpdateManager {
         deleted_ids: Vec<SyncId>,
         ctx: &mut ModelContext<'_, UpdateManager>,
     ) -> i32 {
+        if is_local_mode() {
+            // Commented out for local mode: applying server-backed object deletions.
+            return 0;
+        }
+
         let cloud_model_handle = CloudModel::handle(ctx);
         let all_object_uids: Vec<ObjectUid> = deleted_ids.iter().map(|&id| id.uid()).collect();
 

@@ -1,45 +1,77 @@
+#[cfg(test)]
 use std::collections::HashSet;
 
+#[cfg(test)]
 use comfy_table::Cell;
+#[cfg(test)]
 use cynic::QueryBuilder;
+#[cfg(test)]
 use futures::future;
+#[cfg(test)]
 use inquire::error::InquireError;
+#[cfg(test)]
 use inquire::{Confirm, Select};
+#[cfg(test)]
 use serde::Serialize;
 use warp_cli::GlobalOptions;
+#[cfg(test)]
 use warp_cli::agent::OutputFormat;
-use warp_cli::environment::{EnvironmentCommand, ImageCommand};
+use warp_cli::environment::EnvironmentCommand;
+#[cfg(test)]
+use warp_cli::environment::ImageCommand;
+#[cfg(test)]
 use warp_cli::scope::ObjectScope;
+#[cfg(test)]
 use warp_graphql::queries::get_oauth_connect_tx_status::OauthConnectTxStatus;
+#[cfg(test)]
 use warp_graphql::queries::list_warp_dev_images::{
     ListWarpDevImages, ListWarpDevImagesResult, ListWarpDevImagesVariables,
 };
+#[cfg(test)]
 use warp_graphql::queries::user_repo_auth_status::UserRepoAuthStatusEnum;
+use warpui::AppContext;
+#[cfg(test)]
 use warpui::r#async::FutureExt;
-use warpui::{AppContext, ModelContext, SingletonEntity};
+#[cfg(test)]
+use warpui::{ModelContext, SingletonEntity};
 
+#[cfg(test)]
 use crate::CloudObjectTypeAndId;
+#[cfg(test)]
 use crate::ai::agent_sdk::driver::WARP_DRIVE_SYNC_TIMEOUT;
+#[cfg(test)]
 use crate::ai::agent_sdk::oauth_flow::poll_oauth_until_terminal;
+#[cfg(test)]
 use crate::ai::agent_sdk::output::{self, TableFormat};
+#[cfg(test)]
 use crate::ai::cloud_environments::{
     AmbientAgentEnvironment, BaseImage, CloudAmbientAgentEnvironment,
     CloudAmbientAgentEnvironmentModel, GithubRepo, environment_matches_scope,
 };
+#[cfg(test)]
 use crate::auth::UserUid;
+#[cfg(test)]
 use crate::cloud_object::model::generic_string_model::GenericStringObjectId;
+#[cfg(test)]
 use crate::cloud_object::{CloudObject, CloudObjectLookup as _};
+#[cfg(test)]
 use crate::server::cloud_objects::update_manager::{
     ObjectOperation, OperationSuccessType, UpdateManager, UpdateManagerEvent,
 };
+#[cfg(test)]
 use crate::server::ids::{ClientId, ServerId, SyncId};
+#[cfg(test)]
 use crate::server::server_api::ServerApiProvider;
+#[cfg(test)]
 use crate::util::time_format::format_approx_duration_from_now_utc;
+#[cfg(test)]
 use crate::workspaces::user_profiles::UserProfiles;
 
+#[cfg(test)]
 const WARP_DEV_ENVIRONMENTS_REPO: &str = "https://github.com/warpdotdev/warp-dev-environments";
 
 /// Parse repo strings in the format "owner/repo" into GithubRepo objects.
+#[cfg(test)]
 fn parse_repos(repo_strings: Vec<String>) -> anyhow::Result<Vec<GithubRepo>> {
     repo_strings
         .into_iter()
@@ -57,6 +89,7 @@ fn parse_repos(repo_strings: Vec<String>) -> anyhow::Result<Vec<GithubRepo>> {
 }
 
 /// Handle environment-related CLI commands.
+#[cfg(test)]
 pub fn run(
     ctx: &mut AppContext,
     global_options: GlobalOptions,
@@ -140,9 +173,22 @@ pub fn run(
     }
 }
 
+#[cfg(not(test))]
+pub fn run(
+    _ctx: &mut AppContext,
+    _global_options: GlobalOptions,
+    _command: EnvironmentCommand,
+) -> anyhow::Result<()> {
+    Err(anyhow::anyhow!(
+        "Cloud agent environments are disabled in local-only mode"
+    ))
+}
+
 /// Singleton model for running async work as part of environment CLI commands.
+#[cfg(test)]
 struct EnvironmentCommandRunner;
 
+#[cfg(test)]
 impl EnvironmentCommandRunner {
     fn list_images(&self, global_options: GlobalOptions, ctx: &mut ModelContext<Self>) {
         let server_api = ServerApiProvider::as_ref(ctx).get();
@@ -1123,12 +1169,15 @@ impl EnvironmentCommandRunner {
     }
 }
 
+#[cfg(test)]
 impl warpui::Entity for EnvironmentCommandRunner {
     type Event = ();
 }
+#[cfg(test)]
 impl SingletonEntity for EnvironmentCommandRunner {}
 
 /// Environment information that's shown in the `list` command.
+#[cfg(test)]
 #[derive(Serialize)]
 struct EnvironmentInfo {
     id: String,
@@ -1147,6 +1196,7 @@ struct EnvironmentInfo {
     scope: String,
 }
 
+#[cfg(test)]
 impl TableFormat for EnvironmentInfo {
     fn header() -> Vec<Cell> {
         vec![
@@ -1192,6 +1242,7 @@ impl TableFormat for EnvironmentInfo {
 }
 
 /// Image information that's shown in the `image list` command.
+#[cfg(test)]
 #[derive(Serialize)]
 struct ImageInfo {
     image: String,
@@ -1199,6 +1250,7 @@ struct ImageInfo {
     tag: String,
 }
 
+#[cfg(test)]
 impl TableFormat for ImageInfo {
     fn header() -> Vec<Cell> {
         vec![

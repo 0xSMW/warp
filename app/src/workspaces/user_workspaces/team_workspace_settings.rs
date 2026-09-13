@@ -17,12 +17,12 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 use settings::Setting;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 use warp_cli::scope::{ObjectScope, TeamSelection};
 use warp_core::features::FeatureFlag;
 use warpui::{AppContext, Entity, SingletonEntity, ViewContext, WeakViewHandle, WindowId};
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 use super::SoleTeamError;
 use super::UserWorkspaces;
 #[cfg(any(test, feature = "test-util"))]
@@ -33,9 +33,11 @@ use crate::server::ids::ServerId;
 use crate::settings::{AISettings, AgentModeCommandExecutionPredicate};
 use crate::workspaces::gql_convert::ToAgentModeCommandExecutionPredicates;
 use crate::workspaces::team::Team;
+#[cfg(test)]
+use crate::workspaces::workspace::AdminEnablementSetting;
 use crate::workspaces::workspace::{
-    AdminEnablementSetting, AiAutonomySettings, HostEnablementSetting, LlmHostSettings,
-    LlmSettings, TeamByoSettings, Workspace,
+    AiAutonomySettings, HostEnablementSetting, LlmHostSettings, LlmSettings, TeamByoSettings,
+    Workspace,
 };
 
 mod sealed {
@@ -95,16 +97,25 @@ impl TeamScope for TeamContext<'_> {
 
 /// The team a headless CLI invocation acts as, resolved from its command-line selection and
 /// memberships instead of from a window.
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(
+    not(target_family = "wasm"),
+    any(test, feature = "local_claude_codex_child_harnesses")
+))]
 pub enum TeamScopeForCli {
     Personal,
     Team(ServerId),
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(
+    not(target_family = "wasm"),
+    any(test, feature = "local_claude_codex_child_harnesses")
+))]
 impl sealed::Sealed for TeamScopeForCli {}
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(
+    not(target_family = "wasm"),
+    any(test, feature = "local_claude_codex_child_harnesses")
+))]
 impl TeamScope for TeamScopeForCli {
     fn team_uid(&self) -> Option<ServerId> {
         match self {
@@ -155,13 +166,13 @@ pub type TeamContextResolver = Rc<dyn for<'a> Fn(&'a AppContext) -> TeamContext<
 pub(crate) type TeamContextForOperationResolver =
     Rc<dyn Fn(&AppContext) -> TeamContextForOperation>;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 #[derive(Debug, thiserror::Error)]
 #[error("you are not on team {team_uid}")]
 pub struct NotATeamMemberError {
     pub team_uid: ServerId,
 }
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(test, not(target_family = "wasm")))]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TeamScopeForCliError {
     #[error("Invalid --team '{team_uid}': {message}")]
@@ -216,7 +227,7 @@ impl UserWorkspaces {
     }
 
     /// The scope a headless CLI invocation reads team policy through.
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(test, not(target_family = "wasm")))]
     pub(crate) fn team_scope_for_cli(
         &self,
         team_selection: &TeamSelection,
@@ -248,7 +259,7 @@ impl UserWorkspaces {
         })
     }
 
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(test, not(target_family = "wasm")))]
     pub(crate) fn team_scope_for_cli_object(
         &self,
         object_scope: &ObjectScope,
@@ -451,6 +462,7 @@ impl UserWorkspaces {
     /// The agent attribution policy for `scope`'s team: `Enable` and `Disable` lock the user's
     /// attribution toggle, `RespectUserSetting` leaves it editable. See
     /// [`Self::scoped_or_workspace_setting`] for the no-team fallback.
+    #[cfg(test)]
     pub(crate) fn get_agent_attribution_setting<S: TeamScope + ?Sized>(
         &self,
         scope: &S,
@@ -584,7 +596,7 @@ impl UserWorkspaces {
     /// user have any usable BYO path" check. A caller with a window must use
     /// [`Self::is_aws_bedrock_credentials_enabled`] instead -- this deliberately answers for
     /// the union of the user's teams, not for the team a window points at.
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(test, not(target_family = "wasm")))]
     pub(crate) fn is_aws_bedrock_credentials_enabled_for_any_team(&self, app: &AppContext) -> bool {
         self.every_applicable_team_and_llm_settings()
             .map(|(_, settings)| settings)
@@ -618,6 +630,7 @@ impl UserWorkspaces {
             .unwrap_or_default()
     }
 
+    #[cfg(test)]
     pub(crate) fn is_gemini_enterprise_credentials_toggleable<S: TeamScope + ?Sized>(
         &self,
         scope: &S,

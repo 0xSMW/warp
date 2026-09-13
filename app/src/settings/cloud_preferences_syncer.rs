@@ -232,79 +232,81 @@ impl CloudPreferencesSyncer {
         toml_file_path: PathBuf,
         sync_enabled: bool,
     ) -> Self {
-        // Set up event syncing in both directions (local -> cloud and cloud -> local).
-        // We only apply cloud->local updates AFTER the initial load has been processed by
-        // handle_initial_load. This prevents the CloudPreferencesUpdated event (which fires
-        // synchronously in on_changed_objects_fetched) from overwriting local settings
-        // before handle_initial_load has a chance to determine sync direction.
-        ctx.subscribe_to_model(&UpdateManager::handle(ctx), |syncer, _, event, ctx| {
-            if let UpdateManagerEvent::CloudPreferencesUpdated { updated } = event {
-                // Defer cloud→local updates until `handle_initial_load`
-                // has determined the correct sync direction. The
-                // `CloudPreferencesUpdated` event fires synchronously
-                // during `on_changed_objects_fetched` and would
-                // overwrite local settings before `handle_initial_load`
-                // gets a chance to decide whether local or cloud wins.
-                if !syncer.has_completed_initial_load {
-                    return;
-                }
-                for preference in updated {
-                    syncer.maybe_sync_cloud_pref_to_local(&preference.storage_key, ctx);
-                }
-            }
-        });
         let (update_tx, update_rx) = async_channel::unbounded();
-        ctx.spawn_stream_local(
-            debounce(PREFERENCES_DEBOUNCE_PERIOD, update_rx),
-            |me, _, ctx| {
-                let prefs_to_sync = me.dirty_local_prefs.drain().collect();
-                me.maybe_sync_local_prefs_to_cloud(prefs_to_sync, ctx);
-            },
-            |_, _| {},
-        );
-        ctx.subscribe_to_model(
-            &SettingsManager::handle(ctx),
-            |me, _, event, ctx| match event {
-                SettingsEvent::LocalPreferencesUpdated { storage_key, .. } => {
-                    me.handle_local_preference_updated(storage_key, ctx);
+        if sync_enabled {
+            // Set up event syncing in both directions (local -> cloud and cloud -> local).
+            // We only apply cloud->local updates AFTER the initial load has been processed by
+            // handle_initial_load. This prevents the CloudPreferencesUpdated event (which fires
+            // synchronously in on_changed_objects_fetched) from overwriting local settings
+            // before handle_initial_load has a chance to determine sync direction.
+            ctx.subscribe_to_model(&UpdateManager::handle(ctx), |syncer, _, event, ctx| {
+                if let UpdateManagerEvent::CloudPreferencesUpdated { updated } = event {
+                    // Defer cloud→local updates until `handle_initial_load`
+                    // has determined the correct sync direction. The
+                    // `CloudPreferencesUpdated` event fires synchronously
+                    // during `on_changed_objects_fetched` and would
+                    // overwrite local settings before `handle_initial_load`
+                    // gets a chance to decide whether local or cloud wins.
+                    if !syncer.has_completed_initial_load {
+                        return;
+                    }
+                    for preference in updated {
+                        syncer.maybe_sync_cloud_pref_to_local(&preference.storage_key, ctx);
+                    }
                 }
-            },
-        );
-        // Update the stored settings file hash whenever a preference is
-        // successfully created or updated on the server. This ensures the
-        // hash only moves forward when the cloud has actually accepted
-        // local changes — if the upload fails (e.g. offline), the hash
-        // stays stale and the next startup will correctly detect
-        // divergence.
-        ctx.subscribe_to_model(&SyncQueue::handle(ctx), Self::handle_sync_queue_event);
-        ctx.subscribe_to_model(
-            &CloudPreferencesSettings::handle(ctx),
-            |me, _, event, ctx| match event {
-                CloudPreferencesSettingsChangedEvent::IsSettingsSyncEnabled {
-                    change_event_reason,
-                } => {
-                    let force_cloud_to_match_local = match change_event_reason {
-                        ChangeEventReason::CloudSync => ForceCloudToMatchLocal::No,
-                        ChangeEventReason::LocalChange => ForceCloudToMatchLocal::Yes,
-                        ChangeEventReason::Clear => {
-                            log::info!(
-                                "Not resyncing cloud preferences because the setting was cleared \
-                                (typically on logout)"
-                            );
-                            return;
-                        }
-                    };
-                    log::info!(
-                        "Settings sync enabled setting changed. Resyncing cloud preferences. Force \
-                        cloud to match local: {force_cloud_to_match_local:?}"
-                    );
-                    // Always resync from the local client when the setting changes,
-                    // but only force cloud to match this client's local settings if the change in the setting
-                    // was initiated in this client.
-                    me.sync(force_cloud_to_match_local, ctx);
-                }
-            },
-        );
+            });
+            ctx.spawn_stream_local(
+                debounce(PREFERENCES_DEBOUNCE_PERIOD, update_rx),
+                |me, _, ctx| {
+                    let prefs_to_sync = me.dirty_local_prefs.drain().collect();
+                    me.maybe_sync_local_prefs_to_cloud(prefs_to_sync, ctx);
+                },
+                |_, _| {},
+            );
+            ctx.subscribe_to_model(
+                &SettingsManager::handle(ctx),
+                |me, _, event, ctx| match event {
+                    SettingsEvent::LocalPreferencesUpdated { storage_key, .. } => {
+                        me.handle_local_preference_updated(storage_key, ctx);
+                    }
+                },
+            );
+            // Update the stored settings file hash whenever a preference is
+            // successfully created or updated on the server. This ensures the
+            // hash only moves forward when the cloud has actually accepted
+            // local changes — if the upload fails (e.g. offline), the hash
+            // stays stale and the next startup will correctly detect
+            // divergence.
+            ctx.subscribe_to_model(&SyncQueue::handle(ctx), Self::handle_sync_queue_event);
+            ctx.subscribe_to_model(
+                &CloudPreferencesSettings::handle(ctx),
+                |me, _, event, ctx| match event {
+                    CloudPreferencesSettingsChangedEvent::IsSettingsSyncEnabled {
+                        change_event_reason,
+                    } => {
+                        let force_cloud_to_match_local = match change_event_reason {
+                            ChangeEventReason::CloudSync => ForceCloudToMatchLocal::No,
+                            ChangeEventReason::LocalChange => ForceCloudToMatchLocal::Yes,
+                            ChangeEventReason::Clear => {
+                                log::info!(
+                                    "Not resyncing cloud preferences because the setting was cleared \
+                                    (typically on logout)"
+                                );
+                                return;
+                            }
+                        };
+                        log::info!(
+                            "Settings sync enabled setting changed. Resyncing cloud preferences. Force \
+                            cloud to match local: {force_cloud_to_match_local:?}"
+                        );
+                        // Always resync from the local client when the setting changes,
+                        // but only force cloud to match this client's local settings if the change in the setting
+                        // was initiated in this client.
+                        me.sync(force_cloud_to_match_local, ctx);
+                    }
+                },
+            );
+        }
 
         Self {
             update_tx,
@@ -326,6 +328,10 @@ impl CloudPreferencesSyncer {
         event: &SyncQueueEvent,
         ctx: &mut ModelContext<Self>,
     ) {
+        if !self.sync_enabled {
+            return;
+        }
+
         let server_id = match event {
             SyncQueueEvent::ObjectCreationSuccessful {
                 server_creation_info,
@@ -384,6 +390,10 @@ impl CloudPreferencesSyncer {
     /// This method recursively calls itself after a delay. Call it once and only once to start the
     /// loop. It ensures failed preferences are retried until they are successfully synced.
     fn retry_failed_settings(&mut self, ctx: &mut ModelContext<Self>) {
+        if !self.sync_enabled {
+            return;
+        }
+
         ctx.spawn(
             async {
                 Timer::after(Self::RETRY_POLL).await;
@@ -506,6 +516,10 @@ impl CloudPreferencesSyncer {
 
     /// Fixes https://linear.app/warpdotdev/issue/CLD-2629/duplicate-prefs-for-users
     fn ensure_no_duplicate_cloud_prefs(&mut self, ctx: &mut ModelContext<Self>) {
+        if !self.sync_enabled {
+            return;
+        }
+
         log::info!("Ensuring no duplicate cloud prefs");
         let ids_to_delete = CloudModel::handle(ctx).update(ctx, |cloud_model, ctx| {
             let cloud_prefs = cloud_model
@@ -585,6 +599,10 @@ impl CloudPreferencesSyncer {
         force_cloud_to_match_local: ForceCloudToMatchLocal,
         ctx: &mut ModelContext<Self>,
     ) {
+        if !self.sync_enabled {
+            return;
+        }
+
         self.ensure_no_duplicate_cloud_prefs(ctx);
 
         // First-load override: if the startup hash check detected
@@ -784,6 +802,10 @@ impl CloudPreferencesSyncer {
         local_value: &str,
         ctx: &mut ModelContext<Self>,
     ) {
+        if !self.sync_enabled {
+            return;
+        }
+
         // Preference has already been synced to the cloud, so update it to the new value if it's different
         // than the current value.
         let cloud_value = &cloud_pref.model().string_model.value.to_string();
@@ -837,6 +859,10 @@ impl CloudPreferencesSyncer {
         cloud_prefs_to_create: HashMap<String, PreferenceToCreate>,
         ctx: &mut ModelContext<Self>,
     ) {
+        if !self.sync_enabled {
+            return;
+        }
+
         let inputs = cloud_prefs_to_create
             .into_iter()
             .filter_map(|(storage_key, preference_to_create)| {
@@ -887,6 +913,10 @@ impl CloudPreferencesSyncer {
     // Syncs the given cloud pref to local, if cloud syncing is enabled for the pref on this client.
     // Returns early if the pref with the given storage key isn't actually synced to the cloud.
     fn maybe_sync_cloud_pref_to_local(&self, storage_key: &str, ctx: &mut ModelContext<Self>) {
+        if !self.sync_enabled {
+            return;
+        }
+
         let Some(model) = CloudModel::as_ref(ctx)
             .get_all_cloud_preferences_by_storage_key()
             .get(storage_key)

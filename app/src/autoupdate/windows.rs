@@ -1,23 +1,41 @@
+#[cfg(test)]
 use std::fs::File;
+#[cfg(test)]
 use std::io::Write as _;
+#[cfg(test)]
 use std::path::PathBuf;
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
+#[cfg(test)]
 use std::{fs, io};
 
-use anyhow::{Result, anyhow, bail};
+#[cfg(test)]
+use anyhow::bail;
+use anyhow::{Result, anyhow};
 use channel_versions::VersionInfo;
+#[cfg(test)]
 use command::blocking::Command;
+#[cfg(test)]
 use lazy_static::lazy_static;
+#[cfg(test)]
 use parking_lot::Mutex;
+#[cfg(test)]
 use tempfile::TempPath;
+#[cfg(test)]
 use warp_core::channel::{Channel, ChannelState};
 use warpui::AppContext;
 
-use super::{DownloadReady, release_assets_directory_url};
+use super::DownloadReady;
+#[cfg(test)]
+use super::release_assets_directory_url;
+#[cfg(test)]
 use crate::server::telemetry::TelemetryEvent;
+#[cfg(test)]
 use crate::util::windows::install_dir;
 
+#[cfg(test)]
 lazy_static! {
     /// The path to the temporary file that stores the installer for the new update.
     static ref INSTALLER_PATH: Arc<Mutex<Option<TempPath>>> = Default::default();
@@ -25,6 +43,7 @@ lazy_static! {
 
 /// Download the Inno Setup install wizard, the same one users run on the first Warp install, and
 /// place it into the "data dir".
+#[cfg(test)]
 pub(super) async fn download_update_and_cleanup(
     version_info: &VersionInfo,
     _update_id: &str,
@@ -74,12 +93,25 @@ pub(super) async fn download_update_and_cleanup(
     Ok(DownloadReady::Yes)
 }
 
+#[cfg(not(test))]
+pub(super) async fn download_update_and_cleanup(
+    version_info: &VersionInfo,
+    update_id: &str,
+    client: &http_client::Client,
+) -> Result<DownloadReady> {
+    let _ = (version_info, update_id, client);
+    Ok(DownloadReady::No)
+}
+
+#[cfg(test)]
 const UPDATE_LOG_FILENAME: &str = "warp_update.log";
 
+#[cfg(test)]
 fn autoupdate_log_file() -> Result<PathBuf> {
     warp_logging::log_directory().map(|dir| dir.join(UPDATE_LOG_FILENAME))
 }
 
+#[cfg(test)]
 fn parse_exit_code_after_marker(contents_lowercase: &[u8], failed_marker: &[u8]) -> Option<i32> {
     const EXIT_CODE_MARKER: &[u8] = b"exit code: ";
 
@@ -108,6 +140,7 @@ fn parse_exit_code_after_marker(contents_lowercase: &[u8], failed_marker: &[u8])
 /// Parses the taskkill exit code from an Inno Setup log containing a
 /// "force-kill failed for" line. Returns `None` if no such line is found or
 /// the exit code cannot be parsed.
+#[cfg(test)]
 fn parse_forcekill_exit_code(contents_lowercase: &[u8]) -> Option<i32> {
     const FAILED_MARKER: &[u8] = b"force-kill failed for";
     parse_exit_code_after_marker(contents_lowercase, FAILED_MARKER)
@@ -116,6 +149,7 @@ fn parse_forcekill_exit_code(contents_lowercase: &[u8]) -> Option<i32> {
 /// Parses the PowerShell exit code from an Inno Setup log containing a
 /// "minidump-server cleanup failed" line. Returns `None` if no such line is
 /// found or the exit code cannot be parsed.
+#[cfg(test)]
 fn parse_minidump_cleanup_exit_code(contents_lowercase: &[u8]) -> Option<i32> {
     const FAILED_MARKER: &[u8] = b"minidump-server cleanup failed";
     parse_exit_code_after_marker(contents_lowercase, FAILED_MARKER)
@@ -124,6 +158,7 @@ fn parse_minidump_cleanup_exit_code(contents_lowercase: &[u8]) -> Option<i32> {
 /// Checks the autoupdate log file from a previous update attempt.
 /// Sends telemetry for specific known issues, and sends a Sentry event if errors are found.
 /// The log file is renamed after processing to avoid duplicate reports on subsequent launches.
+#[cfg(test)]
 pub(super) fn check_and_report_update_errors(ctx: &mut AppContext) {
     let log_path = match autoupdate_log_file() {
         Ok(path) => path,
@@ -249,6 +284,12 @@ pub(super) fn check_and_report_update_errors(ctx: &mut AppContext) {
     }
 }
 
+#[cfg(not(test))]
+pub(super) fn check_and_report_update_errors(ctx: &mut AppContext) {
+    let _ = ctx;
+}
+
+#[cfg(test)]
 pub(super) fn relaunch() -> Result<()> {
     let install_dir = install_dir()?;
     let Some(installer_path) = INSTALLER_PATH
@@ -294,6 +335,12 @@ pub(super) fn relaunch() -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(test))]
+pub(super) fn relaunch() -> Result<()> {
+    Err(anyhow!("Autoupdate is disabled in local-only mode"))
+}
+
+#[cfg(test)]
 fn installer_file_name() -> Result<String> {
     let app_name_prefix = app_name_prefix(ChannelState::channel());
 
@@ -310,6 +357,7 @@ fn installer_file_name() -> Result<String> {
     }
 }
 
+#[cfg(test)]
 fn app_name_prefix(channel: Channel) -> &'static str {
     match channel {
         Channel::Stable => "Warp",

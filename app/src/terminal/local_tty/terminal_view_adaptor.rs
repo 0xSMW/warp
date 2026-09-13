@@ -6,32 +6,42 @@ use std::sync::mpsc::SyncSender;
 
 use parking_lot::FairMutex;
 use session_sharing_protocol::common::{
-    ActivePrompt, AgentPromptFailureReason, AgentPromptRequest, CLIAgentSessionState,
-    CommandExecutionFailureReason, ControlAction, ControlActionFailureReason,
-    LongRunningCommandAgentInteraction, ParticipantId, SelectedAgentModel,
-    UniversalDeveloperInputContextUpdate, WriteToPtyFailureReason,
+    ActivePrompt, CLIAgentSessionState, LongRunningCommandAgentInteraction, SelectedAgentModel,
+    UniversalDeveloperInputContextUpdate,
+};
+#[cfg(any(test, feature = "integration_tests"))]
+use session_sharing_protocol::common::{
+    AgentPromptFailureReason, AgentPromptRequest, CommandExecutionFailureReason, ControlAction,
+    ControlActionFailureReason, ParticipantId, WriteToPtyFailureReason,
 };
 #[cfg(not(any(test, feature = "integration_tests")))]
 use session_sharing_protocol::common::{
     LongRunningCommandAgentInteractionState, SelectedConversation, UniversalDeveloperInputContext,
 };
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::sharer::{
-    AddGuestsResponse, FailedToInitializeSessionReason, Lifetime, LinkAccessLevelUpdateResponse,
-    QuotaType, RemoveGuestResponse, SessionEndedReason, SessionSourceType,
-    TeamAccessLevelUpdateResponse, UpdatePendingUserRoleResponse,
+    AddGuestsResponse, FailedToInitializeSessionReason, LinkAccessLevelUpdateResponse, QuotaType,
+    RemoveGuestResponse, TeamAccessLevelUpdateResponse, UpdatePendingUserRoleResponse,
 };
+use session_sharing_protocol::sharer::{Lifetime, SessionEndedReason, SessionSourceType};
 use warp_core::execution_mode::AppExecutionMode;
 use warp_core::send_telemetry_from_ctx;
 use warp_errors::report_error;
-use warpui::{AppContext, ModelHandle, SingletonEntity, ViewContext, ViewHandle, WindowId};
+#[cfg(any(test, feature = "integration_tests"))]
+use warpui::ViewContext;
+use warpui::{AppContext, ModelHandle, SingletonEntity, ViewHandle, WindowId};
 
 use super::terminal_manager::{TerminalManager, TerminalSurfaceInit, TerminalSurfaceResult};
 use crate::NetworkStatus;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::agent::conversation::AIConversation;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::blocklist::agent_view::{AgentViewController, AgentViewControllerEvent};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::blocklist::local_agent_task_sync_model::LocalAgentTaskSyncModel;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::ai::blocklist::pending_cli_harness_prompt_queue::{
     PendingCliHarnessPromptQueue, QueuedCliHarnessPrompt,
 };
@@ -48,6 +58,7 @@ use crate::features::FeatureFlag;
 use crate::network::{NetworkStatusEvent, NetworkStatusKind};
 use crate::pane_group::TerminalViewResources;
 use crate::persistence::ModelEvent;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::server::server_api::ServerApiProvider;
 use crate::server::telemetry::{TelemetryAgentViewEntryOrigin, TelemetryEvent};
 use crate::terminal::cli_agent_sessions::{
@@ -56,18 +67,27 @@ use crate::terminal::cli_agent_sessions::{
 use crate::terminal::safe_mode_settings::get_secret_obfuscation_mode;
 use crate::terminal::session_settings::{SessionSettings, SessionSettingsChangedEvent};
 use crate::terminal::shared_session::manager::Manager;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::shared_session::permissions_manager::SessionPermissionsManager;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::shared_session::presence_manager::PresenceManager;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::shared_session::replay_agent_conversations::reconstruct_response_events_from_conversations;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::shared_session::settings::SharedSessionSettings;
 use crate::terminal::shared_session::shared_handlers::{
-    RemoteUpdateGuard, apply_auto_approve_agent_actions_update, apply_cli_agent_state_update,
-    apply_input_mode_update, apply_selected_agent_model_update, apply_selected_conversation_update,
-    build_selected_conversation_update,
+    RemoteUpdateGuard, build_selected_conversation_update,
 };
+#[cfg(any(test, feature = "integration_tests"))]
+use crate::terminal::shared_session::shared_handlers::{
+    apply_auto_approve_agent_actions_update, apply_cli_agent_state_update, apply_input_mode_update,
+    apply_selected_agent_model_update, apply_selected_conversation_update,
+};
+use crate::terminal::shared_session::sharer::network::Network;
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::terminal::shared_session::sharer::network::{
-    Network, NetworkEvent, failed_to_add_guests_user_error,
-    failed_to_initialize_session_user_error, session_terminated_reason_string,
+    NetworkEvent, failed_to_add_guests_user_error, failed_to_initialize_session_user_error,
+    session_terminated_reason_string,
 };
 use crate::terminal::shared_session::{
     SharedSessionActionSource, SharedSessionScrollbackType, SharedSessionSource,
@@ -76,11 +96,13 @@ use crate::terminal::shared_session::{
 use crate::terminal::view::{ConversationRestorationInNewPaneType, Event as TerminalViewEvent};
 use crate::terminal::writeable_pty::terminal_manager_util::wire_up_remote_server_controller_with_view;
 use crate::terminal::{TerminalManager as TerminalManagerTrait, TerminalModel, TerminalView};
+#[cfg(any(test, feature = "integration_tests"))]
 use crate::view_components::ToastFlavor;
 #[cfg(not(any(test, feature = "integration_tests")))]
 use crate::workspaces::user_workspaces::TeamScope;
 use crate::workspaces::user_workspaces::{ResolvedTeamScope, UserWorkspaces};
 
+#[cfg(any(test, feature = "integration_tests"))]
 const ACL_UPDATE_FAILURE_RESPONSE: &str = "Something went wrong. Please try again.";
 
 /// Whether the given CRDT operation should be dropped when broadcasting
@@ -97,6 +119,7 @@ fn should_skip_sharer_op(is_ambient_session: bool, op: &CrdtOperation) -> bool {
 /// `setupFailureDebugAuthorization` server callback. The sharer cannot authenticate the
 /// participant itself, so anything short of an explicit `Ok(true)` rejects the prompt —
 /// deliberately no local fallback.
+#[cfg(any(test, feature = "integration_tests"))]
 async fn is_setup_failure_debug_prompt_authorized(
     ai_client: &Arc<dyn crate::server::server_api::ai::AIClient>,
     task_id: crate::ai::ambient_agents::AmbientAgentTaskId,
@@ -127,6 +150,7 @@ async fn is_setup_failure_debug_prompt_authorized(
 ///   `AIConversation` representation, so doing so would spawn a wrong, native "canonical"
 ///   conversation for the run (see `PendingCliHarnessPromptQueue`'s doc comment).
 /// - The Oz harness, via `BlocklistAIController`, for every other (genuinely native) case.
+#[cfg(any(test, feature = "integration_tests"))]
 fn accept_agent_prompt(
     terminal_view: &ViewHandle<TerminalView>,
     request: AgentPromptRequest,
@@ -738,6 +762,7 @@ fn wire_up_terminal_view_session_sharing(
 }
 
 impl TerminalManager<TerminalView> {
+    #[cfg(any(test, feature = "integration_tests"))]
     /// Streams all historical agent conversations from this terminal to viewers.
     /// This is called when starting a shared  session mid-conversation so that viewers
     /// can see all conversation history and properly continue conversations.
@@ -844,6 +869,7 @@ impl TerminalManager<TerminalView> {
         // Snapshot the conversation the user has selected at click time so the
         // share is linked to that run, even if selection drifts before the
         // server confirms session creation.
+        #[cfg(any(test, feature = "integration_tests"))]
         let selected_conversation_id = terminal_view
             .as_ref(ctx)
             .ai_context_model()
@@ -999,7 +1025,11 @@ impl TerminalManager<TerminalView> {
             .lock()
             .set_ordered_terminal_events_for_shared_session_tx(events_tx);
 
+        #[cfg(not(any(test, feature = "integration_tests")))]
+        let _ = sharer_remote_update_guard;
+        #[cfg(any(test, feature = "integration_tests"))]
         let shared_session_model_clone = shared_session_model.clone();
+        #[cfg(any(test, feature = "integration_tests"))]
         ctx.subscribe_to_model(&network, move |network, event, ctx| match event {
             NetworkEvent::SharedSessionCreatedSuccessfully {
                 session_id,
@@ -1834,6 +1864,7 @@ impl TerminalManager<TerminalView> {
     }
 
     /// Called when the server terminates the current session.
+    #[cfg(any(test, feature = "integration_tests"))]
     fn shared_session_terminated(
         terminal_view: &ViewHandle<TerminalView>,
         session_sharer: Rc<RefCell<Option<ModelHandle<Network>>>>,
@@ -2228,6 +2259,7 @@ impl TerminalManagerTrait for TerminalManager<TerminalView> {
 /// Scoped to those sessions because a cloud agent's sharer is a process that can hold the session
 /// open on the strength of this signal. Ordinary shared sessions have no consumer for it, and
 /// these fire at keystroke frequency.
+#[cfg(any(test, feature = "integration_tests"))]
 fn emit_shared_session_viewer_input(view: &TerminalView, ctx: &mut ViewContext<TerminalView>) {
     if !view.model.lock().is_shared_ambient_agent_session() {
         return;

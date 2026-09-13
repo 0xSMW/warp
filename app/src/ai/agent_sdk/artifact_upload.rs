@@ -1,27 +1,28 @@
+#[cfg(test)]
 use std::env;
+#[cfg(test)]
 use std::fs::File;
+#[cfg(test)]
 use std::io::Read as _;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, anyhow, bail};
-use blocking::unblock;
+#[cfg(test)]
+use anyhow::bail;
+use anyhow::{Result, anyhow};
 use warp_cli::artifact::UploadArtifactArgs;
 
 use super::common::parse_ambient_task_id;
 use crate::ai::agent::api::ServerConversationToken;
-use crate::ai::agent::conversation::ServerAIConversationMetadata;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::server::server_api::ServerApi;
-use crate::server::server_api::ai::{
-    AIClient, CreateFileArtifactUploadRequest, CreateFileArtifactUploadResponse,
-    FileArtifactRecord, FileArtifactUploadTargetInfo,
-};
-use crate::server::server_api::harness_support::FileUploadBody;
-use crate::server::server_api::presigned_upload::upload_file_to_target;
-use crate::util::image::{MIME_SNIFF_BYTES, infer_mime_type};
+use crate::server::server_api::ai::{AIClient, FileArtifactRecord};
 
+#[cfg(test)]
 const OZ_RUN_ID_ENV_VAR: &str = "OZ_RUN_ID";
+const ARTIFACT_UPLOAD_DISABLED_MESSAGE: &str = "Artifact upload is disabled in local-only mode";
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct FileArtifactUploadRequest {
@@ -65,44 +66,12 @@ pub(crate) struct ResolvedUploadAssociation {
     pub(crate) ambient_task_id: AmbientAgentTaskId,
 }
 
-#[derive(Debug, Clone)]
-struct PreparedUploadArtifact {
-    path: PathBuf,
-    filepath: String,
-    mime_type: String,
-    file_size: u64,
-}
-
-impl PreparedUploadArtifact {
-    fn from_path(path: PathBuf) -> Result<Self> {
-        // `infer` only needs leading signature bytes, so avoid buffering the whole artifact
-        // before we stream the file body to the upload target.
-        let (file_size, mime_sniff_bytes) = file_size_and_prefix_for_path(&path, MIME_SNIFF_BYTES)?;
-
-        Ok(Self {
-            filepath: normalize_artifact_filepath(&path),
-            mime_type: infer_mime_type(&path, &mime_sniff_bytes),
-            file_size,
-            path,
-        })
-    }
-
-    fn graphql_size_bytes(&self) -> Option<i32> {
-        checked_graphql_size_bytes_for_upload(&self.path, self.file_size)
-    }
-}
-
-pub(crate) struct FileArtifactUploader {
-    ai_client: Arc<dyn AIClient>,
-    server_api: Arc<ServerApi>,
-}
+pub(crate) struct FileArtifactUploader;
 
 impl FileArtifactUploader {
     pub(crate) fn new(ai_client: Arc<dyn AIClient>, server_api: Arc<ServerApi>) -> Self {
-        Self {
-            ai_client,
-            server_api,
-        }
+        drop((ai_client, server_api));
+        Self
     }
 
     pub(crate) async fn upload_with_association(
@@ -110,137 +79,30 @@ impl FileArtifactUploader {
         request: FileArtifactUploadRequest,
         association: ResolvedUploadAssociation,
     ) -> Result<CompletedFileArtifactUpload> {
-        let FileArtifactUploadRequest {
-            path,
-            title,
-            description,
-            ..
-        } = request;
-
-        let artifact = self.prepare_upload_artifact(path).await?;
-        let create_response = self
-            .create_upload_target(association, title, description, &artifact)
-            .await?;
-
-        let checksum = self
-            .upload_artifact_bytes(&create_response.upload_target, &artifact)
-            .await?;
-        let uploaded_artifact = self
-            .confirm_upload(create_response.artifact.artifact_uid, checksum)
-            .await?;
-        let size_bytes = i64::try_from(artifact.file_size)
-            .context("Artifact file size exceeds supported range")?;
-
-        Ok(CompletedFileArtifactUpload {
-            artifact: uploaded_artifact,
-            size_bytes,
-        })
-    }
-
-    async fn prepare_upload_artifact(&self, path: PathBuf) -> Result<PreparedUploadArtifact> {
-        unblock(move || PreparedUploadArtifact::from_path(path)).await
-    }
-
-    async fn create_upload_target(
-        &self,
-        association: ResolvedUploadAssociation,
-        title: Option<String>,
-        description: Option<String>,
-        artifact: &PreparedUploadArtifact,
-    ) -> Result<CreateFileArtifactUploadResponse> {
-        self.ai_client
-            .create_file_artifact_upload_target(CreateFileArtifactUploadRequest {
-                conversation_id: association
-                    .conversation_id
-                    .as_ref()
-                    .map(|token| token.as_str().to_string()),
-                run_id: association.run_id.as_ref().map(ToString::to_string),
-                filepath: artifact.filepath.clone(),
-                title,
-                description,
-                mime_type: Some(artifact.mime_type.clone()),
-                size_bytes: artifact.graphql_size_bytes(),
-            })
-            .await
-            .context("Failed to create file artifact upload target")
-    }
-
-    async fn upload_artifact_bytes(
-        &self,
-        target: &FileArtifactUploadTargetInfo,
-        artifact: &PreparedUploadArtifact,
-    ) -> Result<String> {
-        upload_file_to_target(
-            self.server_api.http_client(),
-            target,
-            FileUploadBody::new(artifact.path.clone()),
-        )
-        .await
-    }
-
-    async fn confirm_upload(
-        &self,
-        artifact_uid: String,
-        checksum: String,
-    ) -> Result<FileArtifactRecord> {
-        self.ai_client
-            .confirm_file_artifact_upload(artifact_uid, checksum)
-            .await
-            .context("Failed to confirm file artifact upload")
+        let ResolvedUploadAssociation {
+            conversation_id,
+            run_id,
+            ambient_task_id,
+        } = association;
+        drop((request, conversation_id, run_id, ambient_task_id));
+        Err(anyhow!(ARTIFACT_UPLOAD_DISABLED_MESSAGE))
     }
 
     pub(crate) async fn resolve_upload_association(
         &self,
         request: &FileArtifactUploadRequest,
     ) -> Result<ResolvedUploadAssociation> {
-        let conversation_task_id = match (request.run_id.as_ref(), request.conversation_id.as_ref())
-        {
-            // we were given a conversation id, so we need to resolve the task id from the conversation via the api
-            (None, Some(conversation_id)) => {
-                Some(self.resolve_conversation_task_id(conversation_id).await)
-            }
-            _ => None,
-        };
-
-        resolve_upload_association_from_sources(
-            request.run_id,
-            request.conversation_id.clone(),
-            conversation_task_id,
-            load_env_run_id()?,
-        )
-    }
-
-    async fn resolve_conversation_task_id(
-        &self,
-        conversation_id: &ServerConversationToken,
-    ) -> Result<AmbientAgentTaskId> {
-        let metadata = self
-            .ai_client
-            .list_ai_conversation_metadata(Some(vec![conversation_id.as_str().to_string()]))
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to load conversation '{}' to resolve artifact upload headers",
-                    conversation_id.as_str()
-                )
-            })?;
-
-        let metadata = single_conversation_metadata(conversation_id.as_str(), metadata)
-            .with_context(|| {
-                format!(
-                    "Failed to load conversation '{}' to resolve artifact upload headers",
-                    conversation_id.as_str()
-                )
-            })?;
-
-        ambient_task_id_from_conversation_metadata(conversation_id.as_str(), metadata)
+        let _ = request;
+        Err(anyhow!(ARTIFACT_UPLOAD_DISABLED_MESSAGE))
     }
 }
 
+#[cfg(test)]
 fn normalize_artifact_filepath(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+#[cfg(test)]
 fn file_size_and_prefix_for_path(path: &Path, max_bytes: usize) -> Result<(u64, Vec<u8>)> {
     let mut file = File::open(path)
         .with_context(|| format!("Failed to open artifact file '{}'", path.display()))?;
@@ -256,6 +118,7 @@ fn file_size_and_prefix_for_path(path: &Path, max_bytes: usize) -> Result<(u64, 
     Ok((file_size, bytes))
 }
 
+#[cfg(test)]
 fn checked_graphql_size_bytes_for_upload(path: &Path, size_bytes: u64) -> Option<i32> {
     let graphql_size_bytes = i32::try_from(size_bytes).ok();
     if graphql_size_bytes.is_none() {
@@ -272,6 +135,7 @@ fn checked_graphql_size_bytes_for_upload(path: &Path, size_bytes: u64) -> Option
     graphql_size_bytes
 }
 
+#[cfg(test)]
 fn single_conversation_metadata(
     conversation_id: &str,
     mut metadata: Vec<ServerAIConversationMetadata>,
@@ -283,6 +147,7 @@ fn single_conversation_metadata(
     }
 }
 
+#[cfg(test)]
 fn ambient_task_id_from_conversation_metadata(
     conversation_id: &str,
     metadata: ServerAIConversationMetadata,
@@ -296,6 +161,7 @@ fn parse_run_id(run_id: &str, error_prefix: &str) -> Result<AmbientAgentTaskId> 
     parse_ambient_task_id(run_id, error_prefix)
 }
 
+#[cfg(test)]
 fn load_env_run_id() -> Result<Option<String>> {
     match env::var(OZ_RUN_ID_ENV_VAR) {
         Ok(run_id) => Ok(Some(run_id)),
@@ -306,6 +172,7 @@ fn load_env_run_id() -> Result<Option<String>> {
     }
 }
 
+#[cfg(test)]
 fn resolve_env_run_id(env_run_id: Option<String>) -> Result<AmbientAgentTaskId> {
     let Some(run_id) = env_run_id else {
         bail!("{OZ_RUN_ID_ENV_VAR} is not set");
@@ -314,6 +181,7 @@ fn resolve_env_run_id(env_run_id: Option<String>) -> Result<AmbientAgentTaskId> 
     parse_run_id(&run_id, "Invalid OZ_RUN_ID")
 }
 
+#[cfg(test)]
 fn resolve_upload_association_from_sources(
     explicit_run_id: Option<AmbientAgentTaskId>,
     explicit_conversation_id: Option<ServerConversationToken>,

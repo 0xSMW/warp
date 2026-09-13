@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Max file attachment size is 10 MB.
+#[cfg(test)]
 pub(crate) const MAX_ATTACHMENT_SIZE_BYTES: usize = 10 * 1024 * 1024;
 
 use crate::ai::agent::AIAgentAttachment;
 
 /// Returns the per-session directory for downloading file attachments,
 /// based on the agent's working directory.
-#[cfg_attr(target_family = "wasm", allow(dead_code))]
 pub(crate) fn attachments_download_dir(working_dir: &Path) -> PathBuf {
     working_dir.join(".warp").join("attachments")
 }
@@ -64,6 +64,7 @@ pub(crate) fn build_file_attachment_map(
 }
 
 /// Downloads a file from `url` and writes it to `dest`. Returns the number of bytes written.
+#[cfg(test)]
 pub(crate) async fn download_file(
     client: &http_client::Client,
     url: &str,
@@ -78,4 +79,17 @@ pub(crate) async fn download_file(
         .await?;
     async_fs::write(dest, &bytes).await?;
     Ok(bytes.len())
+}
+
+/// Cloud attachment downloads are unavailable in the local-only production build.
+#[cfg(not(test))]
+pub(crate) async fn download_file(
+    client: &http_client::Client,
+    url: &str,
+    dest: &Path,
+) -> anyhow::Result<usize> {
+    let _ = (client, url, dest);
+    Err(anyhow::anyhow!(
+        "File attachment downloads are unavailable in local-only mode"
+    ))
 }

@@ -34,7 +34,7 @@ const CUSTOM_HOST_LABEL: &str = "Custom host…";
 const AUTH_SECRETS_LOAD_FAILED_MESSAGE: &str = "Unable to load secrets";
 
 /// Row id for the Cloud location option.
-#[cfg_attr(not(feature = "tui"), allow(dead_code))]
+#[cfg(test)]
 pub const LOCATION_CLOUD_ID: &str = "cloud";
 /// Row id for the Local location option.
 #[cfg_attr(not(feature = "tui"), allow(dead_code))]
@@ -122,20 +122,31 @@ impl OptionSnapshot {
 
 // ── Location ────────────────────────────────────────────────────────
 
-/// Builds the Cloud/Local location options with the current mode selected.
+/// Builds the location options with the current mode selected.
 // Only the TUI renders a location page (via `tui_export`); the GUI has
-// its own Cloud/Local mode toggle.
+// its own mode toggle. Production is local-only; tests retain the Cloud row
+// so the remote selection behavior remains covered.
 #[cfg_attr(not(feature = "tui"), allow(dead_code))]
-pub fn location_snapshot(state: &OrchestrationConfigState, _ctx: &AppContext) -> OptionSnapshot {
+pub fn location_snapshot(_state: &OrchestrationConfigState, _ctx: &AppContext) -> OptionSnapshot {
+    #[cfg(test)]
     let rows = vec![
         OptionRow::new(LOCATION_CLOUD_ID, "Cloud"),
         OptionRow::new(LOCATION_LOCAL_ID, "Local"),
     ];
-    let selected = if state.execution_mode.is_remote() {
+
+    #[cfg(not(test))]
+    let rows = vec![OptionRow::new(LOCATION_LOCAL_ID, "Local")];
+
+    #[cfg(test)]
+    let selected = if _state.execution_mode.is_remote() {
         LOCATION_CLOUD_ID
     } else {
         LOCATION_LOCAL_ID
     };
+
+    #[cfg(not(test))]
+    let selected = LOCATION_LOCAL_ID;
+
     OptionSnapshot::ready(rows, Some(selected.to_string()))
 }
 

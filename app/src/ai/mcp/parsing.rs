@@ -18,6 +18,7 @@ use crate::ai::mcp::{JSONMCPServer, JSONTransportType};
 ///
 /// Note: When returning the original JSON, we preserve the exact input string.
 #[cfg(not(target_family = "wasm"))]
+#[cfg(any(test, feature = "local_claude_codex_child_harnesses"))]
 pub(crate) fn normalize_mcp_json(json_str: &str) -> serde_json::Result<String> {
     // Some docs don't show curly braces around the json object, so add them if necessary.
     let json = json_str.trim();
@@ -190,7 +191,8 @@ pub(crate) fn normalize_codex_toml_to_json(file_contents: &str) -> Result<String
 pub struct ParsedTemplatableMCPServerResult {
     pub templatable_mcp_server: TemplatableMCPServer,
     pub templatable_mcp_server_installation: Option<TemplatableMCPServerInstallation>,
-    #[cfg_attr(target_family = "wasm", expect(dead_code))]
+    // Only managed-MCP/agent startup paths read this copy; local file parsing uses the installation.
+    #[cfg(any(test, feature = "local_claude_codex_child_harnesses"))]
     pub variable_values: HashMap<String, VariableValue>,
 }
 
@@ -370,6 +372,7 @@ impl ParsedTemplatableMCPServerResult {
         ParsedTemplatableMCPServerResult {
             templatable_mcp_server,
             templatable_mcp_server_installation,
+            #[cfg(any(test, feature = "local_claude_codex_child_harnesses"))]
             variable_values,
         }
     }

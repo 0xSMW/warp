@@ -16,6 +16,7 @@ impl TuiExitSummaryHandle {
     }
 
     /// Returns the selected token captured before teardown.
+    #[cfg(test)]
     pub(crate) fn token(&self) -> Option<ServerConversationToken> {
         self.0.borrow().clone()
     }

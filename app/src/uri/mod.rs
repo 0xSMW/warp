@@ -12,34 +12,18 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use anyhow::{Result, anyhow, ensure};
-use itertools::Itertools;
-use session_sharing_protocol::common::SessionId;
 use url::Url;
-#[cfg(not(target_family = "wasm"))]
-use warp_errors::report_error;
 use warp_util::path::LineAndColumnArg;
 use warpui::notification::UserNotification;
 use warpui::platform::TerminationMode;
-use warpui::{AppContext, EntityId, SingletonEntity as _, TypedActionView, ViewHandle, WindowId};
+use warpui::{AppContext, SingletonEntity as _, TypedActionView, WindowId};
 
 use self::docker::open_docker_container;
-use crate::ai::active_agent_views_model::{ActiveAgentViewsModel, ConversationOrTaskId};
-use crate::ai::agent::api::ServerConversationToken;
-use crate::ai::ambient_agents::github_auth_notifier::GitHubAuthNotifier;
-use crate::cloud_object::ObjectType;
-use crate::drive::{OpenWarpDriveObjectArgs, OpenWarpDriveObjectSettings};
 use crate::features::FeatureFlag;
 use crate::launch_configs::launch_config::LaunchConfig;
-use crate::linear::{LinearAction, LinearIssueWork};
-use crate::root_view::{
-    NewWorkspaceSource, OpenLaunchConfigArg, open_new_window_get_handles,
-    open_new_with_workspace_source,
-};
-use crate::server::ids::ServerId;
+use crate::root_view::{OpenLaunchConfigArg, open_new_window_get_handles};
 use crate::server::telemetry::{LaunchConfigUiLocation, TelemetryEvent};
-use crate::settings_view::{
-    OpenTeamsSettingsModalArgs, SettingsSection, settings_widget_deeplink_target,
-};
+use crate::settings_view::{SettingsSection, settings_widget_deeplink_target};
 use crate::tab_configs::TabConfig;
 use crate::user_config::{load_launch_configs, load_tab_configs, tab_configs_dir};
 use crate::util::openable_file_type::{
@@ -47,11 +31,10 @@ use crate::util::openable_file_type::{
     renders_in_warp_notebook_viewer, starts_with_shebang,
 };
 use crate::view_components::DismissibleToast;
-use crate::workspace::auto_handoff::trigger_auto_handoff_to_cloud;
-use crate::workspace::util::PaneViewLocator;
+#[cfg(test)]
+use crate::workspace::AutoCloudHandoffTrigger;
 use crate::workspace::{
-    AutoCloudHandoffTrigger, ToastStack, Workspace, WorkspaceAction, WorkspaceRegistry,
-    active_terminal_in_window,
+    ToastStack, Workspace, WorkspaceAction, WorkspaceRegistry, active_terminal_in_window,
 };
 use crate::{
     ChannelState, OpenPath, quake_mode_window_id, quake_mode_window_is_open, safe_info,
@@ -83,15 +66,26 @@ pub enum OpenSettingsArgs {
 
 /// Source query parameter value indicating auth was initiated from cloud agent setup.
 /// Used to skip opening settings page after GitHub auth completes.
+#[cfg(test)]
 pub const CLOUD_SETUP_SOURCE: &str = "cloud_setup";
 
 /// Query parameter the web checkout confirmation page appends to the desktop
 /// hand-off to report that the purchase went through. It is the shared
 /// convention across every product the web can sell (a subscription plan or a
 /// one-time credit pack), so the client has a single success signal to react to.
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
 pub const CHECKOUT_SUCCESSFUL_PARAM: &str = "checkoutSuccessful";
 
 /// Whether an incoming deeplink reports a completed web checkout.
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
 pub fn url_reports_checkout_success(url: &Url) -> bool {
     url.query_pairs()
         .any(|(key, value)| key == CHECKOUT_SUCCESSFUL_PARAM && value == "true")
@@ -158,6 +152,9 @@ impl UriHost {
     fn handle(&self, primary_window_id: Option<WindowId>, url: &Url, ctx: &mut AppContext) {
         // Handle host
         match self {
+            // Commented out: Cloud account and team URI handlers. Local builds keep the host
+            // variants for URI compatibility but never dispatch cloud actions.
+            /*
             UriHost::Auth => {
                 ctx.window_ids()
                     .collect_vec()
@@ -202,6 +199,10 @@ impl UriHost {
                 };
                 send_telemetry_from_app_ctx!(TelemetryEvent::OpenTeamFromURI, ctx);
             }
+            */
+            UriHost::Auth | UriHost::Team => {
+                log::warn!("Ignoring cloud-only URI in local-only build");
+            }
             UriHost::Action => {
                 match Action::parse(url) {
                     Ok(action) => action.handle(primary_window_id, url, ctx),
@@ -237,6 +238,8 @@ impl UriHost {
             UriHost::TabConfig => {
                 handle_tab_config_uri(primary_window_id, url, ctx);
             }
+            // Commented out: Shared-session, cloud-conversation, and Warp Drive URI handlers.
+            /*
             UriHost::SharedSession => {
                 // We expect the uri to have the ID of the session to join as the last segment.
                 // e.g. warp://shared_session/{id}
@@ -368,18 +371,18 @@ impl UriHost {
                     log::warn!("Failed to open drive object with uri={url}");
                 }
             }
+            */
+            UriHost::SharedSession | UriHost::Conversation | UriHost::Drive => {
+                log::warn!("Ignoring cloud-only URI in local-only build");
+            }
             UriHost::Settings => {
-                // We support opening different settings pages through URI:
+                // We support opening local settings pages through URI:
                 // - warp://settings - opens a settings tab on the default page
                 // - warp://settings?q={query} - opens settings with the search bar pre-filled
                 // - warp://settings?widget={widget_id} - opens settings scrolled to a widget
-                // - warp://settings/teams?invite={email} - opens team settings with invite modal
-                // - warp://settings/billing_and_usage - opens billing and usage settings page
-                // - warp://settings/environments - opens environments settings page
-                // - warp://settings/mcp - opens MCP servers settings page
-                // - warp://settings/platform - opens platform settings page
                 // - warp://settings/appearance - opens appearance settings page (themes, fonts, etc.)
-                // - warp://settings/warp_agent - opens the Warp Agent settings page (inference / API keys)
+                // - warp://settings/editor_and_code_review - opens editor settings
+                // Cloud-only settings paths remain parseable for compatibility but are ignored.
                 let query_string: HashMap<_, _> = url.query_pairs().collect();
                 // A bare `warp://settings` (or a trailing slash) yields an empty path
                 // segment; treat that as "no sub-page" so the query-param routing below
@@ -393,6 +396,8 @@ impl UriHost {
                     .map(|s| s.to_string());
 
                 match settings_sub_page.as_deref() {
+                    // Commented out: Cloud team and environment settings deeplinks.
+                    /*
                     Some("teams") => {
                         let invite_email = query_string.get("invite").map(|s| s.to_string());
                         let args = OpenTeamsSettingsModalArgs { invite_email };
@@ -424,23 +429,20 @@ impl UriHost {
                             );
                         }
                     }
+                    */
+                    Some(
+                        "teams" | "team" | "environments" | "cloud_environments" | "billing"
+                        | "billing_and_usage" | "platform" | "referral" | "referrals"
+                        | "warp_drive" | "warp_agent" | "code_indexing" | "code-indexing",
+                    ) => {
+                        log::warn!("Ignoring cloud-only settings URI in local-only build");
+                    }
                     Some("mcp") => {
-                        // warp://settings/mcp?autoinstall=<name> auto-installs a gallery MCP server.
-                        // The value is matched case-insensitively against gallery titles.
-                        let autoinstall = query_string.get("autoinstall").map(|v| v.to_string());
-                        let args = OpenMCPSettingsArgs { autoinstall };
-                        dispatch_action_in_new_or_existing_window(
-                            primary_window_id,
-                            "root_view:open_mcp_settings_in_existing_window",
-                            "root_view:open_mcp_settings_in_new_window",
-                            &args,
-                            ctx,
-                        );
+                        log::warn!("Ignoring MCP settings URI in local-only build");
                     }
                     // No special sub-page: route the bare host, the `q` (search) and
                     // `widget` (scroll-to) query params, and the simple section
-                    // sub-pages (e.g. billing_and_usage, platform, appearance,
-                    // warp_agent) resolved via `settings_section_for_simple_subpage`.
+                    // sub-pages resolved via `settings_section_for_simple_subpage`.
                     maybe_simple_subpage => {
                         let simple_section =
                             maybe_simple_subpage.and_then(settings_section_for_simple_subpage);
@@ -453,6 +455,23 @@ impl UriHost {
                         let widget_target = query_string
                             .get("widget")
                             .and_then(|slug| settings_widget_deeplink_target(slug));
+
+                        if widget_target.as_ref().is_some_and(|(page, _)| {
+                            matches!(
+                                page,
+                                SettingsSection::BillingAndUsage
+                                    | SettingsSection::Referrals
+                                    | SettingsSection::Teams
+                                    | SettingsSection::WarpDrive
+                                    | SettingsSection::WarpAgent
+                                    | SettingsSection::CodeIndexing
+                                    | SettingsSection::CloudEnvironments
+                                    | SettingsSection::WarpCloudAgentAPIKeys
+                            )
+                        }) {
+                            log::warn!("Ignoring cloud-only settings URI in local-only build");
+                            return;
+                        }
 
                         if let Some((page, widget_id)) = widget_target {
                             // `?widget=` scrolls to a specific widget; it takes
@@ -502,16 +521,13 @@ impl UriHost {
             UriHost::Home => {
                 ctx.dispatch_global_action("root_view::open_new", &());
             }
+            // Remote MCP OAuth callbacks are cloud-only. Local MCP configuration remains
+            // available through non-URI internal code.
             UriHost::Mcp => {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    let result = crate::ai::mcp::TemplatableMCPServerManager::handle(ctx)
-                        .update(ctx, |manager, _ctx| manager.handle_oauth_callback(url));
-                    if let Err(e) = result {
-                        report_error!(e.context("Failed to handle MCP OAuth callback"));
-                    }
-                }
+                log::warn!("Ignoring remote MCP OAuth URI in local-only build");
             }
+            // Commented out: Cloud Codex and Linear URI handlers.
+            /*
             UriHost::Codex => {
                 dispatch_action_in_new_or_existing_window(
                     primary_window_id,
@@ -536,53 +552,14 @@ impl UriHost {
                     log::warn!("{err}");
                 }
             },
+            */
+            UriHost::Codex | UriHost::Linear => {
+                log::warn!("Ignoring cloud-only URI in local-only build");
+            }
+            // Session deeplinks can target cloud-backed shared sessions and are inert in the
+            // local-only build. Local terminal sessions remain available through local actions.
             UriHost::Session => {
-                let uuid_hex = url
-                    .path_segments()
-                    .into_iter()
-                    .flatten()
-                    .last()
-                    .unwrap_or("");
-
-                let Some(uuid_bytes) = decode_uuid_hex(uuid_hex) else {
-                    log::warn!(
-                        "session deep link received invalid UUID hex (safe: len={})",
-                        uuid_hex.len()
-                    );
-                    return;
-                };
-
-                let result = WorkspaceRegistry::as_ref(ctx)
-                    .all_workspaces(ctx)
-                    .iter()
-                    .find_map(|(win_id, workspace)| {
-                        workspace.as_ref(ctx).tab_views().find_map(|pane_group| {
-                            let pane_id = pane_group
-                                .as_ref(ctx)
-                                .find_terminal_pane_by_session_uuid(&uuid_bytes)?;
-                            Some((
-                                *win_id,
-                                PaneViewLocator {
-                                    pane_group_id: pane_group.id(),
-                                    pane_id,
-                                },
-                            ))
-                        })
-                    });
-
-                if let Some((window_id, locator)) = result {
-                    ctx.windows().show_window_and_focus_app(window_id);
-                    if let Some(root_view_id) = ctx.root_view_id(window_id) {
-                        ctx.dispatch_action_for_view(
-                            window_id,
-                            root_view_id,
-                            "root_view:handle_pane_navigation_event",
-                            &locator,
-                        );
-                    }
-                } else {
-                    log::warn!("session deep link could not find pane with given UUID");
-                }
+                log::warn!("Ignoring cloud-only session URI in local-only build");
             }
         }
     }
@@ -592,20 +569,22 @@ impl UriHost {
     fn window_behavior_hint(&self) -> WindowBehaviorHint {
         use WindowBehaviorHint as W;
         match self {
-            Self::Auth => W::ShowPrimaryWindow(WindowActivationFallbackBehavior::NewWindow {
-                replace_existing: true,
-            }),
-            Self::Team | Self::Drive | Self::Settings => W::default(),
-            // These URLs always open new windows.
-            Self::Launch | Self::SharedSession | Self::Conversation | Self::Home => W::Nothing,
+            // Cloud-only hosts are parsed for compatibility but must not activate or create a
+            // window before their local-only no-op handler runs.
+            Self::Auth
+            | Self::Team
+            | Self::SharedSession
+            | Self::Conversation
+            | Self::Drive
+            | Self::Codex
+            | Self::Linear => W::Nothing,
+            Self::Settings => W::default(),
+            // These local URLs always open new windows.
+            Self::Launch | Self::Home => W::Nothing,
             // This will actually be handled by [`Action::window_behavior_hint`].
             Self::Action => W::Nothing,
             // TODO(vorporeal): probably want to focus the window with the MCP pane open
             Self::Mcp => W::Nothing,
-            // Codex opens a new tab with AI mode, use default behavior
-            Self::Codex => W::default(),
-            // Linear deeplink opens a new tab with agent view
-            Self::Linear => W::default(),
             // Handler picks the window itself based on `?new_window=true`.
             Self::TabConfig => W::Nothing,
             Self::Session => W::Nothing,
@@ -674,8 +653,7 @@ enum WindowActivationFallbackBehavior {
     NewWindow {
         /// Close the former "primary window" as determined by [`get_primary_window`]. This should
         /// generally default to `false` to avoid closing a window with information that the user
-        /// may still want. One exception is the Auth route where the old window just showed the
-        /// auth page.
+        /// may still want.
         replace_existing: bool,
     },
 }
@@ -913,6 +891,7 @@ fn parse_open_file_editor_url(url: &Url) -> Result<(PathBuf, Option<LineAndColum
     ))
 }
 
+#[cfg(test)]
 fn parse_auto_handoff_trigger(url: &Url) -> AutoCloudHandoffTrigger {
     match url
         .query_pairs()
@@ -940,10 +919,12 @@ enum Action {
     NewCloudAgentConversation,
     NewAgentConversation,
     CreateEnvironment {
+        #[cfg(test)]
         repos: Vec<String>,
     },
     FocusCloudMode,
     AutoHandoffToCloud {
+        #[cfg(test)]
         trigger: AutoCloudHandoffTrigger,
     },
 }
@@ -963,17 +944,33 @@ impl Action {
             "/new_cloud_agent_conversation" => Ok(Self::NewCloudAgentConversation),
             "/new_agent_conversation" => Ok(Self::NewAgentConversation),
             "/create_environment" => {
-                let repos = url
-                    .query_pairs()
-                    .filter_map(|(k, v)| (k == "repo").then(|| v.into_owned()))
-                    .collect::<Vec<_>>();
+                #[cfg(test)]
+                {
+                    let repos = url
+                        .query_pairs()
+                        .filter_map(|(k, v)| (k == "repo").then(|| v.into_owned()))
+                        .collect::<Vec<_>>();
 
-                Ok(Self::CreateEnvironment { repos })
+                    Ok(Self::CreateEnvironment { repos })
+                }
+                #[cfg(not(test))]
+                {
+                    Ok(Self::CreateEnvironment {})
+                }
             }
             "/focus_cloud_mode" => Ok(Self::FocusCloudMode),
-            "/auto_handoff_to_cloud" | "/auto-handoff-to-cloud" => Ok(Self::AutoHandoffToCloud {
-                trigger: parse_auto_handoff_trigger(url),
-            }),
+            "/auto_handoff_to_cloud" | "/auto-handoff-to-cloud" => {
+                #[cfg(test)]
+                {
+                    Ok(Self::AutoHandoffToCloud {
+                        trigger: parse_auto_handoff_trigger(url),
+                    })
+                }
+                #[cfg(not(test))]
+                {
+                    Ok(Self::AutoHandoffToCloud {})
+                }
+            }
             _ => Err(anyhow!(
                 "Received \"action\" intent with unexpected action: {}",
                 url.path()
@@ -1047,6 +1044,8 @@ impl Action {
                     }
                 }
             }
+            // Commented out: Cloud Agent setup URI handler.
+            /*
             Action::CloudAgentSetup => {
                 let window_id =
                     primary_window_id.or_else(|| Some(open_new_window_get_handles(None, ctx).0));
@@ -1077,6 +1076,12 @@ impl Action {
                     }
                 }
             }
+            */
+            Action::CloudAgentSetup => {
+                log::warn!("Ignoring cloud-only URI action in local-only build");
+            }
+            // Commented out: URI actions that open Agent and Cloud Agent conversations
+            /*
             Action::NewCloudAgentConversation => {
                 let Some(window_id) = primary_window_id else {
                     open_new_with_workspace_source(NewWorkspaceSource::AmbientAgent, ctx);
@@ -1123,6 +1128,11 @@ impl Action {
                     workspace.handle_action(&WorkspaceAction::AddAgentTab, ctx);
                 });
             }
+            */
+            Action::NewCloudAgentConversation | Action::NewAgentConversation => {}
+            // Commented out: Cloud environment creation, Cloud Mode focus, and automatic
+            // handoff URI handlers.
+            /*
             Action::CreateEnvironment { repos } => {
                 use crate::root_view::CreateEnvironmentArg;
 
@@ -1204,6 +1214,12 @@ impl Action {
             Action::AutoHandoffToCloud { trigger } => {
                 trigger_auto_handoff_to_cloud(*trigger, ctx);
             }
+            */
+            Action::CreateEnvironment { .. }
+            | Action::FocusCloudMode
+            | Action::AutoHandoffToCloud { .. } => {
+                log::warn!("Ignoring cloud-only URI action in local-only build");
+            }
         }
     }
 
@@ -1212,15 +1228,15 @@ impl Action {
     fn window_behavior_hint(&self) -> WindowBehaviorHint {
         use WindowBehaviorHint as W;
         match self {
-            Self::Docker
-            | Self::OpenFileEditor { .. }
-            | Self::CreateEnvironment { .. }
-            | Self::OpenRepo
-            | Self::CloudAgentSetup
+            Self::Docker | Self::OpenFileEditor { .. } | Self::OpenRepo => W::default(),
+            // Cloud-only actions are parsed for compatibility but must not activate or create a
+            // window before their local-only no-op handler runs.
+            Self::CloudAgentSetup
             | Self::NewCloudAgentConversation
             | Self::NewAgentConversation
+            | Self::CreateEnvironment { .. }
             | Self::FocusCloudMode
-            | Self::AutoHandoffToCloud { .. } => W::default(),
+            | Self::AutoHandoffToCloud { .. } => W::Nothing,
             Self::NewTab => W::ShowPrimaryWindow(WindowActivationFallbackBehavior::Notify {
                 title: "New tab created".to_owned(),
                 description: "Go to Warp to see your new tab.".to_owned(),
@@ -1230,8 +1246,7 @@ impl Action {
     }
 }
 
-/// Handles all incoming urls. These urls are file urls, auth urls for login,
-/// and team urls for opening team settings.
+/// Handles incoming file and local Warp URI actions. Cloud-only URI paths are ignored.
 pub fn handle_incoming_uri(url: &Url, ctx: &mut AppContext) {
     safe_info!(
         safe: ("received url"),
@@ -1522,6 +1537,8 @@ fn execute_file(window_id: WindowId, path_str: &str, ctx: &mut AppContext) {
     send_telemetry_from_app_ctx!(TelemetryEvent::CommandFileRun, ctx);
 }
 
+// Commented out: Cloud team URI window-dispatch helper.
+/*
 fn open_window_with_action(active_window_id: Option<WindowId>, action: &str, ctx: &mut AppContext) {
     if let Some(primary_window_id) = active_window_id {
         // Dispatch action to primary window
@@ -1543,7 +1560,10 @@ fn open_window_with_action(active_window_id: Option<WindowId>, action: &str, ctx
         // Need to send a callback once window is fully open.
     }
 }
+*/
 
+// Commented out: Cloud Mode terminal lookup helpers used only by the disabled URI action.
+/*
 fn find_workspace_for_terminal_view(
     terminal_view_id: EntityId,
     ctx: &mut AppContext,
@@ -1651,6 +1671,7 @@ fn find_cloud_mode_terminal_in_workspace(
 
     fallback_ambient_terminal_id
 }
+*/
 /// Helper function to dispatch an action to an existing window
 /// or create new window if none exist.
 fn dispatch_action_in_new_or_existing_window<T: 'static>(
@@ -1680,10 +1701,8 @@ fn dispatch_action_in_new_or_existing_window<T: 'static>(
 
 fn settings_section_for_simple_subpage(subpage: &str) -> Option<SettingsSection> {
     match subpage {
-        "billing_and_usage" => Some(SettingsSection::BillingAndUsage),
-        "platform" => Some(SettingsSection::WarpCloudAgentAPIKeys),
         "appearance" => Some(SettingsSection::Appearance),
-        "warp_agent" => Some(SettingsSection::WarpAgent),
+        "editor_and_code_review" => Some(SettingsSection::EditorAndCodeReview),
         _ => None,
     }
 }
@@ -1732,6 +1751,7 @@ fn validate_custom_uri(url: &Url) -> Result<UriHost> {
     Ok(host)
 }
 
+#[cfg(test)]
 fn decode_uuid_hex(hex: &str) -> Option<Vec<u8>> {
     let hex = hex.as_bytes();
     if hex.len() != 32 {

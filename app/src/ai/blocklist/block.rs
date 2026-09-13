@@ -42,7 +42,7 @@ use rustc_hash::FxHashSet;
 use serde::Serialize;
 use settings::Setting as _;
 use string_offset::StringRange;
-use warp_core::channel::ChannelState;
+use warp_core::channel::{Channel, ChannelState};
 use warp_core::features::FeatureFlag;
 use warp_core::ui::theme::Fill;
 use warp_core::ui::theme::color::internal_colors;
@@ -7076,6 +7076,11 @@ impl TypedActionView for AIBlock {
                 ctx.open_url(url);
             }
             AIBlockAction::OpenRecordingArtifact { artifact_uid } => {
+                if ChannelState::channel() == Channel::Local {
+                    report_error!("Opening recording artifacts is disabled in local-only mode");
+                    return;
+                }
+
                 let conversation_id = self.client_ids.conversation_id;
                 let task_id = BlocklistAIHistoryModel::as_ref(ctx)
                     .conversation(&conversation_id)

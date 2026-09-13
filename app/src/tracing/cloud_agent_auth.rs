@@ -1,150 +1,42 @@
-//! Provides authenticated OTLP trace transport and credential refresh for opted-in cloud agents.
+//! Cloud-agent tracing authentication is disabled in production.
 //!
-//! Dispatch bootstraps tracing with a bearer token and expiry in the process environment. The
-//! exporter is built once around [`AuthenticatedHttpClient`], which reads a shared token snapshot
-//! immediately before every request so refresh never requires rebuilding the exporter. Processes
-//! without the endpoint switch or a currently valid dispatch credential never initialize this
-//! module.
-//!
-//! Refresh begins only after the application has an authenticated managed-secrets client. A
-//! successful mint replaces the dispatch credential only after the returned JWT's unverified
-//! payload contains a string `run_id` exactly matching the immutable startup `OZ_RUN_ID`. This
-//! payload inspection is only a rejection gate; the collector remains responsible for verifying
-//! the token's signature, audience, expiry, and trusted trace resource attributes. Every refresh
-//! failure preserves the last valid credential and enters bounded jittered backoff.
-//!
-//! Tokens must never appear in diagnostics or formatted values. Cached authorization headers are
-//! marked sensitive, manual `Debug` implementations omit secrets, and token-store locks are always
-//! released before network I/O.
+//! The remaining helpers are compiled only for this module's unit tests so local validation of
+//! token and authorization-header handling remains available without a production auth client.
+
+#[cfg(test)]
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+#[cfg(test)]
+use std::sync::{Arc, RwLock};
 
+#[cfg(test)]
 use anyhow::{Context as _, anyhow};
-use async_channel::{Receiver, Sender};
+#[cfg(test)]
+use async_channel::Sender;
+#[cfg(test)]
 use async_compat::Compat;
+#[cfg(test)]
 use async_trait::async_trait;
+#[cfg(test)]
 use base64::Engine as _;
+#[cfg(test)]
 use chrono::{DateTime, Utc};
-use futures_util::stream::AbortHandle;
+#[cfg(test)]
 use http::header::{AUTHORIZATION, HeaderValue};
-use instant::Instant;
+#[cfg(test)]
 use opentelemetry_http::{Bytes, HttpClient, HttpError, Request, Response};
-use warp_managed_secrets::client::{IdentityTokenOptions, TaskIdentityToken};
-use warpui::r#async::{FutureExt as _, Timer};
-use warpui::{AppContext, Entity, ModelContext, SingletonEntity};
-
-use crate::server::server_api::managed_secrets::AppManagedSecretsClient;
-
-/// The environment variables form the immutable dispatch-time authentication bootstrap.
-const CLOUD_AGENT_OTLP_TOKEN: &str = "WARP_CLOUD_AGENT_OTLP_TOKEN";
-const CLOUD_AGENT_OTLP_TOKEN_EXPIRES_AT: &str = "WARP_CLOUD_AGENT_OTLP_TOKEN_EXPIRES_AT";
-const OZ_RUN_ID: &str = "OZ_RUN_ID";
-/// The collector audience and requested lifetime are fixed by the cloud-agent trace contract.
-const COLLECTOR_AUDIENCE: &str = "warp-cloud-agent-otel";
-const REFRESHED_TOKEN_DURATION: Duration = Duration::from_secs(60 * 60);
-/// Proactive refresh starts roughly twenty minutes before expiry, with jitter to spread load.
-const PROACTIVE_REFRESH_BUFFER: Duration = Duration::from_secs(20 * 60);
-const PROACTIVE_REFRESH_JITTER: Duration = Duration::from_secs(2 * 60);
-const MIN_PROACTIVE_REFRESH_DELAY: Duration = Duration::from_secs(1);
-/// Failed refreshes use bounded full-jitter exponential backoff and rate-limited diagnostics.
-const INITIAL_FAILURE_BACKOFF: Duration = Duration::from_secs(1);
-const MAX_FAILURE_BACKOFF: Duration = Duration::from_secs(5 * 60);
-const FAILURE_LOG_INTERVAL: Duration = Duration::from_secs(60);
-/// A stalled identity-token request must release the single in-flight refresh slot.
-const REFRESH_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Shared dispatch authentication state between the exporter and the later refresh coordinator.
-///
-/// The optional expected run ID intentionally does not gate initial tracing: a valid dispatch
-/// credential remains usable when `OZ_RUN_ID` is missing or empty, but every refreshed credential
-/// is rejected until an immutable expected run ID is available to the replacement gate.
-#[derive(Clone)]
-pub(super) struct AuthContext {
-    token_store: TokenStore,
-    expected_run_id: Option<Arc<str>>,
-    refresh_hint_sender: Sender<()>,
-    refresh_hint_receiver: Arc<Mutex<Option<Receiver<()>>>>,
-}
-
-impl AuthContext {
-    /// Seeds authentication from a currently valid dispatch credential in the environment.
-    ///
-    /// The caller treats failure as an opt-out so normal processes and partially rolled-out cloud
-    /// agents retain no-op tracing behavior.
-    pub(super) fn from_environment() -> anyhow::Result<Self> {
-        let token =
-            std::env::var(CLOUD_AGENT_OTLP_TOKEN).context("Cloud-agent OTLP token is missing")?;
-        // Remove the bootstrap secret as soon as it is owned so child processes cannot inherit it.
-        // TODO: Audit that the environment access only happens in single-threaded code.
-        unsafe { std::env::remove_var(CLOUD_AGENT_OTLP_TOKEN) };
-        let token = token.trim().to_owned();
-        anyhow::ensure!(!token.is_empty(), "Cloud-agent OTLP token is empty");
-
-        let expires_at = std::env::var(CLOUD_AGENT_OTLP_TOKEN_EXPIRES_AT)
-            .context("Cloud-agent OTLP token expiry is missing")?;
-        let expires_at = DateTime::parse_from_rfc3339(expires_at.trim())
-            .context("Cloud-agent OTLP token expiry is not valid RFC3339")?;
-        anyhow::ensure!(
-            expires_at.offset().local_minus_utc() == 0,
-            "Cloud-agent OTLP token expiry is not UTC"
-        );
-        let expires_at = expires_at.with_timezone(&Utc);
-        anyhow::ensure!(
-            expires_at > Utc::now(),
-            "Cloud-agent OTLP token is already expired"
-        );
-        let expected_run_id = std::env::var(OZ_RUN_ID)
-            .ok()
-            .filter(|run_id| !run_id.trim().is_empty());
-
-        let token_store = TokenStore::new(token, expires_at)?;
-        let (refresh_hint_sender, refresh_hint_receiver) = async_channel::bounded(1);
-        Ok(Self {
-            token_store,
-            expected_run_id: expected_run_id.map(Into::into),
-            refresh_hint_sender,
-            refresh_hint_receiver: Arc::new(Mutex::new(Some(refresh_hint_receiver))),
-        })
-    }
-
-    /// Creates a transport sharing the latest credential while leaving the exporter itself stable.
-    pub(super) fn http_client(&self) -> AuthenticatedHttpClient {
-        AuthenticatedHttpClient {
-            inner: reqwest::Client::new(),
-            token_store: self.token_store.clone(),
-            refresh_hint_sender: self.refresh_hint_sender.clone(),
-        }
-    }
-
-    /// Transfers the bounded refresh-hint receiver to the one allowed coordinator.
-    fn take_refresh_hint_receiver(&self) -> Option<Receiver<()>> {
-        self.refresh_hint_receiver
-            .lock()
-            .unwrap_or_else(|err| err.into_inner())
-            .take()
-    }
-}
-
-impl fmt::Debug for AuthContext {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("AuthContext")
-            .field("token_store", &self.token_store)
-            .finish_non_exhaustive()
-    }
-}
 
 /// A snapshot of the latest credential, stored behind a short-lived reader/writer lock.
 ///
 /// Readers clone only the sensitive authorization header, and no caller holds this lock during
 /// network I/O. Replacement constructs and validates a complete snapshot before taking the write
 /// lock so failures preserve the last valid credential.
+#[cfg(test)]
 #[derive(Clone)]
 struct TokenStore {
     inner: Arc<RwLock<TokenSnapshot>>,
 }
 
+#[cfg(test)]
 impl TokenStore {
     /// Creates the initial store from the validated dispatch credential.
     fn new(token: String, expires_at: DateTime<Utc>) -> anyhow::Result<Self> {
@@ -183,6 +75,7 @@ impl TokenStore {
     }
 }
 
+#[cfg(test)]
 impl fmt::Debug for TokenStore {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let snapshot = self.inner.read().unwrap_or_else(|err| err.into_inner());
@@ -194,11 +87,13 @@ impl fmt::Debug for TokenStore {
 }
 
 /// An already-parsed sensitive authorization header and its trusted server expiry.
+#[cfg(test)]
 struct TokenSnapshot {
     authorization_header: HeaderValue,
     expires_at: DateTime<Utc>,
 }
 
+#[cfg(test)]
 impl TokenSnapshot {
     /// Constructs a snapshot whose header redacts its value from standard debug formatting.
     fn new(token: String, expires_at: DateTime<Utc>) -> anyhow::Result<Self> {
@@ -212,6 +107,7 @@ impl TokenSnapshot {
     }
 }
 
+#[cfg(test)]
 impl fmt::Debug for TokenSnapshot {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -227,6 +123,7 @@ impl fmt::Debug for TokenSnapshot {
 /// This local decode never establishes token authenticity. The collector remains responsible for
 /// cryptographically verifying the token, while malformed or mismatched tokens fail closed here
 /// before replacement and leave the existing credential untouched.
+#[cfg(test)]
 fn validate_refreshed_token_run_id(
     token: &str,
     expected_run_id: Option<&str>,
@@ -269,6 +166,7 @@ fn validate_refreshed_token_run_id(
 }
 
 /// The set of errors that can occur when making an HTTP request using [`AuthenticatedHttpClient`].
+#[cfg(test)]
 #[derive(thiserror::Error, Debug)]
 enum AuthenticatedHttpError {
     #[error("No unexpired cloud-agent OTLP token is available")]
@@ -282,12 +180,14 @@ enum AuthenticatedHttpError {
 /// The token-store lock is released before network I/O begins. A manual `Debug` implementation
 /// prevents the client from formatting cached state, while sensitive [`HeaderValue`] instances
 /// redact request headers. Expired credentials are removed and refused rather than sent.
+#[cfg(test)]
 pub(super) struct AuthenticatedHttpClient {
     inner: reqwest::Client,
     token_store: TokenStore,
     refresh_hint_sender: Sender<()>,
 }
 
+#[cfg(test)]
 impl fmt::Debug for AuthenticatedHttpClient {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -297,6 +197,7 @@ impl fmt::Debug for AuthenticatedHttpClient {
     }
 }
 
+#[cfg(test)]
 impl AuthenticatedHttpClient {
     /// Overwrites any supplied authorization header with the latest unexpired credential.
     ///
@@ -316,6 +217,7 @@ impl AuthenticatedHttpClient {
     }
 }
 
+#[cfg(test)]
 #[async_trait]
 impl HttpClient for AuthenticatedHttpClient {
     async fn send_bytes(&self, mut request: Request<Bytes>) -> Result<Response<Bytes>, HttpError> {
@@ -348,201 +250,6 @@ impl HttpClient for AuthenticatedHttpClient {
         Ok(response)
     }
 }
-
-/// Starts the one refresh coordinator after authenticated server connectivity is available.
-///
-/// Consuming the bounded hint receiver coalesces concurrent starts, and the coordinator immediately
-/// mints once so the short-lived dispatch credential is replaced as soon as possible.
-pub(super) fn start_refresh_coordinator(
-    auth_context: AuthContext,
-    client: Arc<AppManagedSecretsClient>,
-    ctx: &mut AppContext,
-) {
-    let Some(refresh_hint_receiver) = auth_context.take_refresh_hint_receiver() else {
-        return;
-    };
-    ctx.add_singleton_model(move |ctx| {
-        AuthRefreshCoordinator::new(
-            auth_context.token_store,
-            auth_context.expected_run_id,
-            refresh_hint_receiver,
-            client,
-            ctx,
-        )
-    });
-}
-
-/// Owns serialized credential minting, proactive scheduling, failure backoff, and diagnostics.
-///
-/// At most one mint is in flight and one scheduled wakeup is retained. A bounded nonblocking 401
-/// hint can accelerate refresh without recursing into or blocking the export request.
-struct AuthRefreshCoordinator {
-    token_store: TokenStore,
-    expected_run_id: Option<Arc<str>>,
-    client: Arc<AppManagedSecretsClient>,
-    refresh_in_flight: bool,
-    consecutive_failures: u32,
-    scheduled_refresh: Option<AbortHandle>,
-    last_failure_diagnostic: Option<Instant>,
-}
-
-impl AuthRefreshCoordinator {
-    /// Installs the hint stream and immediately starts the first bounded refresh request.
-    fn new(
-        token_store: TokenStore,
-        expected_run_id: Option<Arc<str>>,
-        refresh_hint_receiver: Receiver<()>,
-        client: Arc<AppManagedSecretsClient>,
-        ctx: &mut ModelContext<Self>,
-    ) -> Self {
-        let mut coordinator = Self {
-            token_store,
-            expected_run_id,
-            client,
-            refresh_in_flight: false,
-            consecutive_failures: 0,
-            scheduled_refresh: None,
-            last_failure_diagnostic: None,
-        };
-        let _ = ctx.spawn_stream_local(
-            refresh_hint_receiver,
-            |coordinator, (), ctx| coordinator.start_refresh(ctx),
-            |_, _| {},
-        );
-        coordinator.start_refresh(ctx);
-        coordinator
-    }
-
-    /// Starts one mint and coalesces all triggers while it remains in flight.
-    ///
-    /// Each request asks for the fixed collector audience and principal-only subject, and the
-    /// timeout guarantees a stalled request eventually enters the ordinary failure path.
-    fn start_refresh(&mut self, ctx: &mut ModelContext<Self>) {
-        if self.refresh_in_flight {
-            return;
-        }
-        self.cancel_scheduled_refresh();
-        self.refresh_in_flight = true;
-        let client = self.client.clone();
-        ctx.spawn(
-            async move {
-                client
-                    .issue_task_identity_token(IdentityTokenOptions {
-                        audience: COLLECTOR_AUDIENCE.to_owned(),
-                        requested_duration: REFRESHED_TOKEN_DURATION,
-                        subject_template: vec1::vec1!["principal".to_owned()],
-                    })
-                    .with_timeout(REFRESH_REQUEST_TIMEOUT)
-                    .await
-                    .map_err(|_| anyhow!("Cloud-agent OTLP authorization refresh timed out"))?
-            },
-            |coordinator, result, ctx| coordinator.finish_refresh(result, ctx),
-        );
-    }
-
-    /// Accepts a refreshed credential only after all replacement gates succeed.
-    ///
-    /// Any mint, timeout, expiry, header, or run-ID failure retains the last valid token and enters
-    /// the same bounded retry path without logging token contents.
-    fn finish_refresh(
-        &mut self,
-        result: anyhow::Result<TaskIdentityToken>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        self.refresh_in_flight = false;
-        match result {
-            Ok(token) => {
-                let expires_at = token.expires_at;
-                if self
-                    .token_store
-                    .replace_refreshed(token.token, expires_at, self.expected_run_id.as_deref())
-                    .is_ok()
-                {
-                    self.consecutive_failures = 0;
-                    log::info!("Cloud-agent OTLP authorization refreshed");
-                    self.schedule_proactive_refresh(expires_at, ctx);
-                } else {
-                    self.warn_refresh_failure();
-                    self.schedule_failure_retry(ctx);
-                }
-            }
-            Err(_) => {
-                self.warn_refresh_failure();
-                self.schedule_failure_retry(ctx);
-            }
-        }
-    }
-
-    /// Schedules a refresh to occur before the current token expires.
-    ///
-    /// This leaves some buffer for retries in case the refresh fails, but also guarantees
-    /// some minimum amount of time before the first refresh attempt.
-    fn schedule_proactive_refresh(
-        &mut self,
-        expires_at: DateTime<Utc>,
-        ctx: &mut ModelContext<Self>,
-    ) {
-        let jitter = PROACTIVE_REFRESH_JITTER.mul_f64(rand::random::<f64>());
-        let refresh_buffer = PROACTIVE_REFRESH_BUFFER.saturating_add(jitter);
-        let remaining = (expires_at - Utc::now()).to_std().unwrap_or_default();
-        let delay = remaining
-            .saturating_sub(refresh_buffer)
-            .max(remaining.mul_f64(0.5))
-            .max(MIN_PROACTIVE_REFRESH_DELAY);
-        self.schedule_refresh(delay, ctx);
-    }
-
-    /// Schedules a full-jitter exponential retry capped at five minutes.
-    fn schedule_failure_retry(&mut self, ctx: &mut ModelContext<Self>) {
-        let exponent = self.consecutive_failures.min(31);
-        let upper_bound = INITIAL_FAILURE_BACKOFF
-            .saturating_mul(1u32 << exponent)
-            .min(MAX_FAILURE_BACKOFF);
-        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
-        let delay = upper_bound.mul_f64(rand::random::<f64>());
-        self.schedule_refresh(delay, ctx);
-    }
-
-    /// Replaces the one scheduled wakeup so proactive, retry, and hint triggers stay coalesced.
-    fn schedule_refresh(&mut self, delay: Duration, ctx: &mut ModelContext<Self>) {
-        self.cancel_scheduled_refresh();
-        let task = ctx.spawn(
-            async move {
-                Timer::after(delay).await;
-            },
-            |coordinator, _, ctx| {
-                coordinator.scheduled_refresh = None;
-                coordinator.start_refresh(ctx);
-            },
-        );
-        self.scheduled_refresh = Some(task.abort_handle());
-    }
-
-    /// Cancels the prior wakeup without affecting a refresh already in flight.
-    fn cancel_scheduled_refresh(&mut self) {
-        if let Some(handle) = self.scheduled_refresh.take() {
-            handle.abort();
-        }
-    }
-
-    /// Emits a local token-free failure diagnostic at most once per configured interval.
-    fn warn_refresh_failure(&mut self) {
-        let now = Instant::now();
-        if self
-            .last_failure_diagnostic
-            .is_none_or(|last| now.duration_since(last) >= FAILURE_LOG_INTERVAL)
-        {
-            self.last_failure_diagnostic = Some(now);
-            log::warn!("Cloud-agent OTLP authorization refresh failed");
-        }
-    }
-}
-
-impl Entity for AuthRefreshCoordinator {
-    type Event = ();
-}
-
-impl SingletonEntity for AuthRefreshCoordinator {}
 
 #[cfg(test)]
 #[path = "cloud_agent_auth_tests.rs"]

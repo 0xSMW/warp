@@ -5,6 +5,7 @@ use async_trait::async_trait;
 
 use crate::CommandBuilder;
 #[cfg(feature = "local_fs")]
+#[cfg(test)]
 use crate::install::fetch_latest_metadata_from_github;
 use crate::language_server_candidate::{LanguageServerCandidate, LanguageServerMetadata};
 
@@ -55,25 +56,48 @@ impl LanguageServerCandidate for GoPlsCandidate {
     async fn install(
         &self,
         _metadata: LanguageServerMetadata,
-        executor: &CommandBuilder,
+        _executor: &CommandBuilder,
     ) -> anyhow::Result<()> {
-        let output = executor
-            .command("go")
-            .args(["install", "golang.org/x/tools/gopls@latest"])
-            .output()
-            .await?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to install gopls: {}", stderr);
+        #[cfg(not(test))]
+        {
+            anyhow::bail!(
+                "Automatic gopls installation is disabled in local-only builds; \
+                 install gopls manually and ensure it is available on PATH."
+            );
         }
 
-        Ok(())
+        #[cfg(test)]
+        {
+            let output = _executor
+                .command("go")
+                .args(["install", "golang.org/x/tools/gopls@latest"])
+                .output()
+                .await?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("Failed to install gopls: {stderr}");
+            }
+
+            Ok(())
+        }
     }
 
     async fn fetch_latest_server_metadata(&self) -> anyhow::Result<LanguageServerMetadata> {
-        // gopls doesn't provide prebuilt binaries; it must be installed via `go install`
-        fetch_latest_metadata_from_github(&self.client, "golang", "tools", None).await
+        #[cfg(not(test))]
+        {
+            let _ = &self.client;
+            anyhow::bail!(
+                "Automatic gopls installation is disabled in local-only builds; \
+                 install gopls manually and ensure it is available on PATH."
+            );
+        }
+
+        #[cfg(test)]
+        {
+            // gopls doesn't provide prebuilt binaries; it must be installed via `go install`
+            fetch_latest_metadata_from_github(&self.client, "golang", "tools", None).await
+        }
     }
 }
 

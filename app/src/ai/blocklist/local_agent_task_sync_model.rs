@@ -1,9 +1,11 @@
 mod update_queue;
 
 use std::collections::HashMap;
+#[cfg(test)]
 use std::future::Future;
 use std::sync::Arc;
 
+#[cfg(test)]
 use futures::channel::oneshot;
 use session_sharing_protocol::common::SessionId;
 use update_queue::LocalTaskUpdateQueue;
@@ -18,6 +20,7 @@ use crate::ai::agent::{AIAgentOutputStatus, FinishedAIAgentOutput, RenderableAIE
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::{AIClient, TaskStatusUpdate};
+#[cfg(test)]
 use crate::terminal::cli_agent_sessions::{
     CLIAgentSessionStatus, CLIAgentSessionsModel, CLIAgentSessionsModelEvent,
 };
@@ -47,9 +50,13 @@ pub struct LocalAgentTaskSyncModel {
     cli_session_task_ids: HashMap<EntityId, AmbientAgentTaskId>,
     /// Serializes and coalesces model-owned updates independently per task.
     update_queue: LocalTaskUpdateQueue,
+    // The local-only driver does not wait for queued status updates or inspect
+    // terminal delivery confirmation. Keep the bookkeeping for model tests.
+    #[cfg(test)]
     /// Senders resolved when the corresponding task's update queue drains
     /// (no pending or in-flight updates). See [`Self::wait_for_idle`].
     idle_waiters: HashMap<AmbientAgentTaskId, Vec<oneshot::Sender<()>>>,
+    #[cfg(test)]
     /// The most recent terminal task state per task that the server
     /// acknowledged. Used by the agent driver to decide whether a terminal
     /// state still needs to be reported before the process exits.
@@ -96,20 +103,30 @@ impl LocalAgentTaskSyncModel {
             me.handle_history_event(event, ctx);
         });
 
-        let cli_sessions_model = CLIAgentSessionsModel::handle(ctx);
-        ctx.subscribe_to_model(&cli_sessions_model, |me, _, event, ctx| {
-            me.handle_cli_session_event(event, ctx);
-        });
+        // CLI-session task synchronization is disabled for local-only driver
+        // runs. Keep the subscription for the existing model tests.
+        #[cfg(test)]
+        {
+            let cli_sessions_model = CLIAgentSessionsModel::handle(ctx);
+            ctx.subscribe_to_model(&cli_sessions_model, |me, _, event, ctx| {
+                me.handle_cli_session_event(event, ctx);
+            });
+        }
 
         Self {
             ai_client,
             cli_session_task_ids: HashMap::new(),
             update_queue: LocalTaskUpdateQueue::default(),
+            #[cfg(test)]
             idle_waiters: HashMap::new(),
+            #[cfg(test)]
             confirmed_terminal_states: HashMap::new(),
         }
     }
 
+    // Disabled for local-only driver runs; retained for the existing model
+    // tests until cloud task synchronization is restored.
+    #[cfg(test)]
     /// Resolves once the task has no pending or in-flight `update_agent_task`
     /// calls in this model's queue. Resolves immediately when the task is
     /// already idle. Callers should bound the wait with a timeout.
@@ -132,6 +149,9 @@ impl LocalAgentTaskSyncModel {
         }
     }
 
+    // Disabled for local-only driver runs; retained for the existing model
+    // tests until cloud task synchronization is restored.
+    #[cfg(test)]
     /// The most recent terminal task state this client confirmed delivering
     /// for this task, if any. This is delivery confirmation, not task-state
     /// ground truth: it only reflects updates sent through this model, not
@@ -142,6 +162,7 @@ impl LocalAgentTaskSyncModel {
         self.confirmed_terminal_states.get(task_id).copied()
     }
 
+    #[cfg(test)]
     fn notify_idle_waiters(&mut self, task_id: &AmbientAgentTaskId) {
         if let Some(waiters) = self.idle_waiters.remove(task_id) {
             for waiter in waiters {
@@ -163,7 +184,9 @@ impl LocalAgentTaskSyncModel {
     /// status changes from `CLIAgentSessionsModel` are reported to the
     /// server. Called by `AgentDriver` when setting up a third-party
     /// harness run.
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
+    // Disabled for local-only driver runs; retained for the existing model
+    // tests until cloud task synchronization is restored.
+    #[cfg(test)]
     pub fn register_cli_session(
         &mut self,
         terminal_view_id: EntityId,
@@ -218,7 +241,9 @@ impl LocalAgentTaskSyncModel {
     /// Stops reporting CLI agent status changes for a completed driver run.
     /// Task updates accepted before unregistration remain queued until delivery
     /// finishes.
-    #[cfg_attr(target_family = "wasm", expect(dead_code))]
+    // Disabled for local-only driver runs; retained for the existing model
+    // tests until cloud task synchronization is restored.
+    #[cfg(test)]
     pub fn unregister_cli_session(&mut self, terminal_view_id: EntityId) {
         if let Some(task_id) = self.cli_session_task_ids.remove(&terminal_view_id) {
             self.update_queue.remove_task(&task_id);
@@ -271,6 +296,7 @@ impl LocalAgentTaskSyncModel {
         }
     }
 
+    #[cfg(test)]
     fn handle_cli_session_event(
         &mut self,
         event: &CLIAgentSessionsModelEvent,
@@ -361,6 +387,7 @@ impl LocalAgentTaskSyncModel {
         self.enqueue_update(task_id, update, ctx);
     }
 
+    #[cfg(test)]
     fn on_cli_session_status_changed(
         &mut self,
         terminal_view_id: EntityId,
@@ -433,6 +460,7 @@ impl LocalAgentTaskSyncModel {
                 result
             },
             move |me, result, ctx| {
+                #[cfg(test)]
                 if result.is_ok()
                     && let Some(state) = task_state
                     && is_terminal_task_state(state)
@@ -441,8 +469,11 @@ impl LocalAgentTaskSyncModel {
                 }
                 if let Some(update) = me.update_queue.record_result(task_id, result.is_ok()) {
                     me.send_update(task_id, update, ctx);
-                } else if me.update_queue.is_idle(&task_id) {
-                    me.notify_idle_waiters(&task_id);
+                } else {
+                    #[cfg(test)]
+                    if me.update_queue.is_idle(&task_id) {
+                        me.notify_idle_waiters(&task_id);
+                    }
                 }
             },
         );
@@ -450,6 +481,7 @@ impl LocalAgentTaskSyncModel {
 }
 
 /// Whether a task state ends the run from the server's perspective.
+#[cfg(test)]
 fn is_terminal_task_state(state: AgentTaskState) -> bool {
     match state {
         AgentTaskState::Succeeded
@@ -672,6 +704,7 @@ pub(crate) fn classify_renderable_error(
 }
 
 /// Maps a `CLIAgentSessionStatus` to an `AgentTaskState` and optional status message.
+#[cfg(test)]
 fn map_cli_session_status(
     status: &CLIAgentSessionStatus,
 ) -> (AgentTaskState, Option<TaskStatusUpdate>) {

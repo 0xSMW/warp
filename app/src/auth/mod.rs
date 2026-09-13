@@ -4,9 +4,19 @@ pub mod auth_override_warning_modal;
 mod auth_view_body;
 pub mod auth_view_modal;
 mod auth_view_shared_helpers;
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
 mod login_error_modal;
 mod login_failure_notification;
 pub mod login_slide;
+#[cfg(any(
+    test,
+    all(feature = "tui", feature = "test-util"),
+    target_family = "wasm"
+))]
 pub mod needs_sso_link_view;
 pub mod paste_auth_token_modal;
 mod user_properties;
@@ -20,9 +30,10 @@ pub use auth_manager::AuthManager;
 pub use auth_state::AuthStateProvider;
 use itertools::Itertools;
 pub use login_failure_notification::LoginFailureReason;
-#[cfg(feature = "tui")]
+#[cfg(all(feature = "tui", test))]
 use url::Url;
 pub use user_uid::UserUid;
+#[cfg(test)]
 use warp_core::channel::ChannelState;
 use warp_core::user_preferences::GetUserPreferences as _;
 use warp_errors::{report_error, report_if_error};
@@ -33,8 +44,6 @@ use crate::ai::agent_conversations_model::AgentConversationsModel;
 use crate::ai::blocklist::BlocklistAIHistoryModel;
 use crate::ai::blocklist::agent_view::orchestration_pill_bar_model::OrchestrationPillBarModel;
 use crate::ai::execution_profiles::profiles::AIExecutionProfilesModel;
-#[cfg(not(target_family = "wasm"))]
-use crate::ai::mcp::TemplatableMCPServerManager;
 use crate::ai::request_usage_model::AIRequestUsageModel;
 use crate::ai_assistant::requests::REQUEST_LIMIT_INFO_CACHE_KEY;
 use crate::cloud_object::model::persistence::CloudModel;
@@ -73,6 +82,7 @@ pub fn init(app: &mut AppContext) {
 ///
 /// Keep this derived from the channel's server root so local and non-production
 /// builds log out of the same web session they use for authentication.
+#[cfg(test)]
 pub fn web_logout_url() -> String {
     format!(
         "{}/logout",
@@ -85,7 +95,7 @@ pub fn web_logout_url() -> String {
 /// TUI logout only continues to the same Warp web origin's device page. This
 /// keeps the logout endpoint from becoming an open redirect if an unexpected
 /// device-authorization response reaches the client.
-#[cfg(feature = "tui")]
+#[cfg(all(feature = "tui", test))]
 pub fn web_logout_url_with_continue(continue_url: &str) -> Option<String> {
     let mut logout_url =
         Url::parse(&web_logout_url()).expect("configured Warp web logout URL must be valid");
@@ -255,15 +265,14 @@ pub fn maybe_log_out(app: &mut AppContext) {
     }
 }
 
-/// Logs out locally and sends the user to Warp web's logout endpoint.
+/// Logs out locally without opening Warp web's logout endpoint.
 ///
-/// This is intentionally separate from [`log_out`], which is also used for
-/// non-user-initiated auth recovery paths where opening a browser would be
-/// surprising.
+/// This remains separate from [`log_out`] for compatibility with existing callers.
 pub fn log_out_and_open_web(app: &mut AppContext) {
     log_out(app);
-    let logout_url = web_logout_url();
-    app.open_url(&logout_url);
+    // Warp cloud logout and browser navigation are disabled in local-only builds.
+    // let logout_url = web_logout_url();
+    // app.open_url(&logout_url);
 }
 
 // Log out the user, clears workspace state, stops running processes, and deletes database.
@@ -283,12 +292,7 @@ pub fn log_out(app: &mut AppContext) {
     AuthManager::handle(app).update(app, |auth_manager, ctx| {
         auth_manager.log_out(ctx);
     });
-    // Detach built-in Warp-hosted MCP servers; they authenticate with the
-    // credentials that were just cleared.
-    #[cfg(not(target_family = "wasm"))]
-    TemplatableMCPServerManager::handle(app).update(app, |manager, ctx| {
-        manager.sync_builtin_servers(false, ctx);
-    });
+    // Warp-hosted MCP logout side effects are disabled; local MCP servers remain active.
     AIRequestUsageModel::handle(app).update(app, |usage_model, ctx| {
         usage_model.reset_server_availability(ctx);
     });

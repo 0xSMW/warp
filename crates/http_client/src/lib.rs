@@ -64,6 +64,7 @@ const EXTRA_HTTP_HEADERS_ENV_VAR: &str = "WARP_EXTRA_HTTP_HEADERS";
 /// run outside of a Tokio context.
 pub struct Client {
     wrapped: reqwest::Client,
+    network_disabled: bool,
 
     /// A callback that is executed before every request is sent with a cloned
     /// version of the outbound request.  If for some reason the request cannot be
@@ -136,6 +137,23 @@ impl Default for Client {
 }
 
 impl Client {
+    /// Creates a client that rejects HTTP and SSE before invoking any network transport.
+    pub fn disabled() -> Self {
+        Self {
+            network_disabled: true,
+            ..Self::new()
+        }
+    }
+
+    fn disabled_request_error(&self) -> reqwest::Error {
+        // Reqwest does not expose an error constructor. An invalid URL gives callers its normal
+        // builder error without constructing a transport or exposing request data.
+        self.wrapped
+            .get("network disabled in local-only mode")
+            .build()
+            .expect_err("a relative URL cannot build an HTTP request")
+    }
+
     pub fn new() -> Self {
         #[cfg_attr(target_family = "wasm", expect(unused_mut))]
         let mut builder = reqwest::Client::builder();
@@ -170,6 +188,7 @@ impl Client {
     pub fn from_client_builder(client_builder: reqwest::ClientBuilder) -> reqwest::Result<Self> {
         client_builder.build().map(|client| Self {
             wrapped: client,
+            network_disabled: false,
             before_request_sent: None,
             after_response_received: None,
             iap_token_provider: None,
@@ -368,6 +387,9 @@ impl Client {
 
     /// Core request execution logic shared by all platforms.
     async fn execute_inner(&self, request: Request) -> reqwest::Result<Response> {
+        if self.network_disabled {
+            return Err(self.disabled_request_error());
+        }
         let Request {
             wrapped: request,
             serialized_payload,
@@ -497,6 +519,12 @@ impl<'a> RequestBuilder<'a> {
     /// Sends the request to the endpoint, which is assumed to be a streaming server-sent-events
     /// endpoint, and returns a corresponding `EventSource`.
     pub fn eventsource(self) -> EventSourceStream {
+        if self.client.network_disabled {
+            let error = self.client.disabled_request_error();
+            return Box::pin(futures::stream::once(async move {
+                Err(reqwest_eventsource::Error::Transport(error))
+            }));
+        }
         cfg_if::cfg_if! {
             if #[cfg(target_family = "wasm")] {
                 let mut stream = self

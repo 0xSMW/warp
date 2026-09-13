@@ -656,6 +656,7 @@ impl PaneGroup {
     /// Re-drives child panes after task metadata changes. A failed live
     /// session stays unavailable without retrying, while terminal tasks
     /// upgrade the existing pane to a passive transcript.
+    #[cfg(test)]
     pub(in crate::pane_group) fn process_pending_child_hydrations(
         &mut self,
         ctx: &mut ViewContext<Self>,
@@ -974,37 +975,6 @@ impl PaneGroup {
             terminal_view.update(ctx, |view, ctx| {
                 view.insert_conversation_ended_tombstone_with_resolved_cta(ctx);
             });
-        }
-    }
-
-    /// Drains entries from `pending_remote_child_hydrations` for which task
-    /// data is now available, hydrating each hidden child pane in place. That
-    /// map is only populated while `OrchestrationUnifiedStack` is disabled.
-    pub(in crate::pane_group) fn process_pending_remote_child_hydrations(
-        &mut self,
-        ctx: &mut ViewContext<Self>,
-    ) {
-        if self.pending_remote_child_hydrations.is_empty() {
-            return;
-        }
-
-        let ready_tasks: Vec<_> = self
-            .pending_remote_child_hydrations
-            .keys()
-            .filter(|task_id| {
-                AgentConversationsModel::as_ref(ctx)
-                    .get_task_data(task_id)
-                    .is_some()
-            })
-            .copied()
-            .collect();
-
-        for task_id in ready_tasks {
-            let Some(child_id) = self.pending_remote_child_hydrations.remove(&task_id) else {
-                continue;
-            };
-
-            self.attempt_remote_child_hydration(child_id, task_id, ctx);
         }
     }
 }

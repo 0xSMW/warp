@@ -25,6 +25,7 @@ use warpui_core::{
 };
 
 use super::agent_block::{TuiAIBlock, TuiAIBlockEvent};
+#[cfg(test)]
 use super::handoff::{TuiHandoffBlock, TuiHandoffBlockEvent};
 use super::terminal_block::{block_content_rows, should_render_terminal_block};
 use super::terminal_session_view::BlockingInputSource;
@@ -94,6 +95,7 @@ pub(super) struct TuiTranscriptView {
 }
 
 impl TuiTranscriptView {
+    #[cfg(test)]
     pub(super) fn attach_handoff(
         &mut self,
         view: ViewHandle<TuiHandoffBlock>,

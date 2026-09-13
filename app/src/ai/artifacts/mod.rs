@@ -15,6 +15,7 @@ use crate::ai::artifact_download::default_download_filename;
 use crate::ai::artifact_download::sanitized_basename;
 #[cfg(feature = "local_fs")]
 use crate::ai::artifact_download::{default_download_directory, download_artifact_bytes};
+use crate::channel::{Channel, ChannelState};
 use crate::notebooks::NotebookId;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::server_api::ai::ArtifactDownloadResponse;
@@ -385,6 +386,11 @@ pub fn open_screenshot_lightbox<V: warpui::View>(
         initial_index: 0,
     });
 
+    if is_local_mode() {
+        log::debug!("Screenshot artifact loading is disabled in local-only mode");
+        return;
+    }
+
     // Fetch each signed URL independently and update the lightbox as each resolves.
     // TODO(QUALITY-318): We should cache the signed URL for each artifact UUID so
     // we avoid fetching screenshots already in the asset cache.
@@ -443,6 +449,11 @@ pub fn download_file_artifact<V: warpui::View>(
     artifact_uid: &str,
     ctx: &mut warpui::ViewContext<V>,
 ) {
+    if is_local_mode() {
+        log::debug!("File artifact downloads are disabled in local-only mode");
+        return;
+    }
+
     let ai_client = ServerApiProvider::handle(ctx).as_ref(ctx).get_ai_client();
     let artifact_uid = artifact_uid.to_string();
     let artifact_uid_for_request = artifact_uid.clone();
@@ -472,6 +483,11 @@ fn open_file_download_result<V: warpui::View>(
     artifact: ArtifactDownloadResponse,
     ctx: &mut warpui::ViewContext<V>,
 ) {
+    if is_local_mode() {
+        log::debug!("Opening file artifacts is disabled in local-only mode");
+        return;
+    }
+
     match artifact {
         ArtifactDownloadResponse::File { .. } => {
             #[cfg(feature = "local_fs")]
@@ -606,6 +622,10 @@ fn file_download_success_toast(
             },
         ),
     )
+}
+
+fn is_local_mode() -> bool {
+    matches!(ChannelState::channel(), Channel::Local)
 }
 
 fn non_empty_trimmed(value: &str) -> Option<&str> {

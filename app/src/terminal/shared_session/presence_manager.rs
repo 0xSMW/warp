@@ -7,7 +7,7 @@ use futures_util::future::join_all;
 use itertools::{Either, Itertools};
 use pathfinder_color::ColorU;
 use rand::Rng;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::common::Viewer;
 use session_sharing_protocol::common::{
     InputReplicaId, ParticipantId, ParticipantInfo, ParticipantList, ParticipantPresenceUpdate,
@@ -776,7 +776,7 @@ impl PresenceManager {
 
     /// Like `single_distinct_present_viewer_uid`, but reads directly from a
     /// participant list before the presence manager finishes processing it.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any(test, feature = "integration_tests"))]
     pub(crate) fn single_distinct_present_viewer_uid_from_viewers<'a>(
         viewers: impl Iterator<Item = &'a Viewer>,
     ) -> Option<&'a str> {

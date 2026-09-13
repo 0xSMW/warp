@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use tempfile::NamedTempFile;
 use warp_cli::agent::Harness;
@@ -26,16 +26,13 @@ use super::{
     OZ_MESSAGE_LISTENER_STATE_ROOT_ENV, WARP_MESSAGE_LISTENER_MANAGED_EXTERNALLY_ENV,
     WARP_MESSAGE_LISTENER_STATE_ROOT_ENV,
 };
-use crate::ai::agent::api::ServerConversationToken;
 use crate::ai::agent_sdk::setup_observability::SetupClientEventReporter;
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::ambient_agents::task::HarnessModelConfig;
 use crate::ai::mcp::JSONMCPServer;
 use crate::server::server_api::ServerApi;
-use crate::server::server_api::harness_support::{HarnessSupportClient, upload_to_target};
 use crate::terminal::CLIAgent;
 use crate::terminal::cli_agent_sessions::{CLIAgentSessionStatus, CLIAgentSessionsModel};
-use crate::terminal::model::block::{BlockId, SerializedBlock};
 use crate::util::path::resolve_executable;
 
 pub(crate) mod claude_code;
@@ -43,18 +40,15 @@ pub(crate) mod claude_transcript;
 mod codex;
 pub(crate) mod codex_transcript;
 pub(crate) mod exit_escalation;
+#[cfg(test)]
 mod gemini;
 mod json_utils;
 pub(crate) mod process_control;
 mod skill_dirs_publish;
-mod telemetry;
 pub(crate) use claude_code::ClaudeHarness;
-use claude_transcript::ClaudeResumeInfo;
 use codex::CodexHarness;
-use codex_transcript::CodexResumeInfo;
-use gemini::GeminiHarness;
-pub(crate) use telemetry::ThirdPartyHarnessTelemetryEvent;
 
+/*
 /// Harness-agnostic payload describing how to resume an existing conversation.
 ///
 /// Each variant carries the data a specific harness needs to rehydrate state before its CLI
@@ -121,6 +115,9 @@ pub(super) async fn fetch_transcript_envelope<E: serde::de::DeserializeOwned>(
         ))
     })
 }
+*/
+
+// Cloud transcript and resume compatibility APIs are disabled in local-only mode.
 
 /// Trait for third-party agent harnesses that execute prompts via their own CLIs.
 ///
@@ -161,6 +158,8 @@ pub(crate) trait ThirdPartyHarness: Send + Sync {
         &[]
     }
 
+    /* Cloud-only platform-plugin verification and resume loading are retained in the
+    compatibility implementations, but are disabled for local-only execution.
     /// Whether this harness must verify its Oz platform plugin before launch.
     /// Codex opts into this because its unattended launch command bypasses hook
     /// trust globally, so we should fail setup instead of running without the
@@ -186,6 +185,7 @@ pub(crate) trait ThirdPartyHarness: Send + Sync {
     ) -> Result<Option<ResumePayload>, AgentDriverError> {
         Ok(None)
     }
+    */
 
     /// Build a runner for executing this harness with the given prompt.
     ///
@@ -202,8 +202,6 @@ pub(crate) trait ThirdPartyHarness: Send + Sync {
     /// `workspace_root` is the root used for workspace-level inputs, while
     /// `harness_working_dir` is the directory from which the CLI starts.
     ///
-    /// If `resume` is `Some`, the harness matches on its own [`ResumePayload`]
-    /// variant and reuses stored session/conversation ids.
     #[allow(clippy::too_many_arguments)]
     fn build_runner(
         &self,
@@ -216,7 +214,6 @@ pub(crate) trait ThirdPartyHarness: Send + Sync {
         task_id: Option<AmbientAgentTaskId>,
         server_api: Arc<ServerApi>,
         terminal_driver: ModelHandle<TerminalDriver>,
-        resume: Option<ResumePayload>,
         resolved_env_vars: &HashMap<OsString, OsString>,
         resolved_secrets: &HashMap<String, ManagedSecretValue>,
         resolved_mcp_servers: &HashMap<String, JSONMCPServer>,
@@ -227,7 +224,7 @@ pub(crate) trait ThirdPartyHarness: Send + Sync {
 /// Harness type for driver dispatch.
 pub(crate) enum HarnessKind {
     Oz,
-    /// Third-party CLI-backed harness (e.g. Claude, Gemini).
+    /// Third-party CLI-backed harness (e.g. Claude, Codex).
     ThirdParty(Box<dyn ThirdPartyHarness>),
     /// Harnesses that exist in the shared CLI enum but are not supported by the
     /// standalone agent driver.
@@ -262,7 +259,7 @@ pub(crate) fn harness_kind(harness: Harness) -> Result<HarnessKind, AgentDriverE
         Harness::Claude => Ok(HarnessKind::ThirdParty(Box::new(ClaudeHarness))),
         Harness::Codex => Ok(HarnessKind::ThirdParty(Box::new(CodexHarness))),
         Harness::OpenCode => Ok(HarnessKind::Unsupported(Harness::OpenCode)),
-        Harness::Gemini => Ok(HarnessKind::ThirdParty(Box::new(GeminiHarness))),
+        Harness::Gemini => Ok(HarnessKind::Unsupported(Harness::Gemini)),
         Harness::Unknown => Err(AgentDriverError::InvalidRuntimeState),
     }
 }
@@ -275,8 +272,7 @@ pub(crate) fn harness_kind(harness: Harness) -> Result<HarnessKind, AgentDriverE
 /// shares the same CLI prefix).
 ///
 /// Returns `None` for [`Harness::Oz`], for unsupported harnesses, and
-/// for any third-party harness whose `auth_check_command` returns `None`
-/// (e.g. Gemini today).
+/// for any third-party harness whose `auth_check_command` returns `None`.
 pub(crate) fn auth_check_command_for(harness: Harness) -> Option<String> {
     let HarnessKind::ThirdParty(third_party) = harness_kind(harness).ok()? else {
         return None;
@@ -481,6 +477,7 @@ pub(crate) fn harness_model_env_vars(
     env_vars
 }
 
+/* Cloud transcript persistence compatibility API; disabled in local-only mode.
 /// Indicates when the harness conversation is being saved.
 /// Implementations may use this to customize the saved data, such as
 /// recording additional metadata on completion.
@@ -492,6 +489,7 @@ pub(crate) enum SavePoint {
     /// A save after the harness reports it finished an agent turn.
     PostTurn,
 }
+*/
 
 /// Controls how much harness-owned state should survive cleanup after the CLI
 /// exits.
@@ -521,21 +519,12 @@ pub(crate) trait HarnessRunner: Send + Sync {
     /// Create the external conversation on the server and start the harness
     /// command in the terminal.
     ///
-    /// Returns a [`CommandHandle`] that resolves to the exit code. The runner
-    /// stores the conversation ID and block ID internally for use in
-    /// [`save_conversation`].
+    /// Returns a [`CommandHandle`] that resolves to the exit code.
     async fn start(
         &self,
         foreground: &ModelSpawner<AgentDriver>,
         setup_events: &SetupClientEventReporter,
     ) -> Result<CommandHandle, AgentDriverError>;
-
-    /// Save the current conversation state (transcript upload, etc.).
-    async fn save_conversation(
-        &self,
-        save_point: SavePoint,
-        foreground: &ModelSpawner<AgentDriver>,
-    ) -> Result<()>;
 
     /// Gracefully ask the harness to exit.
     async fn exit(&self, foreground: &ModelSpawner<AgentDriver>) -> Result<()>;
@@ -549,11 +538,6 @@ pub(crate) trait HarnessRunner: Send + Sync {
         Ok(())
     }
 
-    /// Handle a CLI session update such as a prompt submit or completed tool use.
-    async fn handle_session_update(&self, _foreground: &ModelSpawner<AgentDriver>) -> Result<()> {
-        Ok(())
-    }
-
     /// Clean up any harness-owned background state after the harness exits.
     async fn cleanup(
         &self,
@@ -564,6 +548,7 @@ pub(crate) trait HarnessRunner: Send + Sync {
     }
 }
 
+/* Cloud session-status compatibility API; disabled in local-only mode.
 /// Returns `true` if the terminal tracked by `terminal_driver` has a CLI agent session
 /// that is currently in progress.
 pub(crate) async fn has_running_cli_agent(
@@ -575,6 +560,7 @@ pub(crate) async fn has_running_cli_agent(
         Some(CLIAgentSessionStatus::InProgress)
     )
 }
+*/
 
 /// Returns the tracked CLI agent session status for the terminal, if any.
 pub(crate) async fn cli_agent_session_status(
@@ -621,6 +607,7 @@ pub(super) fn write_temp_file(
     Ok(file)
 }
 
+/* Cloud block-snapshot upload compatibility APIs; disabled in local-only mode.
 /// Upload a [`SerializedBlock`] as the JSON block snapshot for a third-party harness conversation.
 pub(crate) async fn upload_block_snapshot(
     client: &dyn HarnessSupportClient,
@@ -665,6 +652,7 @@ pub(super) async fn upload_current_block_snapshot(
         }
     }
 }
+*/
 
 #[cfg(test)]
 #[path = "mod_tests.rs"]
