@@ -79,6 +79,13 @@ use crate::workspaces::user_workspaces::TeamScope;
 #[cfg(test)]
 use crate::workspaces::user_workspaces::UserWorkspaces;
 
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 const LOCAL_ONLY_ERROR: &str = "Ambient agents are unavailable in local-only mode";
 
 /// Tracks progress timestamps for each step during ambient agent spawning.
@@ -394,6 +401,13 @@ impl AmbientAgentViewModel {
 
     /// Handles CloudModel events to keep environment_id in sync.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     fn handle_cloud_model_event(&mut self, event: &CloudModelEvent, ctx: &mut ModelContext<Self>) {
         match event {
             // If the selected environment is deleted, clear the selection.
@@ -1716,6 +1730,13 @@ impl AmbientAgentViewModel {
         ctx.emit(AmbientAgentViewModelEvent::Failed { error_message });
     }
 
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     fn handle_local_only_error(&mut self, ctx: &mut ModelContext<Self>) {
         self.handle_spawn_error(LOCAL_ONLY_ERROR.to_owned(), ctx);
     }
