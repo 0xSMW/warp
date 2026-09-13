@@ -715,6 +715,8 @@ impl AuthViewBody {
 
         let text = match self.variant {
             AuthViewVariant::Initial => "Welcome to Warp!",
+            #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+            AuthViewVariant::HitDriveObjectLimitCloseable => "Sign up for Warp",
             AuthViewVariant::RequireLoginCloseable | AuthViewVariant::ShareRequirementCloseable => {
                 "Sign up for Warp"
             }
