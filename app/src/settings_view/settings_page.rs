@@ -1069,6 +1069,13 @@ pub(crate) fn render_dropdown_item<T: DropdownItemAction>(
 /// with a built-in search box). Used for long option lists such as the
 /// voice-input Speech Language picker.
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 pub(crate) fn render_filterable_dropdown_item<T: DropdownItemAction>(
     appearance: &Appearance,
     label: &str,
