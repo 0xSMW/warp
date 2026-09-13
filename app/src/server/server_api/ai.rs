@@ -957,8 +957,12 @@ pub(crate) fn build_list_agent_runs_url(limit: i32, filter: &TaskListFilter) -> 
     }
     if let Some(states) = filter.states.as_ref() {
         for state in states {
-            if let Some(value) = state.as_query_param() {
-                push("state", value);
+            if !matches!(state, AmbientAgentTaskState::Unknown) {
+                let value = serde_json::to_value(state).expect("task state should serialize");
+                push(
+                    "state",
+                    value.as_str().expect("task state should be a string"),
+                );
             }
         }
     }
@@ -966,7 +970,14 @@ pub(crate) fn build_list_agent_runs_url(limit: i32, filter: &TaskListFilter) -> 
         push("source", source.as_str());
     }
     if let Some(execution_location) = filter.execution_location {
-        push("execution_location", execution_location.as_query_param());
+        let value =
+            serde_json::to_value(execution_location).expect("execution location should serialize");
+        push(
+            "execution_location",
+            value
+                .as_str()
+                .expect("execution location should be a string"),
+        );
     }
     if let Some(environment_id) = filter.environment_id.as_deref() {
         push("environment_id", environment_id);
@@ -1792,6 +1803,10 @@ impl ServerApi {
     }
 
     #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "Retained task-scoped message compatibility helper after ambient runtime callers were removed"
+    )]
     pub(crate) async fn send_agent_message_for_task(
         &self,
         task_id: &AmbientAgentTaskId,
@@ -1806,6 +1821,10 @@ impl ServerApi {
 
     // Retain the cloud-scoped helper for tests.
     #[cfg(test)]
+    #[allow(
+        dead_code,
+        reason = "Retained task-scoped message compatibility helper after ambient runtime callers were removed"
+    )]
     pub(crate) async fn list_agent_messages_for_task(
         &self,
         task_id: &AmbientAgentTaskId,
@@ -1938,6 +1957,27 @@ impl ServerApi {
                 anyhow!("Unknown taskGitCredentials response"),
             )),
         }
+    }
+}
+
+#[cfg(all(not(test), feature = "integration_tests"))]
+impl ServerApi {
+    pub(crate) async fn mark_message_delivered_for_task(
+        &self,
+        task_id: &AmbientAgentTaskId,
+        message_id: &str,
+    ) -> anyhow::Result<()> {
+        let _ = (task_id, message_id);
+        Err(local_only_error())
+    }
+
+    pub(crate) async fn read_agent_message_for_task(
+        &self,
+        task_id: &AmbientAgentTaskId,
+        message_id: &str,
+    ) -> anyhow::Result<ReadAgentMessageResponse> {
+        let _ = (task_id, message_id);
+        Err(local_only_error())
     }
 }
 
