@@ -126,6 +126,13 @@ enum InstallMethod {
 
 #[cfg(test)]
 impl InstallMethod {
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained updater test compatibility while automatic updates are disabled"
+        )
+    )]
     fn detect() -> Self {
         let Ok(exe) = std::env::current_exe() else {
             return Self::Unmanaged;
@@ -301,10 +308,26 @@ enum UpdateOutcome {
     UpToDate { version: String },
     /// A newer version was already staged by a previous check and `current`
     /// points at it; nothing to do until the next launch.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained updater test compatibility while automatic updates are disabled"
+        )
+    )]
     PendingRestart { version: String },
     /// A newer version was staged and `current` now points at it. It takes
     /// effect on the next launch.
-    Installed { version: String },
+    Installed {
+        #[cfg_attr(
+            test,
+            allow(
+                dead_code,
+                reason = "Retained updater test compatibility while automatic updates are disabled"
+            )
+        )]
+        version: String,
+    },
     /// A newer Homebrew cask is available and must be installed by Homebrew.
     UpdateAvailable { version: String },
 }
@@ -313,6 +336,13 @@ enum UpdateOutcome {
 impl UpdateOutcome {
     /// Stable identifier for this kind of outcome, used for telemetry and
     /// for detecting transitions between consecutive checks.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained updater test compatibility while automatic updates are disabled"
+        )
+    )]
     fn kind(&self) -> &'static str {
         match self {
             #[cfg(unix)]
@@ -325,6 +355,13 @@ impl UpdateOutcome {
     }
 
     /// The version associated with this outcome, if any.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained updater test compatibility while automatic updates are disabled"
+        )
+    )]
     fn version(&self) -> Option<&str> {
         match self {
             #[cfg(unix)]
@@ -346,9 +383,23 @@ pub(crate) enum TuiAutoupdateStatus {
     Idle,
     /// Fetching the latest version for this channel.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained updater test compatibility while automatic updates are disabled"
+        )
+    )]
     Checking,
     /// Downloading and staging a newer version.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained updater test compatibility while automatic updates are disabled"
+        )
+    )]
     Updating,
     /// The running build is the channel's latest version.
     #[cfg(test)]
@@ -369,6 +420,13 @@ pub(crate) enum TuiAutoupdateStatus {
 pub(crate) enum TuiAutoupdaterEvent {
     /// [`TuiAutoupdater::status`] changed.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained updater test compatibility while automatic updates are disabled"
+        )
+    )]
     StatusChanged,
 }
 
@@ -957,6 +1015,13 @@ impl Drop for StagedUpdate {
 }
 
 #[cfg(all(unix, test))]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained updater test compatibility while automatic updates are disabled"
+    )
+)]
 async fn create_unique_staging_dir(versions_dir: &Path, version: &str) -> Result<PathBuf> {
     create_unique_staging_dir_with(|| {
         let staging_id = NEXT_UNIQUE_ID.fetch_add(1, Ordering::Relaxed);
