@@ -822,7 +822,9 @@ fn open_from_restored(arg: &OpenFromRestoredArg, ctx: &mut AppContext) {
                             window_bounds: WindowBounds::ExactPosition(frame_args.window_bounds),
                             title: Some("Warp".to_owned()),
                             fullscreen_state: window.fullscreen_state,
-                            background_blur_radius_pixels,
+                            background_blur_radius_pixels: Some(
+                                *WindowSettings::as_ref(ctx).hotkey_background_blur_radius,
+                            ),
                             background_backdrop,
                             // Don't use the quake window for positioning new windows.
                             anchor_new_windows_from_closed_position:
@@ -1504,7 +1506,9 @@ fn toggle_quake_mode_window(global_resource_handles: &GlobalResourceHandles, ctx
                     window_style: WindowStyle::Pin,
                     window_bounds: WindowBounds::ExactPosition(config.window_bounds),
                     title: Some("Warp".to_owned()),
-                    background_blur_radius_pixels: Some(*window_settings.background_blur_radius),
+                    background_blur_radius_pixels: Some(
+                        *window_settings.hotkey_background_blur_radius,
+                    ),
                     background_backdrop: *window_settings.background_backdrop,
                     // Ignore the quake window for positioning the next window
                     anchor_new_windows_from_closed_position:
