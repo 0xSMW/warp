@@ -5,7 +5,7 @@ use ai::api_keys::{
 };
 use warp::editor::CodeEditorModel;
 use warp::settings::AISettings;
-use warp::tui_export::{UserWorkspaces, register_tui_session_view_test_singletons};
+use warp::tui_export::register_tui_session_view_test_singletons;
 use warp_editor::model::CoreEditorModel;
 use warpui::SingletonEntity as _;
 use warpui_core::{App, ModelHandle};
@@ -46,14 +46,7 @@ fn add_menu(
     app.update(|ctx| {
         let input = ctx.add_model(|ctx| CodeEditorModel::new_tui(80, ctx));
         let mode = ctx.add_model(|_| TuiInputSuggestionsModeModel::new());
-        let menu = ctx.add_model(|ctx| {
-            TuiApiKeysMenuModel::new(
-                input.clone(),
-                mode.clone(),
-                UserWorkspaces::teamless_context_resolver_for_test(),
-                ctx,
-            )
-        });
+        let menu = ctx.add_model(|ctx| TuiApiKeysMenuModel::new(input.clone(), mode.clone(), ctx));
         menu.update(ctx, |menu, ctx| menu.open(ctx));
         (input, mode, menu)
     })
@@ -107,10 +100,6 @@ fn custom_endpoint_rows_use_user_names_and_support_key_editing_and_clearing() {
                     ("Anthropic API key", Some("(Not connected)")),
                     ("Google API key", Some("(Not connected)")),
                     ("OpenAI API key", Some("(Not connected)")),
-                    (
-                        "X premium or SuperGrok subscription",
-                        Some("(Not connected)")
-                    ),
                     ("OpenRouter custom endpoint", Some("(Not connected)")),
                     ("Zulu custom endpoint", Some("(Not connected)")),
                     ("Warp credit fallback", Some("(off)")),
@@ -119,7 +108,7 @@ fn custom_endpoint_rows_use_user_names_and_support_key_editing_and_clearing() {
         });
 
         menu.update(&mut app, |menu, ctx| {
-            assert!(menu.select_at_snapshot_index(4, ctx));
+            assert!(menu.select_at_snapshot_index(3, ctx));
             menu.accept_selected(ctx);
         });
         app.read(|ctx| {
@@ -145,13 +134,13 @@ fn custom_endpoint_rows_use_user_names_and_support_key_editing_and_clearing() {
             );
             let snapshot = menu.as_ref(ctx).snapshot(ctx).unwrap();
             assert_eq!(
-                snapshot.rows[4].state_suffix.as_deref(),
+                snapshot.rows[3].state_suffix.as_deref(),
                 Some("(Connected)")
             );
         });
 
         menu.update(&mut app, |menu, ctx| {
-            assert!(menu.select_at_snapshot_index(4, ctx));
+            assert!(menu.select_at_snapshot_index(3, ctx));
             assert!(menu.can_clear_selected(ctx));
             menu.clear_selected(ctx);
         });
@@ -161,7 +150,7 @@ fn custom_endpoint_rows_use_user_names_and_support_key_editing_and_clearing() {
                 None
             );
             assert_eq!(
-                menu.as_ref(ctx).snapshot(ctx).unwrap().rows[4]
+                menu.as_ref(ctx).snapshot(ctx).unwrap().rows[3]
                     .state_suffix
                     .as_deref(),
                 Some("(Not connected)")
@@ -216,7 +205,6 @@ fn unconfigured_custom_endpoints_are_hidden_and_fallback_stays_last() {
                     "Anthropic API key",
                     "Google API key",
                     "OpenAI API key",
-                    "X premium or SuperGrok subscription",
                     "Warp credit fallback",
                 ]
             );
@@ -295,62 +283,22 @@ fn connected_provider_prefills_secret_input_and_saves_replacement() {
 }
 
 #[test]
-fn open_and_connect_grok_matches_selecting_the_grok_row() {
+fn filtering_for_grok_does_not_offer_a_subscription_connection() {
     App::test((), |mut app| async move {
-        register_tui_session_view_test_singletons(&mut app);
-
-        // Reference path: open the menu, then select and accept the Grok row.
-        let reference = app.update(|ctx| {
-            let input = ctx.add_model(|ctx| CodeEditorModel::new_tui(80, ctx));
-            let mode = ctx.add_model(|_| TuiInputSuggestionsModeModel::new());
-            let menu = ctx.add_model(|ctx| {
-                TuiApiKeysMenuModel::new(
-                    input,
-                    mode,
-                    UserWorkspaces::teamless_context_resolver_for_test(),
-                    ctx,
-                )
-            });
-            menu.update(ctx, |menu, ctx| {
-                menu.open(ctx);
-                assert!(menu.select_at_snapshot_index(3, ctx));
-                menu.accept_selected(ctx);
-            });
-            menu
-        });
-
-        // Shortcut path: a single call jumps straight into the Grok connect flow.
-        let shortcut = app.update(|ctx| {
-            let input = ctx.add_model(|ctx| CodeEditorModel::new_tui(80, ctx));
-            let mode = ctx.add_model(|_| TuiInputSuggestionsModeModel::new());
-            let menu = ctx.add_model(|ctx| {
-                TuiApiKeysMenuModel::new(
-                    input,
-                    mode,
-                    UserWorkspaces::teamless_context_resolver_for_test(),
-                    ctx,
-                )
-            });
-            menu.update(ctx, |menu, ctx| menu.open_and_connect_grok(ctx));
-            menu
-        });
+        let (input, _, menu) = add_menu(&mut app);
+        input.update(&mut app, |input, ctx| input.user_insert("grok", ctx));
 
         app.read(|ctx| {
-            assert!(shortcut.as_ref(ctx).is_open(ctx));
+            assert!(menu.as_ref(ctx).is_open(ctx));
             assert_eq!(
-                shortcut.as_ref(ctx).footer(ctx),
-                reference.as_ref(ctx).footer(ctx),
-                "the shortcut should land in the same footer state as selecting the Grok row",
-            );
-            assert_eq!(
-                shortcut
-                    .as_ref(ctx)
+                menu.as_ref(ctx)
                     .snapshot(ctx)
-                    .map(|snapshot| snapshot.header),
-                reference
-                    .as_ref(ctx)
-                    .snapshot(ctx)
-                    .map(|snapshot| snapshot.header),
+                    .unwrap()
+                    .rows
+                    .iter()
+                    .map(|row| row.title.as_str())
+                    .collect::<Vec<_>>(),
+                vec!["Warp credit fallback"],
             );
         });
     });
