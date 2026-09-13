@@ -162,7 +162,7 @@ async fn finalize_recording(
     {
         let _ = std::fs::remove_file(&local_path);
         let _ = std::fs::remove_file(local_path.with_extension("log"));
-        return StopRecordingResult::Error(RECORDING_UPLOAD_DISABLED_MESSAGE.to_string());
+        StopRecordingResult::Error(RECORDING_UPLOAD_DISABLED_MESSAGE.to_string())
     }
 
     #[cfg(test)]
