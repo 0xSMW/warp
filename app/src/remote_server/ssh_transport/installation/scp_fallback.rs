@@ -156,12 +156,12 @@ fn is_loopback_url(url: &str) -> bool {
         return false;
     };
     matches!(url.scheme(), "http" | "https")
-        && url.host_str().is_some_and(|host| {
-            host.eq_ignore_ascii_case("localhost")
-                || host
-                    .parse::<std::net::IpAddr>()
-                    .is_ok_and(|ip| ip.is_loopback())
-        })
+        && match url.host() {
+            Some(url::Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
+            Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+            Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+            None => false,
+        }
 }
 
 fn remote_server_tarball_http_client() -> anyhow::Result<http_client::Client> {
@@ -340,29 +340,5 @@ fn is_retryable_download_status(status: StatusCode) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::is_loopback_url;
-
-    #[test]
-    fn accepts_http_loopback_urls() {
-        for url in [
-            "http://localhost:8080/download/cli",
-            "https://127.0.0.1/download/cli",
-            "http://[::1]:8080/download/cli",
-        ] {
-            assert!(is_loopback_url(url), "expected loopback URL: {url}");
-        }
-    }
-
-    #[test]
-    fn rejects_external_and_non_http_urls() {
-        for url in [
-            "https://app.warp.dev/download/cli",
-            "http://localhost.evil.example/download/cli",
-            "file://localhost/download/cli",
-            "not a URL",
-        ] {
-            assert!(!is_loopback_url(url), "expected rejected URL: {url}");
-        }
-    }
-}
+#[path = "scp_fallback_tests.rs"]
+mod tests;
