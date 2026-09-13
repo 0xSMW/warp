@@ -412,6 +412,13 @@ impl Listener {
         self.current_subscription_abort_handle = Some(spawn_handle.abort_handle());
     }
 
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Used by the integration harness, which is not enabled in every unit-test build"
+        )
+    )]
     pub fn has_current_subscription_abort_handle(&self) -> bool {
         self.current_subscription_abort_handle.is_some()
     }
