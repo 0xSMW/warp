@@ -98,8 +98,8 @@ impl LocalTaskUpdateQueue {
         None
     }
 
-    /*
     /// Local-only tasks do not have outbound updates in flight.
+    #[cfg(test)]
     pub fn is_idle(&self, task_id: &AmbientAgentTaskId) -> bool {
         /*
         return self.task_queues.get(task_id).is_none_or(|queue| {
@@ -109,7 +109,6 @@ impl LocalTaskUpdateQueue {
         let _ = (self, task_id);
         true
     }
-    */
 
     /// Removes a task from local tracking.
     pub fn remove_task(&mut self, task_id: &AmbientAgentTaskId) {
