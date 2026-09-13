@@ -60,6 +60,10 @@ use crate::themes::theme::WarpTheme;
 const BUTTON_ICON_SIZE: f32 = 22.;
 
 pub fn traffic_light_data(ctx: &AppContext, window_id: WindowId) -> Option<TrafficLightData> {
+    if cfg!(target_os = "macos") && crate::root_view::quake_mode_window_id() == Some(window_id) {
+        return None;
+    }
+
     // If native window frame is on, the traffic lights are already in the frame.
     if ctx
         .windows()
