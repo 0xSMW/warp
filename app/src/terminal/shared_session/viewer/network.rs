@@ -36,6 +36,8 @@ use session_sharing_protocol::common::{
     InputUpdate, SelectionUpdate, TelemetryContext, UserID, WriteToPtyRequestId, WriteToPtySeqNo,
 };
 #[cfg(any(test, feature = "integration_tests"))]
+use session_sharing_protocol::sharer::UpdatePendingUserRoleResponse;
+#[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::viewer::{DownstreamMessage, InitPayload, UpstreamMessage};
 #[cfg(any(test, feature = "integration_tests"))]
 use session_sharing_protocol::viewer::{
@@ -167,6 +169,13 @@ pub struct Network {
     selection_throttled_tx: async_channel::Sender<Selection>,
 
     #[cfg(any(test, feature = "integration_tests"))]
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     ws_proxy_rx: async_channel::Receiver<UpstreamMessage>,
 
     /// The participant ID we were assigned by the server.
@@ -275,6 +284,13 @@ impl Network {
 
     /// Creates a model that artifically declares that a shared session has been joined.
     #[cfg(any(test, feature = "integration_tests"))]
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Retained integration harness support while live session networking is disabled"
+        )
+    )]
     pub fn new_for_test(
         channel_event_proxy: ChannelEventListener,
         terminal_view: WeakViewHandle<TerminalView>,
