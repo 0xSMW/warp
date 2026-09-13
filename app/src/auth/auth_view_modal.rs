@@ -123,7 +123,7 @@ impl AuthRedirectPayload {
             #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
             let refresh_token = query_params
                 .get(AUTH_URL_REFRESH_TOKEN_QUERY_PARAM)
-                .map(|token| RefreshToken::new(token))
+                .map(RefreshToken::new)
                 .expect("refresh token presence was checked");
 
             #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
@@ -272,6 +272,13 @@ impl AuthView {
     /// Parses the given 'clipboard_content' string into a URL which is assumed to represent the
     /// OAuth redirect URL containing the user's refresh token after the user authenticated Warp.
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     fn handle_pasted_auth_url(&mut self, pasted_url: String, ctx: &mut ViewContext<Self>) {
         self.set_auth_token_input_editable(false, ctx);
         match AuthRedirectPayload::from_raw_url(pasted_url) {
@@ -305,6 +312,13 @@ impl AuthView {
     }
 
     #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
+    #[cfg_attr(
+        all(not(test), feature = "tui", feature = "test-util"),
+        allow(
+            dead_code,
+            reason = "Legacy helpers are compiled by the TUI test harness but are not exposed in Warp Local"
+        )
+    )]
     pub fn handle_login_later(&mut self, ctx: &mut ViewContext<Self>) {
         if FeatureFlag::SkipFirebaseAnonymousUser.is_enabled() {
             AuthManager::handle(ctx).update(ctx, |_, ctx| {
