@@ -1,7 +1,9 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use ai::api_keys::CustomEndpointSchema;
+use ai::api_keys::{
+    CustomEndpointDefinition, CustomEndpointId, CustomEndpointModel, CustomEndpointSchema,
+};
 use settings::Setting as _;
 use warpui::{App, SingletonEntity as _};
 use warpui_extras::secure_storage;
@@ -31,7 +33,7 @@ impl secure_storage::SecureStorage for FailingSecureStorage {
 }
 
 #[test]
-fn removal_succeeds_when_credential_cleanup_fails() {
+fn local_settings_removal_does_not_require_credential_storage() {
     App::test((), |mut app| async move {
         app.update(init_and_register_user_preferences);
         app.add_singleton_model(AISettings::new_with_defaults);
@@ -72,8 +74,24 @@ fn removal_succeeds_when_credential_cleanup_fails() {
             manager.set_custom_endpoint_definitions(definitions, ctx);
         });
 
-        assert!(app.update(|ctx| remove(0, ctx)).is_ok());
-        assert_eq!(write_attempts.get(), 1);
+        AISettings::handle(&app)
+            .update(&mut app, |settings, ctx| {
+                settings.custom_endpoints.load_value(
+                    CustomEndpointDefinitions::default(),
+                    true,
+                    ctx,
+                )
+            })
+            .unwrap();
+        app.update(|ctx| {
+            let model = CustomEndpointSettingsModel {
+                imports_legacy_endpoints: true,
+                settings_invalid: false,
+            };
+            let model_handle = ctx.add_model(|_| model);
+            model_handle.update(ctx, |model, ctx| model.sync_or_migrate(ctx));
+        });
+        assert_eq!(write_attempts.get(), 0);
         AISettings::handle(&app).read(&app, |settings, _| {
             assert!(settings.custom_endpoints.value().is_empty());
         });
