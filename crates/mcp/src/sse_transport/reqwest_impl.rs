@@ -47,7 +47,7 @@ impl SseClient for reqwest::Client {
         #[cfg(not(test))]
         {
             let _ = (uri, message, auth_token);
-            return Err(local_only_sse_transport_error());
+            Err(local_only_sse_transport_error())
         }
 
         #[cfg(test)]
@@ -74,7 +74,7 @@ impl SseClient for reqwest::Client {
         #[cfg(not(test))]
         {
             let _ = (uri, last_event_id, auth_token);
-            return Err(local_only_sse_transport_error());
+            Err(local_only_sse_transport_error())
         }
 
         #[cfg(test)]
