@@ -23,6 +23,8 @@ use telemetry::{
 #[cfg(test)]
 use url::Url;
 pub use user_info::{TuiUserInfoManager, TuiUserInfoManagerEvent, TuiUserInfoSnapshot};
+#[cfg(test)]
+use warp_core::telemetry::TelemetryEvent as _;
 use warpui::{AppContext, Entity, SingletonEntity};
 
 use crate::TuiMountFn;
