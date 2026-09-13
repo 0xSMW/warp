@@ -49,10 +49,6 @@ use crate::warp_managed_paths_watcher::warp_managed_skill_dirs;
 // }
 
 /// Finds local project skill files by discovering provider directories on the filesystem.
-///
-/// This is a local-only fallback for repositories whose repo metadata indexing fails. Successful
-/// local and remote project refreshes should use [`find_project_skill_files_in_tree`] so the
-/// normal metadata-backed path remains shared.
 pub(super) fn find_local_project_skill_files_on_filesystem(
     scan_root: &Path,
 ) -> Vec<LocalOrRemotePath> {
