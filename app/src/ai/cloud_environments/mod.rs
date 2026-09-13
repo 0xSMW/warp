@@ -10,9 +10,7 @@ pub use cloud_object_models::{
     GithubRepo,
 };
 #[cfg(test)]
-pub use cloud_object_models::{
-    AwsProviderConfig, BaseImage, GcpProviderConfig, ProvidersConfig, SourceRepo,
-};
+pub use cloud_object_models::{BaseImage, SourceRepo};
 use cloud_objects::cloud_object::Owner;
 use warpui::{AppContext, Entity, SingletonEntity as _, ViewContext};
 
