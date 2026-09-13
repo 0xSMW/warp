@@ -27,6 +27,13 @@ pub struct LSPServerInfo {
 }
 
 /// Creates a ToggleableItemsView configured for LSP server selection.
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 pub fn create_lsp_server_selector(
     server_info: Vec<LSPServerInfo>,
     repo_path: PathBuf,
@@ -92,6 +99,13 @@ pub fn create_lsp_server_selector(
 }
 
 /// Renders the complete LSP server selector block with header and checkboxes.
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 pub fn render_lsp_selector_block(
     action_view: &ViewHandle<ToggleableItemsView<LSPServerInfo>>,
     repo_path: &std::path::Path,
