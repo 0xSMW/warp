@@ -203,12 +203,6 @@ impl AppearanceManager {
             {
                 // Local bundles do not include the Dock tile plugin.
                 unsafe { ns_app.setApplicationIconImage(Some(&image)) };
-                workspace.setIcon_forFile_options(
-                    Some(&image),
-                    &bundle_path,
-                    NSWorkspaceIconCreationOptions::empty(),
-                );
-                workspace.noteFileSystemChanged_(&bundle_path);
                 return;
             }
 
@@ -254,13 +248,8 @@ impl AppearanceManager {
                 else {
                     return;
                 };
+                // Finder icon metadata invalidates Developer ID signatures; only update the Dock tile.
                 unsafe { ns_app.setApplicationIconImage(Some(&image)) };
-                workspace.setIcon_forFile_options(
-                    Some(&image),
-                    &bundle_path,
-                    NSWorkspaceIconCreationOptions::empty(),
-                );
-                workspace.noteFileSystemChanged_(&bundle_path);
                 return;
             }
             // Locate the plugin bundle.
