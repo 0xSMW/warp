@@ -91,8 +91,22 @@ mod code_editor_review_page;
 #[cfg(test)]
 mod code_indexing_page;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 pub(crate) mod custom_inference_modal;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod custom_router_view;
 mod delete_environment_confirmation_dialog;
 mod directory_color_add_picker;
@@ -110,29 +124,85 @@ pub mod mcp_servers_page;
 mod nav;
 pub mod pane_manager;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod platform;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod platform_page;
 mod privacy;
 mod privacy_page;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod referrals_page;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod remove_custom_endpoint_confirmation_dialog;
 mod scripting_page;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod set_default_model_modal;
 mod settings_file_footer;
 pub(crate) mod settings_page;
 mod show_blocks_view;
 mod tab_menu;
 mod teams_page;
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod telemetry;
 mod transfer_ownership_confirmation_modal;
 pub mod update_environment_form;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod warp_agent_page;
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+    )
+)]
 mod warp_drive_page;
 mod warpify_page;
 
@@ -1066,9 +1136,11 @@ fn build_nav_stops<F>(nav_items: &[SettingsNavItem], is_visible: F) -> Vec<NavSt
 where
     F: Fn(SettingsSection) -> bool,
 {
-    nav_items
-        .iter()
-        .enumerate()
+    #[cfg(test)]
+    let items = nav_items.iter().enumerate();
+    #[cfg(not(test))]
+    let items = nav_items.iter().map(|item| (0, item));
+    items
         .flat_map(|(_nav_index, item)| match item {
             SettingsNavItem::Page(section) => {
                 if is_visible(*section) {
@@ -1836,6 +1908,13 @@ impl SettingsView {
     }
 
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     fn handle_code_indexing_page_event(
         &mut self,
         event: &CodeIndexingPageEvent,
@@ -2099,6 +2178,9 @@ impl SettingsView {
             None => 0,
         };
 
+        #[cfg(not(test))]
+        let NavStop::Section(target_section) = stops[next_index];
+        #[cfg(test)]
         let target_section = match stops[next_index] {
             NavStop::Section(section) => section,
             #[cfg(test)]
@@ -2322,7 +2404,11 @@ impl View for SettingsView {
             .with_child(self.render_search_editor(appearance));
 
         // Render sidebar using nav_items.
-        for (_nav_index, nav_item) in self.nav_items.iter().enumerate() {
+        #[cfg(test)]
+        let nav_items = self.nav_items.iter().enumerate();
+        #[cfg(not(test))]
+        let nav_items = self.nav_items.iter().map(|item| (0, item));
+        for (_nav_index, nav_item) in nav_items {
             match nav_item {
                 SettingsNavItem::Page(section) => {
                     let section = *section;
