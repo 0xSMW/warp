@@ -44,6 +44,13 @@ pub(crate) struct TuiStartupTelemetryEvent {
 
 #[cfg(test)]
 impl TuiStartupTelemetryEvent {
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained startup telemetry test compatibility while telemetry collection is disabled"
+        )
+    )]
     pub(crate) fn from_environment() -> Self {
         Self {
             term_program: sanitize_term_program(std::env::var_os("TERM_PROGRAM")),
