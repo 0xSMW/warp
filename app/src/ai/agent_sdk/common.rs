@@ -116,6 +116,13 @@ pub(super) fn validate_agent_mode_base_model_id_for_scope(
 /// An error resolving an agent option, which we may have prompted the user for.
 #[cfg(test)]
 #[derive(Debug, thiserror::Error)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained error schema for disabled cloud CLI configuration commands"
+    )
+)]
 pub enum ResolveConfigurationError {
     /// The user canceled the operation, and we should exit.
     #[error("Operation canceled")]
@@ -130,6 +137,13 @@ pub enum ResolveConfigurationError {
 
 #[cfg(test)]
 #[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained selection schema for disabled cloud environment commands"
+    )
+)]
 pub enum EnvironmentChoice {
     /// The user explicitly chose not to use an environment.
     None,
@@ -213,6 +227,13 @@ impl EnvironmentChoice {
     }
 
     /// Keep the environment-update API available to disabled command modules.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained compatibility entry point for disabled cloud environment updates"
+        )
+    )]
     pub fn resolve_for_update(
         args: EnvironmentUpdateArgs,
         ctx: &AppContext,
