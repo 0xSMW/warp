@@ -10,6 +10,8 @@
 //! - `surfaced/` holds the fully hydrated records currently exposed to Claude.
 //! - `pending-hook-output.json` plus `pending-hook-output.ack` coordinates the
 //!   handoff between Warp's driver and the Claude hook process.
+#[cfg(test)]
+use std::fmt::Write as _;
 use std::fs;
 #[cfg(test)]
 use std::io::Write;
