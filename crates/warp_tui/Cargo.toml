@@ -123,6 +123,7 @@ warp_editor = { workspace = true, features = ["test-util"] }
 command.workspace = true
 pathfinder_color.workspace = true
 warp = { workspace = true, features = ["tui", "test-util"] }
+warpui = { workspace = true, features = ["test-util"] }
 [[bench]]
 name = "transcript_bench"
 harness = false
