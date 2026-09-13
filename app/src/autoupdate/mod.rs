@@ -339,6 +339,13 @@ impl AutoupdateState {
     /// Trigger the update check to /client_version/daily, but only go through with sending the
     /// request if we haven't done that today.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     pub fn maybe_daily_check_for_update(&mut self, ctx: &mut ModelContext<Self>) {
         self.enqueue_request(RequestType::DailyCheck, ctx)
     }
@@ -880,6 +887,13 @@ pub enum RequestType {
     ManualCheck,
     /// We automatically poll for updates every AUTOUPDATE_POLL. This can also trigger the daily
     /// request to /client_version/daily if it hasn't been done yet today.
+    #[cfg_attr(
+        not(test),
+        allow(
+            dead_code,
+            reason = "Automatic update polling is disabled in local-only builds."
+        )
+    )]
     Poll,
     /// Only go through with the check to /client_version/daily if it hasn't been done yet today.
     /// Otherwise, abort the check. This is useful if we want to eagerly send the check b/c we
@@ -890,11 +904,7 @@ pub enum RequestType {
 
 impl Clone for RequestType {
     fn clone(&self) -> Self {
-        match self {
-            Self::ManualCheck => Self::ManualCheck,
-            Self::Poll => Self::Poll,
-            Self::DailyCheck => Self::DailyCheck,
-        }
+        *self
     }
 }
 
@@ -1021,6 +1031,8 @@ pub fn apply_update(
     initiating_workspace: &mut Workspace,
     ctx: &mut ViewContext<Workspace>,
 ) -> Result<ReadyForRelaunch> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = (initiating_workspace, ctx);
     cfg_if::cfg_if! {
         if #[cfg(any(target_os = "macos", windows))] {
             // macOS applies the update during the download step. Windows does it during
