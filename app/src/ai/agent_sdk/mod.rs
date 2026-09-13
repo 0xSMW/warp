@@ -13,8 +13,6 @@ pub use driver::AgentDriver;
 #[cfg(test)]
 use driver::AgentDriverError;
 #[cfg(test)]
-pub(crate) use driver::harness::ClaudeHarness;
-#[cfg(test)]
 pub(crate) use driver::harness::{task_env_vars, validate_cli_installed};
 #[cfg(test)]
 use tracing::Instrument as _;
@@ -625,10 +623,10 @@ impl AgentDriverRunner {
         Ok((driver_options, task))
     }
 
+    /* Cloud task creation is disabled in local-only mode.
     /// Creates a new task on the server for this agent run, sets the task ID on the driver
     /// options, and updates the Server API provider so that all subsequent requests to warp-server
     /// contain this new task ID.
-    /* Cloud task creation is disabled in local-only mode.
     async fn initialize_new_task(
         foreground: &ModelSpawner<Self>,
         server_api: &Arc<dyn AIClient>,
