@@ -540,6 +540,13 @@ pub mod text {
     }
 
     /// Report the run ID with a link to the Oz dashboard.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained output compatibility for disabled cloud runs"
+        )
+    )]
     pub fn run_started<W: Write>(run_id: &str, w: &mut W) -> io::Result<()> {
         let run_url = super::run_url(run_id);
         writeln!(w, "Run ID: {run_id}")?;
@@ -547,6 +554,13 @@ pub mod text {
     }
 
     /// Report that a shared session has been established.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained output compatibility for disabled cloud sharing"
+        )
+    )]
     pub fn shared_session_established<W: Write>(join_url: &str, w: &mut W) -> io::Result<()> {
         writeln!(w, "Sharing session at: {join_url}")
     }
@@ -675,9 +689,30 @@ pub mod json {
     #[derive(Serialize)]
     #[serde(tag = "event_type", rename_all = "snake_case")]
     enum JsonSystemEvent<'a> {
-        ConversationStarted { conversation_id: &'a str },
-        RunStarted { run_id: &'a str, run_url: &'a str },
-        SharedSessionEstablished { join_url: &'a str },
+        ConversationStarted {
+            conversation_id: &'a str,
+        },
+        #[cfg_attr(
+            test,
+            allow(
+                dead_code,
+                reason = "Retained output compatibility for disabled cloud runs"
+            )
+        )]
+        RunStarted {
+            run_id: &'a str,
+            run_url: &'a str,
+        },
+        #[cfg_attr(
+            test,
+            allow(
+                dead_code,
+                reason = "Retained output compatibility for disabled cloud sharing"
+            )
+        )]
+        SharedSessionEstablished {
+            join_url: &'a str,
+        },
     }
 
     #[derive(Serialize)]
@@ -1350,6 +1385,13 @@ pub mod json {
     }
 
     /// Write a run_started system event to stdout.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained output compatibility for disabled cloud runs"
+        )
+    )]
     pub fn run_started<W: Write>(run_id: &str, w: &mut W) -> io::Result<()> {
         let run_url = super::run_url(run_id);
         let message = JsonMessage::System(JsonSystemEvent::RunStarted {
@@ -1360,6 +1402,13 @@ pub mod json {
     }
 
     /// Write a shared_session_established system event to stdout.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained output compatibility for disabled cloud sharing"
+        )
+    )]
     pub fn shared_session_established<W: Write>(join_url: &str, w: &mut W) -> io::Result<()> {
         let message = JsonMessage::System(JsonSystemEvent::SharedSessionEstablished { join_url });
         write_message(&message, w)
@@ -1411,6 +1460,13 @@ use crate::code::editor_management::CodeSource;
 
 /// Constructs the Oz dashboard URL for a given run ID.
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained output compatibility for disabled cloud runs"
+    )
+)]
 fn run_url(run_id: &str) -> String {
     let oz_root_url = ChannelState::oz_root_url();
     format!("{oz_root_url}/runs/{run_id}")
