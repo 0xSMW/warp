@@ -101,6 +101,13 @@ pub(crate) enum ShareSessionError {
     /// The session-sharing channel was dropped before completing.
     #[cfg(test)]
     #[error("Session sharing was interrupted")]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained session-sharing error schema for disabled cloud driver tests"
+        )
+    )]
     Interrupted,
 }
 
