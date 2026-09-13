@@ -66,10 +66,7 @@ pub fn builtin_bearer_token(credentials: &Credentials) -> Option<String> {
 pub fn factory_mcp_installation(_bearer_token: &str) -> TemplatableMCPServerInstallation {
     #[cfg(test)]
     {
-        return factory_mcp_installation_for_server_root(
-            &ChannelState::server_root_url(),
-            _bearer_token,
-        );
+        factory_mcp_installation_for_server_root(&ChannelState::server_root_url(), _bearer_token)
     }
 
     #[cfg(not(test))]
