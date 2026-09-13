@@ -118,6 +118,13 @@ impl TemplatableMCPServerManager {
     /// parameter (the CSRF token that rmcp embedded in the authorization URL). This avoids
     /// encoding routing data in the redirect URI, keeping it RFC 6749 §3.1.2.2 compliant.
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only entry point for disabled legacy MCP auth and cloud CLI flows"
+        )
+    )]
     pub fn handle_oauth_callback(&mut self, url: &Url) -> anyhow::Result<()> {
         // Ensure the URL has the expected path
         if url.path() != "/oauth2callback" {
@@ -378,7 +385,7 @@ impl TemplatableMCPServerManager {
                 #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
                 AuthManagerEvent::AttemptedLoginGatedFeature { .. }
                 | AuthManagerEvent::LoginOverrideDetected(_) => {}
-                #[cfg(test)]
+                #[cfg(any(test, all(feature = "tui", feature = "test-util")))]
                 AuthManagerEvent::ReceivedDeviceAuthorizationCode { .. } => {}
             });
 
@@ -791,6 +798,13 @@ impl TemplatableMCPServerManager {
 
     /// Spawns an ephemeral MCP server started via the CLI (`oz agent run --mcp`).
     #[cfg(test)]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained test-only entry point for disabled legacy MCP auth and cloud CLI flows"
+        )
+    )]
     pub fn spawn_cli_ephemeral_server(
         &mut self,
         installation: TemplatableMCPServerInstallation,
