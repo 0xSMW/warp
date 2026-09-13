@@ -1,8 +1,8 @@
 // Re-export types from cloud_objects.
-#[cfg(test)]
-pub use cloud_objects::ids::ApiKeyUid;
 #[allow(unused_imports)]
 pub use cloud_objects::ids::GenericStringObjectId;
+#[cfg(test)]
+pub use cloud_objects::ids::{ApiKeyUid, ServerIdAndType};
 pub use cloud_objects::ids::{
     ClientId, HashableId, HashedSqliteId, ObjectUid, ServerId, SyncId, ToServerId,
     parse_sqlite_id_to_uid,
