@@ -10,6 +10,7 @@ use instant::Instant;
 use string_offset::CharOffset;
 use tempfile::TempDir;
 use warp::appearance::Appearance;
+use warp::search::slash_command_menu::static_commands::Availability;
 #[cfg(feature = "voice_input")]
 use warp::settings::TuiVoiceSettings;
 use warp::settings::{
@@ -27,14 +28,14 @@ use warp::tui_export::{
     LLMPreferences, LinkedWorkflowData, LongRunningCommandControlState, MessageId,
     OutputStatusUpdateCallback, ParsedSlashCommandInput, PtyIntent, PtyIntentEvent,
     ResolvedTeamScope, ServerOutputId, Session, Shared, SizeInfo, SizeUpdate,
-    SlashCommandDataSource as _, SlashCommandKind, TaskId, TranscriptScope, TuiMcpAction,
-    TuiMcpServerId, TuiOnboardingMarker, TuiOnboardingMarkers, TuiUpArrowHistoryItemKind,
-    UserTakeOverReason, UserWorkspaces, WarpConfig, WarpConfigUpdateEvent,
-    export_conversation_markdown, forkable_tui_conversation_for_test, queue_tui_permission_action,
-    register_tui_session_view_test_singletons, set_tui_default_team_admin_for_test,
-    set_tui_workspace_teams_for_test, slash_commands,
+    SlashCommandDataSource as _, SlashCommandKind, SlashCommandSurfaces, StaticCommand, TaskId,
+    TranscriptScope, TuiMcpAction, TuiMcpServerId, TuiOnboardingMarker, TuiOnboardingMarkers,
+    TuiUpArrowHistoryItemKind, UserTakeOverReason, UserWorkspaces, WarpConfig,
+    WarpConfigUpdateEvent, export_conversation_markdown, forkable_tui_conversation_for_test,
+    queue_tui_permission_action, register_tui_session_view_test_singletons,
+    set_tui_default_team_admin_for_test, set_tui_workspace_teams_for_test, slash_commands,
 };
-use warp_core::channel::{Channel, ChannelState};
+use warp_core::channel::Channel;
 use warp_core::features::FeatureFlag;
 use warp_core::settings::Setting as _;
 use warp_editor::model::CoreEditorModel;
@@ -85,7 +86,7 @@ use super::{
     SESSION_COMPOSER_SHORTCUTS_ACTIVE_FLAG, VOICE_INPUT_BINDING_NAME, VOICE_USAGE_HINT,
     voice_argument_is_empty, voice_command_argument,
 };
-use crate::agent_block::{TuiAIBlock, upgrade_url};
+use crate::agent_block::TuiAIBlock;
 use crate::autoupdate::TuiAutoupdater;
 use crate::editor_element::TuiEditorAction;
 use crate::inline_menu::MAX_INLINE_MENU_ROWS;
@@ -127,6 +128,19 @@ use crate::zero_state_animation::{
 struct FocusTestFixture {
     window_id: warpui_core::WindowId,
     sessions: ModelHandle<TuiSessions>,
+}
+
+// Exercise retained dispatch handlers without registering removed commands in the local catalog.
+fn legacy_command(name: &'static str, kind: SlashCommandKind) -> StaticCommand {
+    StaticCommand {
+        name,
+        kind,
+        description: "Test-only legacy command",
+        supported_surfaces: SlashCommandSurfaces::TuiOnly,
+        availability: Availability::ALWAYS,
+        auto_enter_ai_mode: false,
+        argument: None,
+    }
 }
 
 #[test]
@@ -209,7 +223,7 @@ fn mcp_menu_footer_replaces_status_with_controls() {
 }
 
 #[test]
-fn out_of_credits_ctrl_o_binding_opens_upgrade() {
+fn out_of_credits_ctrl_o_binding_rejects_upgrade_in_local_mode() {
     App::test((), |mut app| async move {
         app.update(crate::keybindings::init);
         app.read(|ctx| {
@@ -226,7 +240,6 @@ fn out_of_credits_ctrl_o_binding_opens_upgrade() {
 
         let fixture = focus_test_fixture(&mut app);
         let (view, _) = add_focus_test_session(&mut app, &fixture, true);
-        let expected_upgrade_url = app.read(upgrade_url);
         app.read(|ctx| {
             let ctrl_o = Trigger::Keystrokes(vec![Keystroke::parse("ctrl-o").unwrap()]);
             let input_view_id = view.as_ref(ctx).input_view.id();
@@ -248,7 +261,13 @@ fn out_of_credits_ctrl_o_binding_opens_upgrade() {
         view.update(&mut app, |view, ctx| {
             view.handle_action(&TuiTerminalSessionAction::OpenUpgradeUrl, ctx);
         });
-        assert_eq!(opened_urls.borrow().as_slice(), &[expected_upgrade_url]);
+        assert!(opened_urls.borrow().is_empty());
+        view.read(&app, |view, _| {
+            assert_eq!(
+                view.transient_hint.current().map(|(text, _)| text),
+                Some("Upgrading is unavailable in the local TUI build"),
+            );
+        });
     });
 }
 
@@ -294,11 +313,10 @@ fn usage_slash_command_opens_panel_and_enables_upgrade_binding() {
 }
 
 #[test]
-fn upgrade_slash_command_is_always_available_and_opens_the_upgrade_page() {
+fn upgrade_slash_command_is_hidden_and_rejected_in_local_mode() {
     App::test((), |mut app| async move {
         let fixture = focus_test_fixture(&mut app);
         let (view, _) = add_focus_test_session(&mut app, &fixture, true);
-        let expected_upgrade_url = app.read(upgrade_url);
         let opened_urls = Rc::new(RefCell::new(Vec::new()));
         let opened_urls_for_callback = opened_urls.clone();
         app.update(|ctx| {
@@ -311,23 +329,31 @@ fn upgrade_slash_command_is_always_available_and_opens_the_upgrade_page() {
         view.update(&mut app, |view, ctx| {
             view.input_view
                 .update(ctx, |input, ctx| input.set_text("/upgrade", ctx));
-            assert!(matches!(
+            assert!(!matches!(
                 view.slash_commands_source
                     .as_ref(ctx)
                     .parse_input("/upgrade", ctx),
                 ParsedSlashCommandInput::SlashCommand(_)
             ));
-            view.execute_tui_slash_command(&slash_commands::UPGRADE, None, ctx);
+            view.execute_tui_slash_command(
+                &legacy_command("/upgrade", SlashCommandKind::Upgrade),
+                None,
+                ctx,
+            );
         });
 
-        assert_eq!(opened_urls.borrow().as_slice(), &[expected_upgrade_url]);
+        assert!(opened_urls.borrow().is_empty());
         view.read(&app, |view, ctx| {
             assert!(view.input_view.as_ref(ctx).is_empty(ctx));
+            assert_eq!(
+                view.transient_hint.current().map(|(text, _)| text),
+                Some("Upgrading is unavailable in the local TUI build"),
+            );
         });
     });
 }
 #[test]
-fn manage_billing_slash_command_opens_the_default_team_billing_page_for_admins() {
+fn manage_billing_slash_command_is_hidden_and_rejected_even_for_admins() {
     App::test((), |mut app| async move {
         let fixture = focus_test_fixture(&mut app);
         let (view, _) = add_focus_test_session(&mut app, &fixture, true);
@@ -350,22 +376,26 @@ fn manage_billing_slash_command_opens_the_default_team_billing_page_for_admins()
         });
 
         view.update(&mut app, |view, ctx| {
-            assert!(matches!(
+            assert!(!matches!(
                 view.slash_commands_source
                     .as_ref(ctx)
                     .parse_input("/manage-billing", ctx),
                 ParsedSlashCommandInput::SlashCommand(_)
             ));
-            view.execute_tui_slash_command(&slash_commands::MANAGE_BILLING, None, ctx);
+            view.execute_tui_slash_command(
+                &legacy_command("/manage-billing", SlashCommandKind::ManageBilling),
+                None,
+                ctx,
+            );
         });
 
-        assert_eq!(
-            opened_urls.borrow().as_slice(),
-            &[format!(
-                "{}/admin/test_uid00000000000123/billing",
-                ChannelState::server_root_url().trim_end_matches('/')
-            )]
-        );
+        assert!(opened_urls.borrow().is_empty());
+        view.read(&app, |view, _| {
+            assert_eq!(
+                view.transient_hint.current().map(|(text, _)| text),
+                Some("Billing management is unavailable in the local TUI build"),
+            );
+        });
     });
 }
 
@@ -390,7 +420,11 @@ fn manage_billing_slash_command_rejects_users_without_an_admin_team() {
                     .parse_input("/manage-billing", ctx),
                 ParsedSlashCommandInput::SlashCommand(_)
             ));
-            view.execute_tui_slash_command(&slash_commands::MANAGE_BILLING, None, ctx);
+            view.execute_tui_slash_command(
+                &legacy_command("/manage-billing", SlashCommandKind::ManageBilling),
+                None,
+                ctx,
+            );
         });
 
         assert!(opened_urls.borrow().is_empty());
@@ -400,7 +434,7 @@ fn manage_billing_slash_command_rejects_users_without_an_admin_team() {
                     .current()
                     .map(|(text, _)| text.to_owned())
             }),
-            Some("Billing management is only available to team admins".to_owned())
+            Some("Billing management is unavailable in the local TUI build".to_owned())
         );
     });
 }
@@ -433,7 +467,11 @@ fn api_keys_slash_command_opens_inline_and_clears_the_input() {
         view.update(&mut app, |view, ctx| {
             view.input_view
                 .update(ctx, |input, ctx| input.set_text("/api-keys", ctx));
-            view.execute_tui_slash_command(&slash_commands::API_KEYS, None, ctx);
+            view.execute_tui_slash_command(
+                &legacy_command("/api-keys", SlashCommandKind::ApiKeys),
+                None,
+                ctx,
+            );
         });
 
         view.read(&app, |view, ctx| {
@@ -454,21 +492,40 @@ fn api_keys_slash_command_opens_inline_and_clears_the_input() {
 }
 
 #[test]
-fn connect_grok_slash_command_opens_the_api_keys_menu_in_grok_flow() {
+fn connect_grok_slash_command_is_hidden_and_rejected_in_local_mode() {
     App::test((), |mut app| async move {
         let fixture = focus_test_fixture(&mut app);
         let (view, _) = add_focus_test_session(&mut app, &fixture, true);
+        let opened_urls = Rc::new(RefCell::new(Vec::new()));
+        let opened_urls_for_callback = opened_urls.clone();
+        app.update(|ctx| {
+            ctx.set_before_open_url(move |url, _| {
+                opened_urls_for_callback.borrow_mut().push(url.to_owned());
+                url.to_owned()
+            });
+        });
         view.update(&mut app, |view, ctx| {
             view.input_view
                 .update(ctx, |input, ctx| input.set_text("/connect-grok", ctx));
-            view.execute_tui_slash_command(&slash_commands::CONNECT_GROK, None, ctx);
+            assert!(!matches!(
+                view.slash_commands_source
+                    .as_ref(ctx)
+                    .parse_input("/connect-grok", ctx),
+                ParsedSlashCommandInput::SlashCommand(_)
+            ));
+            view.execute_tui_slash_command(
+                &legacy_command("/connect-grok", SlashCommandKind::ConnectGrok),
+                None,
+                ctx,
+            );
         });
 
+        assert!(opened_urls.borrow().is_empty());
         view.read(&app, |view, ctx| {
-            assert!(view.api_keys_menu.as_ref(ctx).is_open(ctx));
+            assert!(!view.api_keys_menu.as_ref(ctx).is_open(ctx));
             assert_eq!(
-                view.suggestions_mode.as_ref(ctx).mode(),
-                TuiInputSuggestionsMode::ApiKeys
+                view.transient_hint.current().map(|(text, _)| text),
+                Some("Connecting Grok is unavailable in the local TUI build"),
             );
             assert!(view.input_view.as_ref(ctx).is_empty(ctx));
         });
@@ -536,7 +593,11 @@ fn ctrl_x_clears_the_selected_api_key_through_the_real_keymap() {
             })
             .unwrap();
         view.update(&mut app, |view, ctx| {
-            view.execute_tui_slash_command(&slash_commands::API_KEYS, None, ctx);
+            view.execute_tui_slash_command(
+                &legacy_command("/api-keys", SlashCommandKind::ApiKeys),
+                None,
+                ctx,
+            );
             ctx.focus(&view.input_view);
         });
         let before_clear = render_session(&mut app, &view, 100, 40).join("\n");
@@ -2351,7 +2412,7 @@ fn fork_slash_command_keeps_a_conversation_without_a_resume_id_selected() {
 }
 
 #[test]
-fn fork_slash_command_replaces_the_surface_and_renders_original_resume_guidance() {
+fn hidden_fork_command_retains_legacy_surface_and_resume_guidance_coverage() {
     App::test((), |mut app| async move {
         let fixture = focus_test_fixture(&mut app);
         let (view, _) = add_focus_test_session(&mut app, &fixture, true);
@@ -2394,11 +2455,18 @@ fn fork_slash_command_replaces_the_surface_and_renders_original_resume_guidance(
                 ctx,
             );
             assert!(
-                view.slash_commands_source
+                !view
+                    .slash_commands_source
                     .as_ref(ctx)
                     .active_commands()
                     .any(|(_, command)| command.kind == SlashCommandKind::Fork)
             );
+            assert!(!matches!(
+                view.slash_commands_source
+                    .as_ref(ctx)
+                    .parse_input("/fork", ctx),
+                ParsedSlashCommandInput::SlashCommand(_)
+            ));
             view.execute_tui_slash_command(&slash_commands::FORK, None, ctx);
         });
 
@@ -2895,7 +2963,7 @@ fn input_adjacent_surfaces_follow_figma_outer_edge_alignment() {
 
         view.update(&mut app, |view, ctx| {
             view.input_view.update(ctx, |input, ctx| {
-                input.set_text("/", ctx);
+                input.set_text("/them", ctx);
             });
         });
         futures_lite::future::yield_now().await;
@@ -2904,7 +2972,7 @@ fn input_adjacent_surfaces_follow_figma_outer_edge_alignment() {
         let (slash_command_row, slash_command_column) = lines
             .iter()
             .enumerate()
-            .find(|(_, line)| line.contains("/agent"))
+            .find(|(_, line)| line.contains("/theme"))
             .map(|(row, line)| (row, first_visible_column(line)))
             .unwrap_or_else(|| panic!("slash-command menu must render:\n{}", lines.join("\n")));
         assert_eq!(
@@ -6422,10 +6490,8 @@ fn vim_mode_slash_command_persists_toggle() {
     });
 }
 
-/// Verifies that `/copy-debugging-id` is available for the TUI's eagerly-created blank
-/// conversation, matching the GUI's active-conversation semantics.
 #[test]
-fn copy_debugging_id_available_in_active_commands_at_zero_state() {
+fn copy_debugging_id_is_unavailable_at_zero_state() {
     App::test((), |mut app| async move {
         let fixture = focus_test_fixture(&mut app);
         let (view, _) = add_focus_test_session(&mut app, &fixture, true);
@@ -6437,16 +6503,15 @@ fn copy_debugging_id_available_in_active_commands_at_zero_state() {
                 .active_commands()
                 .any(|(_, cmd)| cmd.kind == SlashCommandKind::CopyDebuggingId);
             assert!(
-                has_copy_debugging_id,
-                "/copy-debugging-id must be available for the blank active conversation",
+                !has_copy_debugging_id,
+                "/copy-debugging-id must be absent from the local command catalog",
             );
         });
     });
 }
 
-/// Verifies that `/handoff` remains available for the TUI's blank active conversation.
 #[test]
-fn handoff_is_available_at_zero_state() {
+fn handoff_is_unavailable_at_zero_state_even_with_feature_flags_enabled() {
     App::test((), |mut app| async move {
         let _oz_handoff = FeatureFlag::OzHandoff.override_enabled(true);
         let _local_cloud = FeatureFlag::HandoffLocalCloud.override_enabled(true);
@@ -6461,16 +6526,15 @@ fn handoff_is_available_at_zero_state() {
                 .collect();
 
             assert!(
-                active_names.contains(&slash_commands::MOVE_TO_CLOUD.name),
-                "/handoff must be active at zero state",
+                !active_names.contains(&slash_commands::MOVE_TO_CLOUD.name),
+                "/handoff must be absent from the local command catalog",
             );
         });
     });
 }
 
-/// Verifies that the full TUI session renders the no-token error hint in its footer.
 #[test]
-fn copy_debugging_id_footer_hint_renders_in_session() {
+fn invalid_theme_footer_hint_renders_in_session() {
     App::test((), |mut app| async move {
         app.update(crate::keybindings::init);
         let fixture = focus_test_fixture(&mut app);
@@ -6478,9 +6542,9 @@ fn copy_debugging_id_footer_hint_renders_in_session() {
 
         view.update(&mut app, |view, ctx| {
             view.input_view.update(ctx, |input, ctx| {
-                input.set_text(slash_commands::COPY_DEBUGGING_ID.name, ctx);
+                input.set_text("/theme invalid", ctx);
             });
-            view.handle_submitted_input(slash_commands::COPY_DEBUGGING_ID.name, ctx);
+            view.handle_submitted_input("/theme invalid", ctx);
         });
 
         // Render the full session and verify the error hint appears in the
@@ -6488,8 +6552,8 @@ fn copy_debugging_id_footer_hint_renders_in_session() {
         // the footer row at the bottom of the session canvas).
         let rendered = render_session(&mut app, &view, 80, 24).join("\n");
         assert!(
-            rendered.contains(super::COPY_DEBUGGING_ID_NO_TOKEN_HINT),
-            "rendered session must contain the no-token hint in the footer; got:\n{rendered}",
+            rendered.contains(super::THEME_INVALID_ARGUMENT_HINT),
+            "rendered session must contain the invalid-theme hint in the footer; got:\n{rendered}",
         );
     });
 }
