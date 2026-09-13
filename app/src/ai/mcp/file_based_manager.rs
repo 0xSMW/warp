@@ -791,6 +791,13 @@ enum FileBasedMCPServerType {
 
 #[cfg(test)]
 #[derive(Clone, Debug)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained scan metadata for test-only cloud environment MCP setup"
+    )
+)]
 pub struct CloudEnvMcpScanServer {
     pub uuid: Uuid,
     pub name: String,
