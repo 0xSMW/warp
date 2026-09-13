@@ -663,8 +663,6 @@ impl SettingsImportView {
                         );
                     }
                     if let Some(blur_radius) = opacity_settings.blur_radius {
-                        ctx.windows()
-                            .set_all_windows_background_blur_radius(blur_radius);
                         report_if_error!(
                             window_settings
                                 .background_blur_radius
