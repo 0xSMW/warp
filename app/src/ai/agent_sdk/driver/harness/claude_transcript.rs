@@ -340,6 +340,13 @@ pub(crate) fn rehydrate_claude_transcript(
 /// - `<config_root>/projects/<encoded(storage_cwd)>/<uuid>/subagents/<stem>.jsonl` — subagents
 /// - `<config_root>/todos/<stem>.json` — per-agent todo lists (same location as cloud resume)
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained transcript compatibility for disabled cloud continuation UI"
+    )
+)]
 pub(crate) fn write_envelope_for_local_continuation(
     envelope: &ClaudeTranscriptEnvelope,
     storage_cwd: &Path,
@@ -400,6 +407,13 @@ pub(crate) fn write_envelope_for_local_continuation(
 /// `~/.claude/projects/<encoded(home_dir)>/` so Claude's per-project session lookup finds it
 /// when the user runs `claude --resume <uuid>` from their home directory.
 #[cfg(test)]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained transcript compatibility for disabled cloud continuation UI"
+    )
+)]
 pub(crate) fn rehydrate_claude_transcript_from_reader(
     reader: impl Read,
 ) -> Result<ClaudeLocalContinuation> {
