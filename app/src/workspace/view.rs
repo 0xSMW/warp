@@ -14531,7 +14531,9 @@ impl Workspace {
     #[cfg(target_os = "macos")]
     pub fn sync_window_button_visibility(&self, ctx: &mut ViewContext<Self>) {
         use warpui::platform::mac::WindowExt;
-        let show = if FeatureFlag::FullScreenZenMode.is_enabled()
+        let show = if quake_mode_window_id() == Some(ctx.window_id()) {
+            false
+        } else if FeatureFlag::FullScreenZenMode.is_enabled()
             && TabSettings::as_ref(ctx)
                 .workspace_decoration_visibility
                 .value()
@@ -18516,8 +18518,25 @@ impl Workspace {
         ctx: &mut ViewContext<Self>,
     ) {
         match event {
-            WindowSettingsChangedEvent::BackgroundOpacity { .. } => {
+            WindowSettingsChangedEvent::BackgroundOpacity { .. }
+            | WindowSettingsChangedEvent::HotkeyBackgroundOpacity { .. } => {
                 ctx.notify();
+            }
+            WindowSettingsChangedEvent::BackgroundBlurRadius { .. }
+            | WindowSettingsChangedEvent::HotkeyBackgroundBlurRadius { .. } => {
+                #[cfg(target_os = "macos")]
+                {
+                    use warpui::platform::mac::WindowExt;
+                    let settings = WindowSettings::as_ref(ctx);
+                    let radius = if quake_mode_window_id() == Some(ctx.window_id()) {
+                        *settings.hotkey_background_blur_radius
+                    } else {
+                        *settings.background_blur_radius
+                    };
+                    if let Some(window) = ctx.windows().platform_window(ctx.window_id()) {
+                        window.as_ref().set_background_blur_radius(radius);
+                    }
+                }
             }
             WindowSettingsChangedEvent::BackgroundBackdrop { .. } => {
                 let backdrop = *WindowSettings::as_ref(ctx).background_backdrop;
