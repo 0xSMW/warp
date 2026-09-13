@@ -240,6 +240,11 @@ pub enum AIRequestUsageModelEvent {
 }
 
 impl AIRequestUsageModel {
+    #[cfg(test)]
+    pub fn last_update_time(&self) -> Option<Instant> {
+        self.last_update_time
+    }
+
     pub fn new(ai_client: Arc<dyn AIClient>, ctx: &mut ModelContext<Self>) -> Self {
         // Check if the user has cached request limit info from before.
         // This is only used to show the latest known value before we finish refreshing from the server below.
