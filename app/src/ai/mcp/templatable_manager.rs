@@ -120,6 +120,13 @@ struct SpawnedServerInfo {
     abort_handle: AbortHandle,
     #[cfg(test)]
     #[cfg(not(target_family = "wasm"))]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained OAuth handoff for the test-only legacy callback path"
+        )
+    )]
     oauth_result_tx: async_channel::Sender<oauth::CallbackResult>,
 }
 
@@ -287,10 +294,24 @@ impl TemplatableMCPServerManager {
             .unwrap_or_default()
     }
     #[cfg(all(not(target_family = "wasm"), test))]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained credential UI queries for test-only legacy MCP settings"
+        )
+    )]
     pub fn authorization_url(&self, uuid: Uuid) -> Option<&str> {
         self.authorization_urls.get(&uuid).map(String::as_str)
     }
     #[cfg(all(not(target_family = "wasm"), test))]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained credential UI queries for test-only legacy MCP settings"
+        )
+    )]
     pub fn has_credentials(&self, installation_uuid: Uuid, app: &warpui::AppContext) -> bool {
         if let Some(hash) = FileBasedMCPManager::as_ref(app).get_hash_by_uuid(installation_uuid) {
             return self.file_based_server_credentials.contains_key(&hash);
@@ -299,6 +320,13 @@ impl TemplatableMCPServerManager {
             .is_some_and(|uuid| self.server_credentials.contains_key(&uuid))
     }
     #[cfg(all(not(target_family = "wasm"), test))]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained credential UI queries for test-only legacy MCP settings"
+        )
+    )]
     pub fn can_log_out(&self, installation_uuid: Uuid, app: &warpui::AppContext) -> bool {
         self.has_credentials(installation_uuid, app)
             || self
