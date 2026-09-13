@@ -1,5 +1,5 @@
 use byte_unit::Byte;
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 use instant::Duration;
 use serde::{Deserialize, Serialize};
 use session_sharing_protocol::common::{Role, Scrollback, ScrollbackBlock, SessionId};
@@ -41,7 +41,7 @@ pub const COPY_LINK_TEXT: &str = "Sharing link copied";
 /// to send selections even when it updates fast, so it appears live.
 /// Our throttle implementation throttles on the trailing edge (does not drop messages at the end, so the
 /// most up to date will always be sent after some delay)
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 const SELECTION_THROTTLE_PERIOD: Duration = Duration::from_millis(20);
 
 /// `SessionSourceType` paired with the orchestrator `task_id` that rides
@@ -373,13 +373,19 @@ pub fn connect_endpoint(path: String) -> Option<String> {
     Some(format!("{base}{path}"))
 }
 
+#[cfg(all(not(test), feature = "integration_tests"))]
+pub fn connect_endpoint(path: String) -> Option<String> {
+    let _ = path;
+    None
+}
+
 /// The event number for events sent to the server. The newtype
 /// ensures that events are incremented correctly.
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 struct EventNumber(usize);
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 impl EventNumber {
     fn new() -> Self {
         Self(0)
@@ -396,7 +402,7 @@ impl EventNumber {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 impl From<EventNumber> for usize {
     fn from(value: EventNumber) -> Self {
         value.0
@@ -446,7 +452,7 @@ impl From<&Role> for InteractionState {
 /// Decode scrollback blocks from their JSON wire format into [`SerializedBlock`]s.
 ///
 /// Blocks that fail to deserialize are silently dropped.
-#[cfg(test)]
+#[cfg(any(test, feature = "integration_tests"))]
 pub(crate) fn decode_scrollback(scrollback: &Scrollback) -> Vec<SerializedBlock> {
     scrollback
         .blocks
