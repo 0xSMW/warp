@@ -71,6 +71,13 @@ impl PendingCliHarnessPromptQueue {
     // The CLI-harness delivery path is disabled in local-only production builds; this helper is
     // retained for tests and integration builds.
     #[cfg(any(test, feature = "integration_tests"))]
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Shared-session delivery is tested without a live integration driver consumer"
+        )
+    )]
     pub(crate) fn drain(&mut self, task_id: AmbientAgentTaskId) -> Vec<QueuedCliHarnessPrompt> {
         self.pending.remove(&task_id).unwrap_or_default()
     }
@@ -78,6 +85,13 @@ impl PendingCliHarnessPromptQueue {
     /// Drops any prompts queued for `task_id` without delivering them, e.g. when its CLI
     /// session's driver run ends before the harness ever started.
     #[cfg(any(test, feature = "integration_tests"))]
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Shared-session cleanup is tested without a live integration driver consumer"
+        )
+    )]
     pub(crate) fn clear(&mut self, task_id: AmbientAgentTaskId) {
         self.pending.remove(&task_id);
     }
