@@ -63,9 +63,23 @@ pub enum ChildSignal {
     Lifecycle(api::LifecycleEventType),
     /// A REST seed row (cold-start seed / restore fetch). Boxed because the
     /// task row dwarfs the other variants.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Cloud seed compatibility is retained for unit tests without integration callers"
+        )
+    )]
     Seeded(Box<AmbientAgentTask>),
     /// A child created in this process, already backed by a local
     /// conversation that its executor hydrates.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Child registration compatibility is tested without integration callers"
+        )
+    )]
     Registered,
 }
 
@@ -78,6 +92,13 @@ pub struct TrackedChild {
     /// `true` for every placeholder the tracker materializes on behalf of a
     /// run hosted elsewhere. `false` only for in-band children, which already
     /// own a real local conversation and are tracked for status only.
+    #[cfg_attr(
+        all(not(test), feature = "integration_tests"),
+        allow(
+            dead_code,
+            reason = "Remote placeholder state is asserted by unit tests without integration readers"
+        )
+    )]
     pub is_remote_child: bool,
     /// The most recent SSE lifecycle event type received for this child, if
     /// any. Used by the placeholder-completion callback to backfill status
