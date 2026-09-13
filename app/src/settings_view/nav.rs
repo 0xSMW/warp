@@ -30,6 +30,13 @@ pub struct SettingsUmbrella {
     pub subpages: Vec<SettingsSection>,
     pub expanded: bool,
     /// Saved expanded state from before search began, restored when search is cleared.
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Legacy cloud scaffolding remains compiled for tests but is not registered in Warp Local"
+        )
+    )]
     pub pre_search_expanded: Option<bool>,
     pub button_state_handle: MouseStateHandle,
     pub subpage_button_states: Vec<MouseStateHandle>,
