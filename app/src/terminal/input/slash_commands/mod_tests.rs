@@ -28,7 +28,7 @@ fn slash_command_is_submitted_as_prompt_only_for_prompt_commands() {
         &commands::REWIND,
         &commands::CONVERSATIONS,
         &*commands::QUEUE,
-        &commands::MCP,
+        &commands::EXIT,
     ] {
         assert!(!slash_command_is_submitted_as_prompt(command));
     }
@@ -81,7 +81,7 @@ fn tui_commands_have_typed_identities_and_explicit_surface_support() {
         (&*commands::EXPORT_TO_FILE, SlashCommandKind::ExportToFile),
         (&*commands::MOVE_TO_CLOUD, SlashCommandKind::MoveToCloud),
         (&commands::AUTO_APPROVE, SlashCommandKind::AutoApprove),
-        (&commands::MCP, SlashCommandKind::Mcp),
+        (&commands::STATUS, SlashCommandKind::Status),
         (&commands::EXIT, SlashCommandKind::Exit),
         (&commands::LOGOUT, SlashCommandKind::Logout),
         (&commands::VIEW_LOGS, SlashCommandKind::ViewLogs),
@@ -107,6 +107,19 @@ fn model_command_is_supported_in_tui_without_becoming_a_prompt_command() {
     assert_eq!(commands::MODEL.kind, SlashCommandKind::Model);
     assert!(!slash_command_is_submitted_as_prompt(&commands::MODEL));
     assert!(commands::MODEL.argument.is_none());
+}
+
+#[test]
+fn mcp_command_is_not_registered() {
+    assert_eq!(
+        commands::COMMAND_REGISTRY.get_command_with_name("/mcp"),
+        None
+    );
+    assert!(
+        commands::COMMAND_REGISTRY
+            .all_commands()
+            .all(|command| command.kind != SlashCommandKind::Mcp)
+    );
 }
 
 #[test]
