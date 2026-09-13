@@ -61,4 +61,13 @@ plutil -insert CFBundleIconName -string "AppIcon" "$APP_BUNDLE_PATH/Contents/Inf
 # Get the app name from the bundle
 APP_NAME=$(basename "$APP_BUNDLE_PATH" .app)
 
+if [[ "$CHANNEL" = "local" ]]; then
+    cp "$REPO_ROOT/design/icon/powered-off/warp-terminal-off.icns" \
+        "$APP_BUNDLE_PATH/Contents/Resources/WarpCRTOff.icns"
+    plutil -replace CFBundleIconFile -string "WarpCRTOff" "$APP_BUNDLE_PATH/Contents/Info.plist"
+    if plutil -extract CFBundleIconName raw "$APP_BUNDLE_PATH/Contents/Info.plist" >/dev/null 2>&1; then
+        plutil -remove CFBundleIconName "$APP_BUNDLE_PATH/Contents/Info.plist"
+    fi
+fi
+
 echo "Icon compiled successfully."
