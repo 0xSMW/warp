@@ -105,6 +105,13 @@ pub struct PreparedRemoteChildLaunch {
     #[cfg(any(test, feature = "tui"))]
     pub display_name: String,
     #[cfg(any(test, feature = "tui"))]
+    #[cfg_attr(
+        test,
+        allow(
+            dead_code,
+            reason = "Retained remote child launch metadata is not consumed by local-only GUI tests"
+        )
+    )]
     pub orchestration_harness: Harness,
     pub spawn_request: SpawnAgentRequest,
 }
@@ -138,6 +145,13 @@ pub enum CloudAgentStartupBlocker {
 }
 
 #[cfg(any(test, feature = "tui"))]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained presentation helpers for disabled remote child startup UI"
+    )
+)]
 impl CloudAgentStartupBlocker {
     pub fn message(&self) -> &str {
         match self {
@@ -167,6 +181,13 @@ pub enum CloudAgentStartupFailure {
 }
 
 #[cfg(any(test, feature = "tui"))]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Retained presentation helpers for disabled remote child startup UI"
+    )
+)]
 impl CloudAgentStartupFailure {
     pub fn message(&self) -> &str {
         match self {
