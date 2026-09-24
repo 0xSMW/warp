@@ -35,7 +35,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleDevelopmentRegion</key>
     <string>English</string>
     <key>CFBundleDisplayName</key>
-    <string>WarpLocal</string>
+    <string>Warp (Local)</string>
     <key>CFBundleExecutable</key>
     <string>warp</string>
     <key>CFBundleIdentifier</key>
@@ -43,7 +43,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>WarpLocal</string>
+    <string>Warp (Local)</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
@@ -61,7 +61,7 @@ embed_plist::embed_info_plist_bytes!(r#"
     <key>CFBundleURLTypes</key>
     <array><dict><key>CFBundleURLName</key><string>Custom App</string><key>CFBundleURLSchemes</key><array><string>warplocal</string></array></dict></array>
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026, Denver Technologies, Inc</string>
+    <string>© 2026, smw.ai</string>
     </dict>
     </plist>
 "#.as_bytes());

@@ -390,7 +390,7 @@ fi
 if [[ $RELEASE_CHANNEL = "local" ]]; then
     WARP_BIN="warp"
     BUNDLE_ID="dev.warp.Warp-Local"
-    WARP_APP_NAME="WarpLocal"
+    WARP_APP_NAME="Warp (Local)"
     WARP_SCHEME_NAME="warplocal"
     FEATURES="$FEATURES,agent_mode_debug"
     # For local builds, use different versions of our bundled frameworks (e.g.:
@@ -624,18 +624,18 @@ if [[ "$ARTIFACT" == "app" ]]; then
           <string>public.plain-text</string>
         </array>
       </dict>
-    </array>" "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
+    </array>" "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Info.plist"
   fi
 
   # Temporary key that ChatGPT Desktop can use to determine if the latest version of Warp supports the ChatGPT integration.
   # Once support has been rolled out for a sufficient amount of time we (and ChatGPT) can remove this.
-  plutil -insert SUPPORTS_CHAT_GPT_WORK_WITH_APPS -bool true "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
+  plutil -insert SUPPORTS_CHAT_GPT_WORK_WITH_APPS -bool true "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Info.plist"
 
   # Add LSBackgroundOnly key and set it to false since we need a UI app
-  plutil -insert LSBackgroundOnly -bool false "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
+  plutil -insert LSBackgroundOnly -bool false "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Info.plist"
 
   # Add SMAuthorizedClients for macOS 13+ (Ventura) to support login item functionality
-  plutil -insert SMAuthorizedClients -xml "<array><string>$BUNDLE_ID</string></array>" "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
+  plutil -insert SMAuthorizedClients -xml "<array><string>$BUNDLE_ID</string></array>" "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Info.plist"
 
   if [[ $UNIVERSAL_BINARY = true ]]; then
       if [[ $BUILD_BINARY = true ]]; then
@@ -691,8 +691,8 @@ if [[ "$ARTIFACT" == "app" ]]; then
   cp -R "$DOCK_TILE_PLUGIN_DIR" "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/PlugIns/"
 
   echo "Updating plist with dock tile plugin entries"
-  plutil -insert NSDockTilePlugIn -string "WarpDockTilePlugin.docktileplugin" "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/Info.plist
-  plutil -insert MainAppBundleIdentifier -string "$BUNDLE_ID" "$BUNDLE_DIR"/$WARP_APP_NAME.app/Contents/PlugIns/WarpDockTilePlugin.docktileplugin/Contents/Info.plist
+  plutil -insert NSDockTilePlugIn -string "WarpDockTilePlugin.docktileplugin" "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Info.plist"
+  plutil -insert MainAppBundleIdentifier -string "$BUNDLE_ID" "$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/PlugIns/WarpDockTilePlugin.docktileplugin/Contents/Info.plist"
 
   BUNDLED_RESOURCES_DIR="$BUNDLE_DIR/$WARP_APP_NAME.app/Contents/Resources"
   echo "Preparing bundled resources..."

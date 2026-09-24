@@ -28,13 +28,13 @@ notarize() {
 cargo build --release --locked --bin warp --features gui,extern_plist,release_bundle
 (cd app && CARGO_BUNDLE_SKIP_BUILD=1 cargo bundle --release --format osx --bin warp --features gui,extern_plist,release_bundle)
 APP="$DIST/stage/Warp.app"
-ditto "$TARGET_DIR/release/bundle/osx/WarpLocal.app" "$APP"
+ditto "$TARGET_DIR/release/bundle/osx/Warp (Local).app" "$APP"
 [[ "$(plutil -extract CFBundleIdentifier raw "$APP/Contents/Info.plist")" == dev.warp.Warp-Local ]]
 export WARP_PLIST_PATH="$APP/Contents/Info.plist"
 export WARP_SCHEME_NAME=warplocal
 ./script/update_plist
-plutil -replace CFBundleName -string Warp "$WARP_PLIST_PATH"
-plutil -replace CFBundleDisplayName -string Warp "$WARP_PLIST_PATH"
+plutil -replace CFBundleName -string "Warp (Local)" "$WARP_PLIST_PATH"
+plutil -replace CFBundleDisplayName -string "Warp (Local)" "$WARP_PLIST_PATH"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$WARP_PLIST_PATH"
 plutil -replace CFBundleVersion -string "$VERSION" "$WARP_PLIST_PATH"
 plutil -insert SourceRevision -string "$(git rev-parse HEAD)" "$WARP_PLIST_PATH"
@@ -54,7 +54,7 @@ xcrun stapler validate "$APP"
 spctl --assess --type execute --verbose=2 "$APP"
 ln -s /Applications "$DIST/stage/Applications"
 DMG="$DIST/Warp-Local-$VERSION-$(uname -m).dmg"
-hdiutil create -volname 'Warp Local' -srcfolder "$DIST/stage" -format UDZO "$DMG"
+hdiutil create -volname 'Warp (Local)' -srcfolder "$DIST/stage" -format UDZO "$DMG"
 codesign --timestamp --sign "$IDENTITY" "$DMG"
 notarize "$DMG" "$DIST/dmg-notarization.json"
 xcrun stapler staple "$DMG"
